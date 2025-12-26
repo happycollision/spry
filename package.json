@@ -11,7 +11,9 @@
     "build": "bun build src/cli/index.ts --compile --outfile dist/taspr",
     "test": "bun test",
     "lint": "oxlint",
-    "format": "oxfmt"
+    "types": "tsc --noEmit",
+    "format": "oxfmt",
+    "check": "bun run types && bun run lint && bun run format --check"
   },
   "dependencies": {
     "commander": "^12.1.0"
