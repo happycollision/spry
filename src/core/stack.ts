@@ -1,4 +1,4 @@
-import type { CommitInfo, PRUnit } from "../types.ts";
+import type { CommitInfo, PRUnit, StackParseResult, GroupInfo } from "../types.ts";
 import type { CommitTrailers } from "../git/trailers.ts";
 
 /**
@@ -63,4 +63,66 @@ export function detectPRUnits(commits: CommitWithTrailers[]): PRUnit[] {
   }
 
   return units;
+}
+
+/**
+ * Parse stack with validation for group integrity.
+ * Returns a result type that includes validation errors for:
+ * - Unclosed groups (Start without End)
+ * - Overlapping groups (Start inside another group)
+ */
+export function parseStack(commits: CommitWithTrailers[]): StackParseResult {
+  let activeGroup: { id: string; title: string; startCommit: string } | null = null;
+
+  for (const commit of commits) {
+    const startId = commit.trailers["Taspr-Group-Start"];
+    const endId = commit.trailers["Taspr-Group-End"];
+
+    // Check for overlapping groups
+    if (startId && activeGroup && startId !== activeGroup.id) {
+      const group1: GroupInfo = {
+        id: activeGroup.id,
+        title: activeGroup.title,
+        startCommit: activeGroup.startCommit,
+      };
+      const group2: GroupInfo = {
+        id: startId,
+        title: commit.trailers["Taspr-Group-Title"] || commit.subject,
+        startCommit: commit.hash,
+      };
+      return {
+        ok: false,
+        error: "overlapping-groups",
+        group1,
+        group2,
+        overlappingCommit: commit.hash,
+      };
+    }
+
+    if (startId && !activeGroup) {
+      activeGroup = {
+        id: startId,
+        title: commit.trailers["Taspr-Group-Title"] || commit.subject,
+        startCommit: commit.hash,
+      };
+    }
+
+    if (endId && activeGroup && endId === activeGroup.id) {
+      activeGroup = null;
+    }
+  }
+
+  // Check for unclosed group
+  if (activeGroup) {
+    return {
+      ok: false,
+      error: "unclosed-group",
+      groupId: activeGroup.id,
+      startCommit: activeGroup.startCommit,
+      groupTitle: activeGroup.title,
+    };
+  }
+
+  // Validation passed, return PRUnits
+  return { ok: true, units: detectPRUnits(commits) };
 }

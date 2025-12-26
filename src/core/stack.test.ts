@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { detectPRUnits, type CommitWithTrailers } from "./stack.ts";
+import { detectPRUnits, parseStack, type CommitWithTrailers } from "./stack.ts";
 
 function makeCommit(
   hash: string,
@@ -220,6 +220,160 @@ describe("core/stack", () => {
       expect(units[0]?.type).toBe("group");
       expect(units[0]?.id).toBe("g1");
       expect(units[0]?.commits).toEqual(["aaa111"]);
+    });
+  });
+
+  describe("parseStack", () => {
+    test("returns success with PRUnits for valid stack without groups", () => {
+      const commits = [
+        makeCommit("aaa111", "First", { "Taspr-Commit-Id": "a1" }),
+        makeCommit("bbb222", "Second", { "Taspr-Commit-Id": "b2" }),
+      ];
+
+      const result = parseStack(commits);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.units).toHaveLength(2);
+      }
+    });
+
+    test("returns success with PRUnits for valid stack with groups", () => {
+      const commits = [
+        makeCommit("aaa111", "Start group", {
+          "Taspr-Commit-Id": "a1",
+          "Taspr-Group-Start": "g1",
+          "Taspr-Group-Title": "My Group",
+        }),
+        makeCommit("bbb222", "End group", {
+          "Taspr-Commit-Id": "b2",
+          "Taspr-Group-End": "g1",
+        }),
+      ];
+
+      const result = parseStack(commits);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.units).toHaveLength(1);
+        expect(result.units[0]?.type).toBe("group");
+      }
+    });
+
+    test("returns success for multiple non-overlapping groups", () => {
+      const commits = [
+        makeCommit("aaa111", "Group 1 start", {
+          "Taspr-Commit-Id": "a1",
+          "Taspr-Group-Start": "g1",
+          "Taspr-Group-Title": "Group One",
+        }),
+        makeCommit("bbb222", "Group 1 end", {
+          "Taspr-Commit-Id": "b2",
+          "Taspr-Group-End": "g1",
+        }),
+        makeCommit("ccc333", "Group 2 start", {
+          "Taspr-Commit-Id": "c3",
+          "Taspr-Group-Start": "g2",
+          "Taspr-Group-Title": "Group Two",
+        }),
+        makeCommit("ddd444", "Group 2 end", {
+          "Taspr-Commit-Id": "d4",
+          "Taspr-Group-End": "g2",
+        }),
+      ];
+
+      const result = parseStack(commits);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.units).toHaveLength(2);
+      }
+    });
+
+    test("returns unclosed-group error when group has no end", () => {
+      const commits = [
+        makeCommit("aaa111", "Start group", {
+          "Taspr-Commit-Id": "a1",
+          "Taspr-Group-Start": "g1",
+          "Taspr-Group-Title": "Unclosed Group",
+        }),
+        makeCommit("bbb222", "More work", { "Taspr-Commit-Id": "b2" }),
+        // No Group-End
+      ];
+
+      const result = parseStack(commits);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok && result.error === "unclosed-group") {
+        expect(result.groupId).toBe("g1");
+        expect(result.startCommit).toBe("aaa111");
+        expect(result.groupTitle).toBe("Unclosed Group");
+      }
+    });
+
+    test("returns overlapping-groups error when group starts inside another", () => {
+      const commits = [
+        makeCommit("aaa111", "Group 1 start", {
+          "Taspr-Commit-Id": "a1",
+          "Taspr-Group-Start": "g1",
+          "Taspr-Group-Title": "Outer Group",
+        }),
+        makeCommit("bbb222", "Group 2 start (overlap!)", {
+          "Taspr-Commit-Id": "b2",
+          "Taspr-Group-Start": "g2",
+          "Taspr-Group-Title": "Inner Group",
+        }),
+        makeCommit("ccc333", "Group 2 end", {
+          "Taspr-Commit-Id": "c3",
+          "Taspr-Group-End": "g2",
+        }),
+        makeCommit("ddd444", "Group 1 end", {
+          "Taspr-Commit-Id": "d4",
+          "Taspr-Group-End": "g1",
+        }),
+      ];
+
+      const result = parseStack(commits);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok && result.error === "overlapping-groups") {
+        expect(result.group1.id).toBe("g1");
+        expect(result.group1.title).toBe("Outer Group");
+        expect(result.group1.startCommit).toBe("aaa111");
+        expect(result.group2.id).toBe("g2");
+        expect(result.group2.title).toBe("Inner Group");
+        expect(result.group2.startCommit).toBe("bbb222");
+        expect(result.overlappingCommit).toBe("bbb222");
+      }
+    });
+
+    test("returns success for empty commits", () => {
+      const result = parseStack([]);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.units).toEqual([]);
+      }
+    });
+
+    test("ignores Group-End without matching Group-Start", () => {
+      const commits = [
+        makeCommit("aaa111", "Orphan end", {
+          "Taspr-Commit-Id": "a1",
+          "Taspr-Group-End": "g1", // No matching start
+        }),
+        makeCommit("bbb222", "Normal commit", { "Taspr-Commit-Id": "b2" }),
+      ];
+
+      const result = parseStack(commits);
+
+      // Should succeed - orphan end is just ignored
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.units).toHaveLength(2);
+        expect(result.units[0]?.type).toBe("single");
+        expect(result.units[1]?.type).toBe("single");
+      }
     });
   });
 });
