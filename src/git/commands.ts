@@ -1,5 +1,7 @@
 import { $ } from "bun";
 import type { CommitInfo } from "../types.ts";
+import { parseTrailers } from "./trailers.ts";
+import type { CommitWithTrailers } from "../core/stack.ts";
 
 export interface GitOptions {
   cwd?: string;
@@ -89,4 +91,26 @@ export async function getCurrentBranch(options: GitOptions = {}): Promise<string
     ? await $`git -C ${cwd} rev-parse --abbrev-ref HEAD`.text()
     : await $`git rev-parse --abbrev-ref HEAD`.text();
   return result.trim();
+}
+
+/**
+ * Get all commits in the stack with their trailers parsed.
+ * Returns commits in oldest-to-newest order (bottom of stack first).
+ */
+export async function getStackCommitsWithTrailers(
+  options: GitOptions = {}
+): Promise<CommitWithTrailers[]> {
+  const commits = await getStackCommits(options);
+
+  const commitsWithTrailers: CommitWithTrailers[] = await Promise.all(
+    commits.map(async (commit) => {
+      const trailers = await parseTrailers(commit.body);
+      return {
+        ...commit,
+        trailers,
+      };
+    })
+  );
+
+  return commitsWithTrailers;
 }
