@@ -14,8 +14,12 @@ afterEach(async () => {
 });
 
 // Helper to run taspr sync in the fixture directory
-async function runSync(cwd: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const result = await $`bun run ${join(import.meta.dir, "../index.ts")} sync`
+async function runSync(
+  cwd: string,
+  options: { open?: boolean } = {},
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const args = options.open ? ["sync", "--open"] : ["sync"];
+  const result = await $`bun run ${join(import.meta.dir, "../index.ts")} ${args}`
     .cwd(cwd)
     .nothrow()
     .quiet();
@@ -99,4 +103,7 @@ describe("cli/commands/sync", () => {
     expect(result.stderr).toContain("Cannot sync with uncommitted changes");
     expect(result.stderr).toContain("unstaged changes");
   });
+
+  // TODO: Add tests for --open flag once VCR-style testing is implemented
+  // See: taspr-xtq (VCR-style testing for GitHub API calls)
 });
