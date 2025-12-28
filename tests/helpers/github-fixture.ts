@@ -183,15 +183,19 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     // Close PRs first (this also deletes their source branches)
     try {
       report.prsClosed = await closeAllPRs();
-    } catch (err) {
-      report.errors.push(`Failed to close PRs: ${err}`);
+    } catch (err: unknown) {
+      report.errors.push(
+        `Failed to close PRs: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     // Delete any remaining branches
     try {
       report.branchesDeleted = await deleteAllBranches();
-    } catch (err) {
-      report.errors.push(`Failed to delete branches: ${err}`);
+    } catch (err: unknown) {
+      report.errors.push(
+        `Failed to delete branches: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     return report;
@@ -219,8 +223,9 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
       restrictions: null,
     };
 
+    const jsonInput = JSON.stringify(protection);
     const result =
-      await $`gh api --method PUT repos/${owner}/${repo}/branches/${branch}/protection --input - <<< ${JSON.stringify(protection)}`.nothrow();
+      await $`echo ${jsonInput} | gh api --method PUT repos/${owner}/${repo}/branches/${branch}/protection --input -`.nothrow();
 
     if (result.exitCode !== 0) {
       throw new Error(

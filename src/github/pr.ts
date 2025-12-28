@@ -57,20 +57,25 @@ export async function createPR(options: CreatePROptions): Promise<{ number: numb
     options.base,
   ];
 
+  // Use --body="" syntax for empty body to avoid shell parsing issues
   if (options.body) {
     args.push("--body", options.body);
   } else {
-    args.push("--body", "");
+    args.push("--body=");
   }
 
-  // Add --json to get structured output
-  args.push("--json", "number,url");
-
   const result = await $`${args}`;
-  const output = JSON.parse(result.stdout.toString());
+  // gh pr create outputs the PR URL on success
+  const url = result.stdout.toString().trim();
+
+  // Extract PR number from URL (e.g., https://github.com/owner/repo/pull/123)
+  const match = url.match(/\/pull\/(\d+)$/);
+  if (!match) {
+    throw new Error(`Failed to parse PR URL: ${url}`);
+  }
 
   return {
-    number: output.number,
-    url: output.url,
+    number: parseInt(match[1], 10),
+    url,
   };
 }
