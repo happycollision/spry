@@ -104,6 +104,46 @@ describe("cli/commands/sync", () => {
     expect(result.stderr).toContain("unstaged changes");
   });
 
+  test("output is clean with no extraneous noise", async () => {
+    fixture = await createGitFixture();
+    await fixture.checkout("feature-clean-output", { create: true });
+
+    await fixture.commit("Test commit for clean output");
+
+    const result = await runSync(fixture.path);
+
+    expect(result.exitCode).toBe(0);
+
+    // Split output into lines for easier assertion
+    const lines = result.stdout.split("\n").filter((line) => line.trim() !== "");
+
+    // Should have exactly these lines (in order):
+    // 1. "Adding IDs to 1 commit(s)..."
+    // 2. "✓ Added Taspr-Commit-Id to 1 commit(s)"
+    // 3. "" (blank line before pushing)
+    // 4. "Pushing 1 branch(es)..."
+    // 5. "" (blank line)
+    // 6. "✓ 1 branch(es) pushed without PR (use --open to create)"
+    expect(lines).toEqual([
+      "Adding IDs to 1 commit(s)...",
+      "✓ Added Taspr-Commit-Id to 1 commit(s)",
+      "Pushing 1 branch(es)...",
+      "✓ 1 branch(es) pushed without PR (use --open to create)",
+    ]);
+
+    // Should NOT contain any of these noise patterns
+    expect(result.stdout).not.toContain("Executing:");
+    expect(result.stdout).not.toContain("lint-staged");
+    expect(result.stdout).not.toContain("remote:");
+    expect(result.stdout).not.toContain("HEAD branch:");
+    expect(result.stdout).not.toContain("Fetch URL:");
+    expect(result.stdout).not.toContain("detached HEAD");
+    expect(result.stdout).not.toContain("Successfully rebased");
+
+    // stderr should be empty
+    expect(result.stderr).toBe("");
+  });
+
   // TODO: Add tests for --open flag once VCR-style testing is implemented
   // See: taspr-xtq (VCR-style testing for GitHub API calls)
 });

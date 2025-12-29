@@ -65,8 +65,12 @@ export async function injectMissingIds(options: GitOptions = {}): Promise<Inject
     // Run rebase with --exec
     // GIT_SEQUENCE_EDITOR=true prevents the editor from opening
     const result = cwd
-      ? await $`GIT_SEQUENCE_EDITOR=true git -C ${cwd} rebase -i --exec ${scriptPath} ${mergeBase}`.nothrow()
-      : await $`GIT_SEQUENCE_EDITOR=true git rebase -i --exec ${scriptPath} ${mergeBase}`.nothrow();
+      ? await $`GIT_SEQUENCE_EDITOR=true git -C ${cwd} rebase -i --exec ${scriptPath} ${mergeBase}`
+          .quiet()
+          .nothrow()
+      : await $`GIT_SEQUENCE_EDITOR=true git rebase -i --exec ${scriptPath} ${mergeBase}`
+          .quiet()
+          .nothrow();
 
     if (result.exitCode !== 0) {
       throw new Error(`Rebase failed: ${result.stderr.toString()}`);

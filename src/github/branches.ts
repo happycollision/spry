@@ -54,5 +54,5 @@ export async function pushBranch(
   const cwdArgs = cwd ? ["-C", cwd] : [];
   const forceArgs = force ? ["--force"] : [];
 
-  await $`git ${cwdArgs} push ${forceArgs} origin ${commitHash}:refs/heads/${branchName}`;
+  await $`git ${cwdArgs} push ${forceArgs} origin ${commitHash}:refs/heads/${branchName}`.quiet();
 }

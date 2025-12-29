@@ -73,7 +73,7 @@ export async function getDefaultBranch(): Promise<string> {
   }
 
   // Fall back to origin's default
-  const remoteResult = await $`git remote show origin`.nothrow();
+  const remoteResult = await $`git remote show origin`.quiet().nothrow();
   if (remoteResult.exitCode === 0) {
     const remote = remoteResult.stdout.toString();
     const match = remote.match(/HEAD branch: (\S+)/);
