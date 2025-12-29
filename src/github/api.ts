@@ -25,7 +25,7 @@ export class ConfigurationError extends Error {
  * Check if the gh CLI is installed.
  */
 export async function ensureGhInstalled(): Promise<void> {
-  const result = await $`which gh`.nothrow();
+  const result = await $`which gh`.quiet().nothrow();
   if (result.exitCode !== 0) {
     throw new DependencyError(
       "gh CLI not found. Please install it:\n" +
@@ -43,7 +43,7 @@ export async function ensureGhInstalled(): Promise<void> {
 export async function getGitHubUsername(): Promise<string> {
   await ensureGhInstalled();
 
-  const result = await $`gh api user --jq .login`.nothrow();
+  const result = await $`gh api user --jq .login`.quiet().nothrow();
 
   if (result.exitCode !== 0) {
     throw new GitHubAuthError(

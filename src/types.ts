@@ -13,6 +13,14 @@ export interface PRUnit {
   commits: string[];
 }
 
+export interface EnrichedPRUnit extends PRUnit {
+  pr?: {
+    number: number;
+    url: string;
+    state: "OPEN" | "CLOSED" | "MERGED";
+  };
+}
+
 export interface GroupInfo {
   id: string;
   title: string;

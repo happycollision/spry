@@ -1,11 +1,36 @@
-import type { PRUnit, StackParseResult } from "../types.ts";
+import type { PRUnit, EnrichedPRUnit, StackParseResult } from "../types.ts";
 
 const SEPARATOR = "─".repeat(72);
 
 /**
+ * Get status icon based on PR state.
+ * - ✓ Merged
+ * - ◐ Open
+ * - ○ No PR yet
+ * - ✗ Closed (not merged)
+ */
+function getPRStatusIcon(pr?: EnrichedPRUnit["pr"]): string {
+  if (!pr) return "○";
+  switch (pr.state) {
+    case "OPEN":
+      return "◐";
+    case "MERGED":
+      return "✓";
+    case "CLOSED":
+      return "✗";
+    default:
+      return "○";
+  }
+}
+
+/**
  * Format the stack view for terminal output.
  */
-export function formatStackView(units: PRUnit[], branchName: string, commitCount: number): string {
+export function formatStackView(
+  units: EnrichedPRUnit[],
+  branchName: string,
+  commitCount: number,
+): string {
   if (units.length === 0) {
     return "No commits ahead of origin/main";
   }
@@ -34,19 +59,19 @@ export function formatStackView(units: PRUnit[], branchName: string, commitCount
 /**
  * Format a single PRUnit for display.
  */
-function formatPRUnit(unit: PRUnit): string {
+function formatPRUnit(unit: EnrichedPRUnit): string {
   const lines: string[] = [];
 
-  // Status indicator (○ for local-only, will add ✓ ◐ etc. later)
-  const status = "○";
+  const status = getPRStatusIcon(unit.pr);
+  const prNum = unit.pr ? `#${unit.pr.number} ` : "";
 
   if (unit.type === "single") {
     // Single commit
-    lines.push(`  ${status} ${unit.title}`);
+    lines.push(`  ${status} ${prNum}${unit.title}`);
     lines.push(`    └─ ${unit.id}`);
   } else {
     // Group
-    lines.push(`  ${status} ${unit.title} [${unit.id}]`);
+    lines.push(`  ${status} ${prNum}${unit.title} [${unit.id}]`);
 
     // List commits with tree structure
     for (let i = 0; i < unit.commitIds.length; i++) {
@@ -55,6 +80,11 @@ function formatPRUnit(unit: PRUnit): string {
       const commitId = unit.commitIds[i] || unit.commits[i]?.slice(0, 8) || "unknown";
       lines.push(`    ${prefix} ${commitId}`);
     }
+  }
+
+  // PR URL
+  if (unit.pr) {
+    lines.push(`    ${unit.pr.url}`);
   }
 
   return lines.join("\n");

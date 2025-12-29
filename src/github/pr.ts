@@ -22,7 +22,9 @@ export interface CreatePROptions {
 export async function findPRByBranch(branchName: string): Promise<PRInfo | null> {
   await ensureGhInstalled();
 
-  const result = await $`gh pr list --head ${branchName} --json number,url,state,title`.nothrow();
+  const result = await $`gh pr list --head ${branchName} --json number,url,state,title`
+    .quiet()
+    .nothrow();
 
   if (result.exitCode !== 0) {
     return null;
@@ -70,7 +72,7 @@ export async function createPR(options: CreatePROptions): Promise<{ number: numb
 
   // Extract PR number from URL (e.g., https://github.com/owner/repo/pull/123)
   const match = url.match(/\/pull\/(\d+)$/);
-  if (!match) {
+  if (!match?.[1]) {
     throw new Error(`Failed to parse PR URL: ${url}`);
   }
 
