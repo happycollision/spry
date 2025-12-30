@@ -11,6 +11,7 @@ import {
 import { getBranchNameConfig, getBranchName, pushBranch } from "../../github/branches.ts";
 import { findPRByBranch, createPR, type PRInfo } from "../../github/pr.ts";
 import { asserted } from "../../utils/assert.ts";
+import { getAllSyncStatuses, getSyncSummary, hasChanges } from "../../git/remote.ts";
 
 export interface SyncOptions {
   open?: boolean;
@@ -60,36 +61,51 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
     const branchConfig = await getBranchNameConfig();
     const defaultBranch = await getDefaultBranch();
 
+    // Check what needs syncing
+    const syncStatuses = await getAllSyncStatuses(units, branchConfig);
+    const summary = getSyncSummary(syncStatuses);
+
+    if (!hasChanges(syncStatuses)) {
+      console.log("✓ All branches up to date");
+      return;
+    }
+
     // Push branches and track PR status
     let baseBranch = defaultBranch;
     const created: PRInfo[] = [];
     const updated: PRInfo[] = [];
     const skippedNoPR: string[] = [];
 
-    console.log(`\nPushing ${units.length} branch(es)...`);
+    const totalToPush = summary.toCreate + summary.toUpdate;
+    console.log(`\nPushing ${totalToPush} branch(es)...`);
 
     for (const unit of units) {
       const headBranch = getBranchName(unit.id, branchConfig);
       const headCommit = asserted(unit.commits.at(-1));
+      const status = asserted(syncStatuses.get(unit.id));
 
-      // Push branch (force in case of rebase)
-      await pushBranch(headCommit, headBranch, true);
+      // Only push if needed
+      if (status.needsCreate || status.needsUpdate) {
+        await pushBranch(headCommit, headBranch, status.needsUpdate);
+      }
 
       // Check for existing PR
       const existingPR = await findPRByBranch(headBranch);
 
       if (existingPR) {
-        // Existing PR was updated by the push
-        updated.push(existingPR);
-      } else if (options.open) {
-        // Create new PR (only if --open is specified)
+        if (status.needsUpdate) {
+          // Existing PR was updated by the push
+          updated.push(existingPR);
+        }
+      } else if (options.open && status.needsCreate) {
+        // Create new PR (only if --open is specified and branch was just created)
         const pr = await createPR({
           title: unit.title,
           head: headBranch,
           base: baseBranch,
         });
         created.push({ ...pr, state: "OPEN", title: unit.title });
-      } else {
+      } else if (status.needsCreate) {
         // No PR and --open not specified
         skippedNoPR.push(unit.title);
       }
@@ -109,11 +125,15 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
     }
 
     if (updated.length > 0) {
-      console.log(`✓ Updated ${updated.length} existing PR(s)`);
+      console.log(`✓ Updated ${updated.length} PR(s)`);
     }
 
     if (skippedNoPR.length > 0) {
       console.log(`✓ ${skippedNoPR.length} branch(es) pushed without PR (use --open to create)`);
+    }
+
+    if (summary.upToDate > 0) {
+      console.log(`✓ ${summary.upToDate} branch(es) already up to date`);
     }
   } catch (error) {
     if (error instanceof DirtyWorkingTreeError) {
