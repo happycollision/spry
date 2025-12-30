@@ -45,7 +45,7 @@ export async function viewCommand(): Promise<void> {
 
     const enrichedUnits = await enrichUnitsWithPRInfo(result.units);
     const commitCount = commits.length;
-    console.log(formatStackView(enrichedUnits, branchName, commitCount));
+    console.log(await formatStackView(enrichedUnits, branchName, commitCount));
   } catch (error) {
     if (error instanceof Error) {
       console.error(`✗ Error: ${error.message}`);

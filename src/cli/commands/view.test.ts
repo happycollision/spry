@@ -4,7 +4,7 @@ import type { EnrichedPRUnit } from "../../types.ts";
 
 describe("cli/commands/view", () => {
   describe("formatStackView", () => {
-    test("shows Stack header first, then origin/main indicator", () => {
+    test("shows Stack header first, then origin/main indicator", async () => {
       const units: EnrichedPRUnit[] = [
         {
           type: "single",
@@ -15,14 +15,14 @@ describe("cli/commands/view", () => {
         },
       ];
 
-      const output = formatStackView(units, "main", 1);
+      const output = await formatStackView(units, "main", 1);
       const lines = output.split("\n");
 
       expect(lines[0]).toContain("Stack: main");
       expect(lines[2]).toBe("  → origin/main");
     });
 
-    test("shows 'PRs: 0/N opened' when no PRs are open", () => {
+    test("shows 'PRs: 0/N opened' when no PRs are open", async () => {
       const units: EnrichedPRUnit[] = [
         {
           type: "single",
@@ -40,12 +40,12 @@ describe("cli/commands/view", () => {
         },
       ];
 
-      const output = formatStackView(units, "feature-branch", 2);
+      const output = await formatStackView(units, "feature-branch", 2);
 
       expect(output).toContain("PRs: 0/2 opened");
     });
 
-    test("shows 'PRs: 1/2 opened' when one PR is open", () => {
+    test("shows 'PRs: 1/2 opened' when one PR is open", async () => {
       const units: EnrichedPRUnit[] = [
         {
           type: "single",
@@ -64,12 +64,12 @@ describe("cli/commands/view", () => {
         },
       ];
 
-      const output = formatStackView(units, "feature-branch", 2);
+      const output = await formatStackView(units, "feature-branch", 2);
 
       expect(output).toContain("PRs: 1/2 opened");
     });
 
-    test("shows 'PRs: 2/2 opened' when all PRs are open", () => {
+    test("shows 'PRs: 2/2 opened' when all PRs are open", async () => {
       const units: EnrichedPRUnit[] = [
         {
           type: "single",
@@ -89,12 +89,12 @@ describe("cli/commands/view", () => {
         },
       ];
 
-      const output = formatStackView(units, "feature-branch", 2);
+      const output = await formatStackView(units, "feature-branch", 2);
 
       expect(output).toContain("PRs: 2/2 opened");
     });
 
-    test("merged PRs do not count as opened", () => {
+    test("merged PRs do not count as opened", async () => {
       const units: EnrichedPRUnit[] = [
         {
           type: "single",
@@ -114,12 +114,12 @@ describe("cli/commands/view", () => {
         },
       ];
 
-      const output = formatStackView(units, "feature-branch", 2);
+      const output = await formatStackView(units, "feature-branch", 2);
 
       expect(output).toContain("PRs: 1/2 opened");
     });
 
-    test("shows '(no commit ID yet)' for single commit without ID", () => {
+    test("shows '(no commit ID yet)' for single commit without ID", async () => {
       const units: EnrichedPRUnit[] = [
         {
           type: "single",
@@ -130,13 +130,13 @@ describe("cli/commands/view", () => {
         },
       ];
 
-      const output = formatStackView(units, "main", 1);
+      const output = await formatStackView(units, "main", 1);
 
       expect(output).toContain("(no commit ID yet)");
       expect(output).not.toContain("abc12345");
     });
 
-    test("shows commit ID when present", () => {
+    test("shows commit ID when present", async () => {
       const units: EnrichedPRUnit[] = [
         {
           type: "single",
@@ -147,13 +147,13 @@ describe("cli/commands/view", () => {
         },
       ];
 
-      const output = formatStackView(units, "main", 1);
+      const output = await formatStackView(units, "main", 1);
 
       expect(output).toContain("abc12345");
       expect(output).not.toContain("(no commit ID yet)");
     });
 
-    test("shows '(no commit ID yet)' for group commits without IDs", () => {
+    test("shows '(no commit ID yet)' for group commits without IDs", async () => {
       const units: EnrichedPRUnit[] = [
         {
           type: "group",
@@ -164,14 +164,14 @@ describe("cli/commands/view", () => {
         },
       ];
 
-      const output = formatStackView(units, "main", 2);
+      const output = await formatStackView(units, "main", 2);
 
       // Should show (no commit ID yet) for the group header and each commit
       const matches = output.match(/\(no commit ID yet\)/g);
       expect(matches?.length).toBe(3); // Once for group, twice for commits
     });
 
-    test("shows mixed commit IDs in group", () => {
+    test("shows mixed commit IDs in group", async () => {
       const units: EnrichedPRUnit[] = [
         {
           type: "group",
@@ -182,13 +182,13 @@ describe("cli/commands/view", () => {
         },
       ];
 
-      const output = formatStackView(units, "main", 2);
+      const output = await formatStackView(units, "main", 2);
 
       expect(output).toContain("abc12345");
       expect(output).toContain("(no commit ID yet)");
     });
 
-    test("origin/main appears only once after header", () => {
+    test("origin/main appears only once after header", async () => {
       const units: EnrichedPRUnit[] = [
         {
           type: "single",
@@ -199,17 +199,17 @@ describe("cli/commands/view", () => {
         },
       ];
 
-      const output = formatStackView(units, "main", 1);
+      const output = await formatStackView(units, "main", 1);
       const lines = output.split("\n");
 
       // origin/main should only appear once, after the header
-      const originMainLines = lines.filter((l) => l.includes("origin/main"));
+      const originMainLines = lines.filter((l: string) => l.includes("origin/main"));
       expect(originMainLines.length).toBe(1);
       expect(lines[2]).toContain("origin/main");
     });
 
-    test("returns message when no commits", () => {
-      const output = formatStackView([], "main", 0);
+    test("returns message when no commits", async () => {
+      const output = await formatStackView([], "main", 0);
 
       expect(output).toBe("No commits ahead of origin/main");
     });

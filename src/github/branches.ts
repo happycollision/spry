@@ -1,31 +1,28 @@
 import { $ } from "bun";
 import { getGitHubUsername } from "./api.ts";
 import type { GitOptions } from "../git/commands.ts";
+import { getTasprConfig } from "../git/config.ts";
 
 export interface BranchNameConfig {
   prefix: string;
   username: string;
 }
 
-let cachedConfig: BranchNameConfig | null = null;
+let cachedBranchConfig: BranchNameConfig | null = null;
 
 /**
  * Get the configuration for branch naming.
  * Result is memoized for the lifetime of the process.
  */
 export async function getBranchNameConfig(): Promise<BranchNameConfig> {
-  if (cachedConfig) {
-    return cachedConfig;
+  if (cachedBranchConfig) {
+    return cachedBranchConfig;
   }
 
-  // Get prefix from git config (default: "taspr")
-  const prefixResult = await $`git config --get taspr.branchPrefix`.nothrow();
-  const prefix = prefixResult.exitCode === 0 ? prefixResult.stdout.toString().trim() : "taspr";
+  const [tasprConfig, username] = await Promise.all([getTasprConfig(), getGitHubUsername()]);
 
-  const username = await getGitHubUsername();
-
-  cachedConfig = { prefix, username };
-  return cachedConfig;
+  cachedBranchConfig = { prefix: tasprConfig.branchPrefix, username };
+  return cachedBranchConfig;
 }
 
 /**

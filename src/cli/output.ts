@@ -1,4 +1,5 @@
 import type { EnrichedPRUnit, StackParseResult } from "../types.ts";
+import { getTasprConfig } from "../git/config.ts";
 
 const SEPARATOR = "─".repeat(72);
 
@@ -26,13 +27,16 @@ function getPRStatusIcon(pr?: EnrichedPRUnit["pr"]): string {
 /**
  * Format the stack view for terminal output.
  */
-export function formatStackView(
+export async function formatStackView(
   units: EnrichedPRUnit[],
   branchName: string,
   commitCount: number,
-): string {
+): Promise<string> {
+  const config = await getTasprConfig();
+  const defaultBranchRef = `origin/${config.defaultBranch}`;
+
   if (units.length === 0) {
-    return "No commits ahead of origin/main";
+    return `No commits ahead of ${defaultBranchRef}`;
   }
 
   const lines: string[] = [];
@@ -47,7 +51,7 @@ export function formatStackView(
   lines.push("");
 
   // Origin/main indicator
-  lines.push("  → origin/main");
+  lines.push(`  → ${defaultBranchRef}`);
 
   // PRUnits
   for (const unit of units) {

@@ -2,33 +2,37 @@ import { $ } from "bun";
 import type { CommitInfo } from "../types.ts";
 import { parseTrailers } from "./trailers.ts";
 import type { CommitWithTrailers } from "../core/stack.ts";
+import { getDefaultBranchRef, getTasprConfig } from "./config.ts";
 
 export interface GitOptions {
   cwd?: string;
 }
 
 /**
- * Get the merge-base between HEAD and origin/main.
- * This is the commit where the current branch diverged from main.
+ * Get the merge-base between HEAD and the default branch.
+ * This is the commit where the current branch diverged from the default branch.
  */
 export async function getMergeBase(options: GitOptions = {}): Promise<string> {
   const { cwd } = options;
+  const defaultBranchRef = await getDefaultBranchRef();
+
   try {
     const result = cwd
-      ? await $`git -C ${cwd} merge-base HEAD origin/main`.text()
-      : await $`git merge-base HEAD origin/main`.text();
+      ? await $`git -C ${cwd} merge-base HEAD ${defaultBranchRef}`.text()
+      : await $`git merge-base HEAD ${defaultBranchRef}`.text();
     return result.trim();
   } catch {
-    // Check if origin/main exists
+    // Check if the default branch exists on origin
     const remoteCheck = cwd
-      ? await $`git -C ${cwd} rev-parse --verify origin/main 2>/dev/null`.nothrow()
-      : await $`git rev-parse --verify origin/main 2>/dev/null`.nothrow();
+      ? await $`git -C ${cwd} rev-parse --verify ${defaultBranchRef} 2>/dev/null`.nothrow()
+      : await $`git rev-parse --verify ${defaultBranchRef} 2>/dev/null`.nothrow();
     if (remoteCheck.exitCode !== 0) {
+      const config = await getTasprConfig();
       throw new Error(
-        "No origin/main branch found. Please ensure you have a remote named 'origin' with a 'main' branch.",
+        `No ${defaultBranchRef} branch found. Please ensure you have a remote named 'origin' with a '${config.defaultBranch}' branch, or set a different default branch with: git config taspr.defaultBranch <branch>`,
       );
     }
-    throw new Error("Failed to find merge-base with origin/main");
+    throw new Error(`Failed to find merge-base with ${defaultBranchRef}`);
   }
 }
 
