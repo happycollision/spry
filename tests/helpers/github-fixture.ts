@@ -28,8 +28,7 @@ export interface CIStatus {
   state: "pending" | "success" | "failure" | "error";
   checks: Array<{
     name: string;
-    status: string;
-    conclusion: string | null;
+    state: string;
   }>;
 }
 
@@ -258,7 +257,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
 
   async function getCIStatus(prNumber: number): Promise<CIStatus> {
     const result =
-      await $`gh pr checks ${prNumber} --repo ${owner}/${repo} --json name,status,conclusion`.nothrow();
+      await $`gh pr checks ${prNumber} --repo ${owner}/${repo} --json name,state`.nothrow();
 
     if (result.exitCode !== 0) {
       return { state: "pending", checks: [] };
@@ -266,13 +265,16 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
 
     const checks = JSON.parse(result.stdout.toString()) as Array<{
       name: string;
-      status: string;
-      conclusion: string | null;
+      state: string;
     }>;
 
-    // Determine overall state
-    const hasFailure = checks.some((c) => c.conclusion === "failure" || c.conclusion === "error");
-    const allComplete = checks.every((c) => c.status === "completed");
+    // gh pr checks --json state returns: SUCCESS, FAILURE, PENDING, etc.
+    const hasFailure = checks.some(
+      (c) => c.state === "FAILURE" || c.state === "ERROR" || c.state === "CANCELLED",
+    );
+    const allComplete = checks.every(
+      (c) => c.state === "SUCCESS" || c.state === "FAILURE" || c.state === "ERROR",
+    );
 
     let state: CIStatus["state"];
     if (hasFailure) {

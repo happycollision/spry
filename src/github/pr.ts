@@ -38,6 +38,7 @@ export interface PRInfo {
   url: string;
   state: "OPEN" | "CLOSED" | "MERGED";
   title: string;
+  baseRefName?: string;
 }
 
 export interface CreatePROptions {
@@ -270,4 +271,59 @@ async function canFastForward(targetBranch: string, headSha: string): Promise<bo
  */
 export async function deleteRemoteBranch(branchName: string): Promise<void> {
   await $`git push origin --delete ${branchName}`.quiet().nothrow();
+}
+
+/**
+ * Get the base branch of a PR.
+ */
+export async function getPRBaseBranch(prNumber: number): Promise<string> {
+  await ensureGhInstalled();
+
+  const result = await $`gh pr view ${prNumber} --json baseRefName`.quiet().nothrow();
+
+  if (result.exitCode !== 0) {
+    throw new PRNotFoundError(prNumber);
+  }
+
+  const data = JSON.parse(result.stdout.toString()) as { baseRefName: string };
+  return data.baseRefName;
+}
+
+/**
+ * Get the current state of a PR.
+ */
+export async function getPRState(prNumber: number): Promise<"OPEN" | "CLOSED" | "MERGED"> {
+  await ensureGhInstalled();
+
+  const result = await $`gh pr view ${prNumber} --json state`.quiet().nothrow();
+
+  if (result.exitCode !== 0) {
+    throw new PRNotFoundError(prNumber);
+  }
+
+  const data = JSON.parse(result.stdout.toString()) as { state: "OPEN" | "CLOSED" | "MERGED" };
+  return data.state;
+}
+
+/**
+ * Wait for a PR to reach a specific state (e.g., MERGED).
+ * GitHub may take a moment to update PR state after a push.
+ */
+export async function waitForPRState(
+  prNumber: number,
+  expectedState: "OPEN" | "CLOSED" | "MERGED",
+  maxWaitMs: number = 10000,
+  pollIntervalMs: number = 1000,
+): Promise<boolean> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWaitMs) {
+    const state = await getPRState(prNumber);
+    if (state === expectedState) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  return false;
 }

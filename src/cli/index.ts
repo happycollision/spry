@@ -16,7 +16,11 @@ program
   .option("--open", "Create PRs for branches that don't have them")
   .action((options) => syncCommand(options));
 
-program.command("land").description("Merge the bottom ready PR to main").action(landCommand);
+program
+  .command("land")
+  .description("Merge the bottom ready PR to main")
+  .option("--all", "Merge all consecutive ready PRs from the bottom of the stack")
+  .action((options) => landCommand(options));
 
 program
   .command("group")
