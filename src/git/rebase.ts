@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { unlink, chmod, writeFile } from "node:fs/promises";
 import type { GitOptions } from "./commands.ts";
-import { getMergeBase, getStackCommitsWithTrailers } from "./commands.ts";
+import { getMergeBase, getStackCommits, getStackCommitsWithTrailers } from "./commands.ts";
+import { getDefaultBranchRef } from "./config.ts";
 
 export interface InjectIdsResult {
   /** Number of commits that were modified */
@@ -106,4 +107,56 @@ export async function allCommitsHaveIds(options: GitOptions = {}): Promise<boole
 export async function countCommitsMissingIds(options: GitOptions = {}): Promise<number> {
   const commits = await getStackCommitsWithTrailers(options);
   return commits.filter((c) => !c.trailers["Taspr-Commit-Id"]).length;
+}
+
+export interface RebaseResult {
+  /** Whether the rebase completed successfully */
+  success: boolean;
+  /** Number of commits that were rebased */
+  commitCount: number;
+  /** If there was a conflict, the first conflicting file */
+  conflictFile?: string;
+}
+
+/**
+ * Rebase the current stack onto the latest origin/main.
+ * This preserves commit messages (including Taspr trailers).
+ *
+ * @returns Result indicating success or conflict details
+ */
+export async function rebaseOntoMain(options: GitOptions = {}): Promise<RebaseResult> {
+  const { cwd } = options;
+  const defaultBranchRef = await getDefaultBranchRef();
+
+  // Count commits in stack before rebase
+  const commits = await getStackCommits(options);
+  const commitCount = commits.length;
+
+  // Attempt rebase
+  const result = cwd
+    ? await $`git -C ${cwd} rebase ${defaultBranchRef}`.quiet().nothrow()
+    : await $`git rebase ${defaultBranchRef}`.quiet().nothrow();
+
+  if (result.exitCode === 0) {
+    return { success: true, commitCount };
+  }
+
+  // Check for conflict - look for unmerged files
+  const statusResult = cwd
+    ? await $`git -C ${cwd} status --porcelain`.text()
+    : await $`git status --porcelain`.text();
+
+  // UU = both modified (conflict), AA = both added, etc.
+  const conflictMatch = statusResult.match(/^(?:UU|AA|DD|AU|UA|DU|UD) (.+)$/m);
+
+  if (conflictMatch?.[1]) {
+    return {
+      success: false,
+      commitCount,
+      conflictFile: conflictMatch[1],
+    };
+  }
+
+  // Unknown failure - throw with stderr
+  throw new Error(`Rebase failed: ${result.stderr.toString()}`);
 }
