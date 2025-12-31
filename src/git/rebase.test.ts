@@ -7,6 +7,8 @@ import {
   allCommitsHaveIds,
   countCommitsMissingIds,
   rebaseOntoMain,
+  getConflictInfo,
+  formatConflictError,
 } from "./rebase.ts";
 import { getStackCommitsWithTrailers } from "./commands.ts";
 
@@ -258,6 +260,124 @@ describe("git/rebase", () => {
 
       expect(result.success).toBe(true);
       expect(result.commitCount).toBe(1);
+    });
+  });
+
+  describe("getConflictInfo", () => {
+    test("returns null when not in a rebase", async () => {
+      fixture = await createGitFixture();
+      await fixture.checkout("feature-no-rebase", { create: true });
+      await fixture.commit("Normal commit");
+
+      const info = await getConflictInfo({ cwd: fixture.path });
+      expect(info).toBeNull();
+    });
+
+    test("returns conflict info during rebase conflict", async () => {
+      fixture = await createGitFixture();
+
+      // Create a file that will conflict
+      const conflictFile = "conflict-info.txt";
+      await Bun.write(join(fixture.path, conflictFile), "Original content\n");
+      await $`git -C ${fixture.path} add .`.quiet();
+      await $`git -C ${fixture.path} commit -m "Add conflict file"`.quiet();
+      await $`git -C ${fixture.path} push origin main`.quiet();
+
+      // Create feature branch and modify the file
+      await fixture.checkout("feature-conflict-info", { create: true });
+      await Bun.write(join(fixture.path, conflictFile), "Feature content\n");
+      await $`git -C ${fixture.path} add .`.quiet();
+      await $`git -C ${fixture.path} commit -m "Feature modification"`.quiet();
+
+      // Update main with conflicting change
+      const tempWorktree = `${fixture.originPath}-worktree`;
+      await $`git clone ${fixture.originPath} ${tempWorktree}`.quiet();
+      await $`git -C ${tempWorktree} config user.email "other@example.com"`.quiet();
+      await $`git -C ${tempWorktree} config user.name "Other User"`.quiet();
+      await Bun.write(join(tempWorktree, conflictFile), "Main content\n");
+      await $`git -C ${tempWorktree} add .`.quiet();
+      await $`git -C ${tempWorktree} commit -m "Main modification"`.quiet();
+      await $`git -C ${tempWorktree} push origin main`.quiet();
+      await $`rm -rf ${tempWorktree}`.quiet();
+
+      await $`git -C ${fixture.path} fetch origin`.quiet();
+
+      // Start rebase that will conflict
+      await $`git -C ${fixture.path} rebase origin/main`.quiet().nothrow();
+
+      // Now we should be in a conflict state
+      const info = await getConflictInfo({ cwd: fixture.path });
+
+      expect(info).not.toBeNull();
+      expect(info?.files).toContain(conflictFile);
+      expect(info?.currentCommit).toMatch(/^[0-9a-f]{8}$/);
+      expect(info?.currentSubject).toBe("Feature modification");
+
+      // Clean up
+      await $`git -C ${fixture.path} rebase --abort`.quiet().nothrow();
+    });
+
+    test("lists multiple conflicting files", async () => {
+      fixture = await createGitFixture();
+
+      // Create files that will conflict
+      await Bun.write(join(fixture.path, "file1.txt"), "Original 1\n");
+      await Bun.write(join(fixture.path, "file2.txt"), "Original 2\n");
+      await $`git -C ${fixture.path} add .`.quiet();
+      await $`git -C ${fixture.path} commit -m "Add files"`.quiet();
+      await $`git -C ${fixture.path} push origin main`.quiet();
+
+      // Create feature branch and modify both files
+      await fixture.checkout("feature-multi-conflict", { create: true });
+      await Bun.write(join(fixture.path, "file1.txt"), "Feature 1\n");
+      await Bun.write(join(fixture.path, "file2.txt"), "Feature 2\n");
+      await $`git -C ${fixture.path} add .`.quiet();
+      await $`git -C ${fixture.path} commit -m "Modify both files"`.quiet();
+
+      // Update main with conflicting changes
+      const tempWorktree = `${fixture.originPath}-worktree`;
+      await $`git clone ${fixture.originPath} ${tempWorktree}`.quiet();
+      await $`git -C ${tempWorktree} config user.email "other@example.com"`.quiet();
+      await $`git -C ${tempWorktree} config user.name "Other User"`.quiet();
+      await Bun.write(join(tempWorktree, "file1.txt"), "Main 1\n");
+      await Bun.write(join(tempWorktree, "file2.txt"), "Main 2\n");
+      await $`git -C ${tempWorktree} add .`.quiet();
+      await $`git -C ${tempWorktree} commit -m "Main changes"`.quiet();
+      await $`git -C ${tempWorktree} push origin main`.quiet();
+      await $`rm -rf ${tempWorktree}`.quiet();
+
+      await $`git -C ${fixture.path} fetch origin`.quiet();
+      await $`git -C ${fixture.path} rebase origin/main`.quiet().nothrow();
+
+      const info = await getConflictInfo({ cwd: fixture.path });
+
+      expect(info).not.toBeNull();
+      expect(info?.files).toHaveLength(2);
+      expect(info?.files).toContain("file1.txt");
+      expect(info?.files).toContain("file2.txt");
+
+      // Clean up
+      await $`git -C ${fixture.path} rebase --abort`.quiet().nothrow();
+    });
+  });
+
+  describe("formatConflictError", () => {
+    test("formats conflict info into readable error message", () => {
+      const info = {
+        files: ["src/auth.ts", "src/config.ts"],
+        currentCommit: "abc12345",
+        currentSubject: "Add authentication",
+      };
+
+      const message = formatConflictError(info);
+
+      expect(message).toContain("abc12345");
+      expect(message).toContain("Add authentication");
+      expect(message).toContain("src/auth.ts");
+      expect(message).toContain("src/config.ts");
+      expect(message).toContain("git add");
+      expect(message).toContain("git rebase --continue");
+      expect(message).toContain("git rebase --abort");
     });
   });
 });

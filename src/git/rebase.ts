@@ -160,3 +160,113 @@ export async function rebaseOntoMain(options: GitOptions = {}): Promise<RebaseRe
   // Unknown failure - throw with stderr
   throw new Error(`Rebase failed: ${result.stderr.toString()}`);
 }
+
+export interface ConflictInfo {
+  /** Files with conflicts */
+  files: string[];
+  /** Short SHA of the commit being applied */
+  currentCommit: string;
+  /** Subject line of the commit being applied */
+  currentSubject: string;
+}
+
+/**
+ * Check if we're in the middle of a rebase with conflicts.
+ * Returns conflict information if in a conflicted state, null otherwise.
+ */
+export async function getConflictInfo(options: GitOptions = {}): Promise<ConflictInfo | null> {
+  const { cwd } = options;
+
+  // Check if we're in a rebase by looking for rebase-merge or rebase-apply directory
+  // git rev-parse --git-path returns paths relative to the repo root
+  const rebaseMergeResult = cwd
+    ? await $`git -C ${cwd} rev-parse --git-path rebase-merge`.text()
+    : await $`git rev-parse --git-path rebase-merge`.text();
+
+  const rebaseApplyResult = cwd
+    ? await $`git -C ${cwd} rev-parse --git-path rebase-apply`.text()
+    : await $`git rev-parse --git-path rebase-apply`.text();
+
+  // The paths are relative to the repo, so we need to join with cwd if provided
+  const rebaseMergePath = cwd ? join(cwd, rebaseMergeResult.trim()) : rebaseMergeResult.trim();
+  const rebaseApplyPath = cwd ? join(cwd, rebaseApplyResult.trim()) : rebaseApplyResult.trim();
+
+  // Use stat to check if directories exist (Bun.file().exists() doesn't work for directories)
+  const { stat } = await import("node:fs/promises");
+
+  let rebaseMergeExists = false;
+  let rebaseApplyExists = false;
+
+  try {
+    await stat(rebaseMergePath);
+    rebaseMergeExists = true;
+  } catch {
+    // Directory doesn't exist
+  }
+
+  try {
+    await stat(rebaseApplyPath);
+    rebaseApplyExists = true;
+  } catch {
+    // Directory doesn't exist
+  }
+
+  if (!rebaseMergeExists && !rebaseApplyExists) {
+    return null;
+  }
+
+  // Get conflicting files from git status
+  const statusResult = cwd
+    ? await $`git -C ${cwd} status --porcelain`.text()
+    : await $`git status --porcelain`.text();
+
+  const conflicts = statusResult
+    .split("\n")
+    .filter((line) => /^(?:UU|AA|DD|AU|UA|DU|UD) /.test(line))
+    .map((line) => line.slice(3));
+
+  // Get the commit being applied (REBASE_HEAD)
+  const rebaseHeadResult = cwd
+    ? await $`git -C ${cwd} rev-parse REBASE_HEAD`.quiet().nothrow()
+    : await $`git rev-parse REBASE_HEAD`.quiet().nothrow();
+
+  let currentCommit = "unknown";
+  let currentSubject = "unknown";
+
+  if (rebaseHeadResult.exitCode === 0) {
+    currentCommit = rebaseHeadResult.stdout.toString().trim().slice(0, 8);
+
+    const subjectResult = cwd
+      ? await $`git -C ${cwd} log -1 --format=%s REBASE_HEAD`.text()
+      : await $`git log -1 --format=%s REBASE_HEAD`.text();
+    currentSubject = subjectResult.trim();
+  }
+
+  return {
+    files: conflicts,
+    currentCommit,
+    currentSubject,
+  };
+}
+
+/**
+ * Format conflict information into a user-friendly error message.
+ */
+export function formatConflictError(info: ConflictInfo): string {
+  const fileList = info.files.map((f) => `  • ${f}`).join("\n");
+
+  return `✗ Rebase conflict while applying commit ${info.currentCommit}
+  "${info.currentSubject}"
+
+Conflicting files:
+${fileList}
+
+To resolve:
+  1. Edit the conflicting files
+  2. git add <fixed files>
+  3. git rebase --continue
+  4. taspr sync
+
+To abort:
+  git rebase --abort`;
+}
