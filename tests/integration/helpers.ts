@@ -46,9 +46,10 @@ export async function runLand(
 // Helper to run taspr clean in a directory
 export async function runClean(
   cwd: string,
-  options: { dryRun?: boolean } = {},
+  options: { dryRun?: boolean; force?: boolean } = {},
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const args: string[] = [];
   if (options.dryRun) args.push("--dry-run");
+  if (options.force) args.push("--force");
   return runTaspr(cwd, "clean", args);
 }

@@ -71,7 +71,7 @@ export interface GitHubFixture {
   getCIStatus(prNumber: number): Promise<CIStatus>;
 
   /** Merge a PR via GitHub API (simulating merge via GitHub UI) */
-  mergePR(prNumber: number, opts?: { deleteBranch?: boolean }): Promise<void>;
+  mergePR(prNumber: number, opts?: { deleteBranch?: boolean; squash?: boolean }): Promise<void>;
 }
 
 async function verifyTestRepo(owner: string, repo: string): Promise<boolean> {
@@ -326,9 +326,14 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     throw new Error(`CI did not start within ${timeout}ms for PR #${prNumber}`);
   }
 
-  async function mergePR(prNumber: number, opts?: { deleteBranch?: boolean }): Promise<void> {
+  async function mergePR(
+    prNumber: number,
+    opts?: { deleteBranch?: boolean; squash?: boolean },
+  ): Promise<void> {
     // Merge the PR via gh CLI (simulates merging via GitHub UI)
-    const result = await $`gh pr merge ${prNumber} --repo ${owner}/${repo} --merge`.nothrow();
+    const mergeMethod = opts?.squash ? "--squash" : "--merge";
+    const result =
+      await $`gh pr merge ${prNumber} --repo ${owner}/${repo} ${mergeMethod}`.nothrow();
 
     if (result.exitCode !== 0) {
       throw new Error(`Failed to merge PR #${prNumber}: ${result.stderr.toString()}`);

@@ -27,6 +27,7 @@ program
   .command("clean")
   .description("Find and remove orphaned branches")
   .option("--dry-run", "Show what would be cleaned without actually deleting")
+  .option("--force", "Also delete branches detected by commit-id only (may lose original content)")
   .action((options) => cleanCommand(options));
 
 program
