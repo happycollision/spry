@@ -65,7 +65,10 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
     const syncStatuses = await getAllSyncStatuses(units, branchConfig);
     const summary = getSyncSummary(syncStatuses);
 
-    if (!hasChanges(syncStatuses)) {
+    // When --open is specified, we need to check for missing PRs even if branches are up-to-date
+    const needsPRCheck = options.open && units.length > 0;
+
+    if (!hasChanges(syncStatuses) && !needsPRCheck) {
       console.log("✓ All branches up to date");
       return;
     }
@@ -77,7 +80,9 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
     const skippedNoPR: string[] = [];
 
     const totalToPush = summary.toCreate + summary.toUpdate;
-    console.log(`\nPushing ${totalToPush} branch(es)...`);
+    if (totalToPush > 0) {
+      console.log(`\nPushing ${totalToPush} branch(es)...`);
+    }
 
     for (const unit of units) {
       const headBranch = getBranchName(unit.id, branchConfig);
@@ -97,8 +102,8 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
           // Existing PR was updated by the push
           updated.push(existingPR);
         }
-      } else if (options.open && status.needsCreate) {
-        // Create new PR (only if --open is specified and branch was just created)
+      } else if (options.open) {
+        // Create new PR (--open is specified and no PR exists)
         const pr = await createPR({
           title: unit.title,
           head: headBranch,

@@ -117,6 +117,64 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
     { timeout: 60000 },
   );
 
+  test(
+    "opens PRs for commits already pushed to remote",
+    async () => {
+      // This tests the scenario where:
+      // 1. User creates commits
+      // 2. User runs `taspr sync` (pushes branches, but no PRs)
+      // 3. User runs `taspr sync --open` (should open PRs even though remote is up-to-date)
+
+      // Clone the test repo locally
+      const tmpResult = await $`mktemp -d`.text();
+      localDir = tmpResult.trim();
+
+      await $`git clone ${github.repoUrl}.git ${localDir}`.quiet();
+      await $`git -C ${localDir} config user.email "test@example.com"`.quiet();
+      await $`git -C ${localDir} config user.name "Test User"`.quiet();
+
+      // Create first commit
+      await $`git -C ${localDir} checkout -b feature/stacked-no-pr`.quiet();
+      await Bun.write(join(localDir, "first-file.txt"), "first content\n");
+      await $`git -C ${localDir} add first-file.txt`.quiet();
+      await $`git -C ${localDir} commit -m "First commit in stack"`.quiet();
+
+      // Create second commit
+      await Bun.write(join(localDir, "second-file.txt"), "second content\n");
+      await $`git -C ${localDir} add second-file.txt`.quiet();
+      await $`git -C ${localDir} commit -m "Second commit in stack"`.quiet();
+
+      // Run taspr sync WITHOUT --open (just push branches)
+      const syncResult = await runSync(localDir, { open: false });
+      expect(syncResult.exitCode).toBe(0);
+
+      // Verify no PRs were created yet
+      const prListBefore =
+        await $`gh pr list --repo ${github.owner}/${github.repo} --state open --json number,title`.text();
+      const prsBefore = JSON.parse(prListBefore);
+      const relevantPrsBefore = prsBefore.filter(
+        (pr: { title: string }) =>
+          pr.title.includes("First commit") || pr.title.includes("Second commit"),
+      );
+      expect(relevantPrsBefore.length).toBe(0);
+
+      // Now run taspr sync WITH --open
+      const openResult = await runSync(localDir, { open: true });
+      expect(openResult.exitCode).toBe(0);
+
+      // Verify PRs were created
+      const prListAfter =
+        await $`gh pr list --repo ${github.owner}/${github.repo} --state open --json number,title`.text();
+      const prsAfter = JSON.parse(prListAfter);
+      const relevantPrsAfter = prsAfter.filter(
+        (pr: { title: string }) =>
+          pr.title.includes("First commit") || pr.title.includes("Second commit"),
+      );
+      expect(relevantPrsAfter.length).toBe(2);
+    },
+    { timeout: 90000 },
+  );
+
   test.skipIf(SKIP_CI_TESTS)(
     "CI passes for normal commits",
     async () => {
