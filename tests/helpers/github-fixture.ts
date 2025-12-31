@@ -69,6 +69,9 @@ export interface GitHubFixture {
 
   /** Get current CI status for a PR */
   getCIStatus(prNumber: number): Promise<CIStatus>;
+
+  /** Merge a PR via GitHub API (simulating merge via GitHub UI) */
+  mergePR(prNumber: number, opts?: { deleteBranch?: boolean }): Promise<void>;
 }
 
 async function verifyTestRepo(owner: string, repo: string): Promise<boolean> {
@@ -323,6 +326,27 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     throw new Error(`CI did not start within ${timeout}ms for PR #${prNumber}`);
   }
 
+  async function mergePR(prNumber: number, opts?: { deleteBranch?: boolean }): Promise<void> {
+    // Merge the PR via gh CLI (simulates merging via GitHub UI)
+    const result = await $`gh pr merge ${prNumber} --repo ${owner}/${repo} --merge`.nothrow();
+
+    if (result.exitCode !== 0) {
+      throw new Error(`Failed to merge PR #${prNumber}: ${result.stderr.toString()}`);
+    }
+
+    // Optionally delete the branch (GitHub UI has this as an option)
+    // By default, we do NOT delete to simulate the case where branch remains
+    if (opts?.deleteBranch) {
+      // Get the branch name first
+      const prInfo =
+        await $`gh pr view ${prNumber} --repo ${owner}/${repo} --json headRefName`.nothrow();
+      if (prInfo.exitCode === 0) {
+        const { headRefName } = JSON.parse(prInfo.stdout.toString());
+        await $`gh api -X DELETE repos/${owner}/${repo}/git/refs/heads/${headRefName}`.nothrow();
+      }
+    }
+  }
+
   return {
     owner,
     repo,
@@ -336,5 +360,6 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     waitForCI,
     waitForCIToStart,
     getCIStatus,
+    mergePR,
   };
 }

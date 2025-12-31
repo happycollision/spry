@@ -60,13 +60,21 @@ export interface PRMergeStatus {
 /**
  * Find an existing PR for a branch.
  * Returns null if no PR exists for the branch.
+ * By default only searches open PRs; use includeAll to also find merged/closed PRs.
  */
-export async function findPRByBranch(branchName: string): Promise<PRInfo | null> {
+export async function findPRByBranch(
+  branchName: string,
+  options?: { includeAll?: boolean },
+): Promise<PRInfo | null> {
   await ensureGhInstalled();
 
-  const result = await $`gh pr list --head ${branchName} --json number,url,state,title`
-    .quiet()
-    .nothrow();
+  const stateArg = options?.includeAll ? "--state" : "";
+  const stateVal = options?.includeAll ? "all" : "";
+
+  const result =
+    await $`gh pr list --head ${branchName} ${stateArg} ${stateVal} --json number,url,state,title`
+      .quiet()
+      .nothrow();
 
   if (result.exitCode !== 0) {
     return null;

@@ -248,6 +248,120 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
   );
 });
 
+describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync cleanup", () => {
+  let github: GitHubFixture;
+  let localDir: string | null = null;
+
+  beforeAll(async () => {
+    github = await createGitHubFixture();
+  });
+
+  beforeEach(async () => {
+    await github.reset();
+  });
+
+  afterEach(async () => {
+    await github.reset();
+    if (localDir) {
+      await rm(localDir, { recursive: true, force: true });
+      localDir = null;
+    }
+  });
+
+  test.skipIf(SKIP_CI_TESTS)(
+    "detects merged PRs and cleans up their remote branches when merged via GitHub UI",
+    async () => {
+      // This tests the scenario where:
+      // 1. User creates a stack with multiple commits
+      // 2. User syncs to create PRs
+      // 3. Someone merges a PR via GitHub UI (not taspr land)
+      // 4. User runs sync again - should detect merged PR and clean up orphaned branch
+
+      // Clone the test repo locally
+      const tmpResult = await $`mktemp -d`.text();
+      localDir = tmpResult.trim();
+
+      await $`git clone ${github.repoUrl}.git ${localDir}`.quiet();
+      await $`git -C ${localDir} config user.email "test@example.com"`.quiet();
+      await $`git -C ${localDir} config user.name "Test User"`.quiet();
+
+      // Create a feature branch with 2 commits
+      const uniqueId = Date.now().toString(36);
+      await $`git -C ${localDir} checkout -b feature/cleanup-test-${uniqueId}`.quiet();
+
+      // First commit
+      await Bun.write(join(localDir, `cleanup-1-${uniqueId}.txt`), "first commit\n");
+      await $`git -C ${localDir} add .`.quiet();
+      await $`git -C ${localDir} commit -m "First commit for cleanup test"`.quiet();
+
+      // Second commit
+      await Bun.write(join(localDir, `cleanup-2-${uniqueId}.txt`), "second commit\n");
+      await $`git -C ${localDir} add .`.quiet();
+      await $`git -C ${localDir} commit -m "Second commit for cleanup test"`.quiet();
+
+      // Run taspr sync --open to create PRs
+      const syncResult = await runSync(localDir, { open: true });
+      expect(syncResult.exitCode).toBe(0);
+
+      // Get PRs
+      const prList =
+        await $`gh pr list --repo ${github.owner}/${github.repo} --state open --json number,title,headRefName`.text();
+      const prs = JSON.parse(prList) as Array<{
+        number: number;
+        title: string;
+        headRefName: string;
+      }>;
+      const firstPr = prs.find((p) => p.title.includes("First commit for cleanup test"));
+      const secondPr = prs.find((p) => p.title.includes("Second commit for cleanup test"));
+      if (!firstPr || !secondPr) throw new Error("PRs not found");
+
+      // Wait for CI on the first PR
+      await github.waitForCI(firstPr.number, { timeout: 180000 });
+
+      // Merge the first PR via GitHub API (simulating GitHub UI merge)
+      // Note: deleteBranch: false to leave the branch orphaned
+      await github.mergePR(firstPr.number, { deleteBranch: false });
+
+      // Verify first PR is merged but branch still exists
+      const firstStatus =
+        await $`gh pr view ${firstPr.number} --repo ${github.owner}/${github.repo} --json state`.text();
+      expect(JSON.parse(firstStatus).state).toBe("MERGED");
+
+      // Verify the branch still exists (orphaned)
+      const branchCheck =
+        await $`gh api repos/${github.owner}/${github.repo}/branches/${firstPr.headRefName}`.nothrow();
+      expect(branchCheck.exitCode).toBe(0); // Branch should still exist
+
+      // Now run sync again - it should detect the merged PR and clean up the orphaned branch
+      const syncResult2 = await runSync(localDir, { open: false });
+
+      expect(syncResult2.exitCode).toBe(0);
+      expect(syncResult2.stdout).toContain("Cleaned up");
+      expect(syncResult2.stdout).toContain(`#${firstPr.number}`);
+
+      // Verify the orphaned branch was deleted
+      // Poll for eventual consistency
+      let branchGone = false;
+      for (let i = 0; i < 10; i++) {
+        await Bun.sleep(500);
+        const afterCheck =
+          await $`gh api repos/${github.owner}/${github.repo}/branches/${firstPr.headRefName}`.nothrow();
+        if (afterCheck.exitCode !== 0) {
+          branchGone = true;
+          break;
+        }
+      }
+      expect(branchGone).toBe(true);
+
+      // The second PR should still be tracked (not cleaned up)
+      const secondStatus =
+        await $`gh pr view ${secondPr.number} --repo ${github.owner}/${github.repo} --json state`.text();
+      expect(JSON.parse(secondStatus).state).toBe("OPEN");
+    },
+    { timeout: 300000 },
+  );
+});
+
 describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: Branch Protection", () => {
   let github: GitHubFixture;
 

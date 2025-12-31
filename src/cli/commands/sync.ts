@@ -9,12 +9,79 @@ import {
   ConfigurationError,
 } from "../../github/api.ts";
 import { getBranchNameConfig, getBranchName, pushBranch } from "../../github/branches.ts";
-import { findPRByBranch, createPR, type PRInfo } from "../../github/pr.ts";
+import {
+  findPRByBranch,
+  createPR,
+  deleteRemoteBranch,
+  getPRBaseBranch,
+  retargetPR,
+  type PRInfo,
+} from "../../github/pr.ts";
 import { asserted } from "../../utils/assert.ts";
 import { getAllSyncStatuses, getSyncSummary, hasChanges } from "../../git/remote.ts";
+import type { PRUnit } from "../../types.ts";
 
 export interface SyncOptions {
   open?: boolean;
+}
+
+interface MergedPRInfo {
+  unit: PRUnit;
+  pr: PRInfo;
+  branchName: string;
+}
+
+/**
+ * Find merged PRs in the stack and clean up their remote branches.
+ * Returns units that are NOT merged (i.e., still active).
+ * Also retargets any open PRs that were based on the merged branches.
+ */
+async function cleanupMergedPRs(
+  units: PRUnit[],
+  branchConfig: Awaited<ReturnType<typeof getBranchNameConfig>>,
+  defaultBranch: string,
+): Promise<{ activeUnits: PRUnit[]; cleanedUp: MergedPRInfo[] }> {
+  const merged: MergedPRInfo[] = [];
+  const active: { unit: PRUnit; pr: PRInfo | null; branchName: string }[] = [];
+
+  for (const unit of units) {
+    const branchName = getBranchName(unit.id, branchConfig);
+    // Use includeAll to find merged PRs (gh pr list defaults to open only)
+    const pr = await findPRByBranch(branchName, { includeAll: true });
+
+    if (pr?.state === "MERGED") {
+      merged.push({ unit, pr, branchName });
+    } else {
+      active.push({ unit, pr, branchName });
+    }
+  }
+
+  if (merged.length > 0) {
+    // Build set of merged branch names for quick lookup
+    const mergedBranchNames = new Set(merged.map((m) => m.branchName));
+
+    // Retarget any open PRs that are based on merged branches
+    for (const { pr } of active) {
+      if (pr?.state === "OPEN") {
+        try {
+          const baseBranch = await getPRBaseBranch(pr.number);
+          if (mergedBranchNames.has(baseBranch)) {
+            console.log(`Retargeting PR #${pr.number} to ${defaultBranch}...`);
+            await retargetPR(pr.number, defaultBranch);
+          }
+        } catch {
+          // Ignore errors - PR might already be retargeted or closed
+        }
+      }
+    }
+
+    // Now safe to delete remote branches for merged PRs
+    for (const { branchName } of merged) {
+      await deleteRemoteBranch(branchName);
+    }
+  }
+
+  return { activeUnits: active.map((a) => a.unit), cleanedUp: merged };
 }
 
 export async function syncCommand(options: SyncOptions = {}): Promise<void> {
@@ -61,12 +128,27 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
     const branchConfig = await getBranchNameConfig();
     const defaultBranch = await getDefaultBranch();
 
-    // Check what needs syncing
-    const syncStatuses = await getAllSyncStatuses(units, branchConfig);
+    // Check for merged PRs and clean them up
+    const { activeUnits, cleanedUp } = await cleanupMergedPRs(units, branchConfig, defaultBranch);
+
+    if (cleanedUp.length > 0) {
+      console.log(`✓ Cleaned up ${cleanedUp.length} merged PR(s):`);
+      for (const { pr } of cleanedUp) {
+        console.log(`  #${pr.number} ${pr.title}`);
+      }
+    }
+
+    if (activeUnits.length === 0) {
+      console.log("✓ No active PRs to sync");
+      return;
+    }
+
+    // Check what needs syncing (only for non-merged units)
+    const syncStatuses = await getAllSyncStatuses(activeUnits, branchConfig);
     const summary = getSyncSummary(syncStatuses);
 
     // When --open is specified, we need to check for missing PRs even if branches are up-to-date
-    const needsPRCheck = options.open && units.length > 0;
+    const needsPRCheck = options.open && activeUnits.length > 0;
 
     if (!hasChanges(syncStatuses) && !needsPRCheck) {
       console.log("✓ All branches up to date");
@@ -84,7 +166,7 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       console.log(`\nPushing ${totalToPush} branch(es)...`);
     }
 
-    for (const unit of units) {
+    for (const unit of activeUnits) {
       const headBranch = getBranchName(unit.id, branchConfig);
       const headCommit = asserted(unit.commits.at(-1));
       const status = asserted(syncStatuses.get(unit.id));
