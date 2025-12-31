@@ -48,13 +48,46 @@ export interface CreatePROptions {
   body?: string;
 }
 
-export type ChecksStatus = "pending" | "passing" | "failing";
+export type ChecksStatus = "pending" | "passing" | "failing" | "none";
 export type ReviewDecision = "approved" | "changes_requested" | "review_required" | "none";
 
 export interface PRMergeStatus {
   checksStatus: ChecksStatus;
   reviewDecision: ReviewDecision;
   isReady: boolean;
+}
+
+/** Raw check data from GitHub API */
+export interface CheckRollupItem {
+  status: string;
+  conclusion: string | null;
+  state: string;
+}
+
+/**
+ * Determine checks status from raw GitHub statusCheckRollup data.
+ * Returns "none" if no checks configured, otherwise "pending", "passing", or "failing".
+ * Exported for testing.
+ */
+export function determineChecksStatus(checks: CheckRollupItem[] | null): ChecksStatus {
+  if (!checks || checks.length === 0) {
+    return "none";
+  }
+
+  const hasFailure = checks.some(
+    (c) => c.conclusion === "FAILURE" || c.conclusion === "ERROR" || c.state === "FAILURE",
+  );
+  const allComplete = checks.every(
+    (c) => c.status === "COMPLETED" || c.state === "SUCCESS" || c.state === "FAILURE",
+  );
+
+  if (hasFailure) {
+    return "failing";
+  } else if (allComplete) {
+    return "passing";
+  } else {
+    return "pending";
+  }
 }
 
 /**
@@ -133,6 +166,37 @@ export async function createPR(options: CreatePROptions): Promise<{ number: numb
 }
 
 /**
+ * Get the CI checks status for a PR.
+ * Returns "none" if no checks are configured, "pending" if checks are running,
+ * "passing" if all checks passed, or "failing" if any check failed.
+ *
+ * @param prNumber - The PR number to check
+ * @param repo - Optional owner/repo string (e.g., "owner/repo"). If not provided, uses current git context.
+ */
+export async function getPRChecksStatus(prNumber: number, repo?: string): Promise<ChecksStatus> {
+  await ensureGhInstalled();
+
+  const repoArg = repo ? ["--repo", repo] : [];
+  const result = await $`gh pr view ${prNumber} ${repoArg} --json statusCheckRollup`
+    .quiet()
+    .nothrow();
+
+  if (result.exitCode !== 0) {
+    const stderr = result.stderr.toString();
+    if (stderr.includes("not found") || stderr.includes("Could not resolve")) {
+      throw new PRNotFoundError(prNumber);
+    }
+    throw new Error(`Failed to get PR #${prNumber} checks: ${stderr}`);
+  }
+
+  const data = JSON.parse(result.stdout.toString()) as {
+    statusCheckRollup: CheckRollupItem[] | null;
+  };
+
+  return determineChecksStatus(data.statusCheckRollup);
+}
+
+/**
  * Get the merge status of a PR (CI checks and review decision).
  */
 export async function getPRMergeStatus(prNumber: number): Promise<PRMergeStatus> {
@@ -148,37 +212,12 @@ export async function getPRMergeStatus(prNumber: number): Promise<PRMergeStatus>
   }
 
   const data = JSON.parse(result.stdout.toString()) as {
-    statusCheckRollup: Array<{
-      status: string;
-      conclusion: string | null;
-      state: string;
-    }>;
+    statusCheckRollup: CheckRollupItem[] | null;
     reviewDecision: string;
   };
 
-  // Determine checks status
-  let checksStatus: ChecksStatus;
-  const checks = data.statusCheckRollup || [];
-
-  if (checks.length === 0) {
-    // No checks configured - consider it passing
-    checksStatus = "passing";
-  } else {
-    const hasFailure = checks.some(
-      (c) => c.conclusion === "FAILURE" || c.conclusion === "ERROR" || c.state === "FAILURE",
-    );
-    const allComplete = checks.every(
-      (c) => c.status === "COMPLETED" || c.state === "SUCCESS" || c.state === "FAILURE",
-    );
-
-    if (hasFailure) {
-      checksStatus = "failing";
-    } else if (allComplete) {
-      checksStatus = "passing";
-    } else {
-      checksStatus = "pending";
-    }
-  }
+  // Determine checks status using shared helper
+  const checksStatus = determineChecksStatus(data.statusCheckRollup);
 
   // Determine review decision
   let reviewDecision: ReviewDecision;
@@ -197,9 +236,10 @@ export async function getPRMergeStatus(prNumber: number): Promise<PRMergeStatus>
       reviewDecision = "none";
   }
 
-  // PR is ready if checks are passing and reviews are approved (or not required)
+  // PR is ready if checks are passing (or none configured) and reviews are approved (or not required)
   const isReady =
-    checksStatus === "passing" && (reviewDecision === "approved" || reviewDecision === "none");
+    (checksStatus === "passing" || checksStatus === "none") &&
+    (reviewDecision === "approved" || reviewDecision === "none");
 
   return { checksStatus, reviewDecision, isReady };
 }
