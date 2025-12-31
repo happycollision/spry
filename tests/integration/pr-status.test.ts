@@ -4,7 +4,7 @@ import { createGitHubFixture, type GitHubFixture } from "../helpers/github-fixtu
 import { join } from "node:path";
 import { rm } from "node:fs/promises";
 import { SKIP_GITHUB_TESTS, SKIP_CI_TESTS, runSync } from "./helpers.ts";
-import { getPRChecksStatus, getPRReviewStatus } from "../../src/github/pr.ts";
+import { getPRChecksStatus, getPRReviewStatus, getPRCommentStatus } from "../../src/github/pr.ts";
 
 describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR checks status", () => {
   let github: GitHubFixture;
@@ -373,6 +373,137 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR review status", () =>
         // Always disable branch protection
         await github.disableBranchProtection("main");
       }
+    },
+    { timeout: 60000 },
+  );
+});
+
+describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR comment status", () => {
+  let github: GitHubFixture;
+  let localDir: string | null = null;
+
+  beforeAll(async () => {
+    github = await createGitHubFixture();
+  });
+
+  beforeEach(async () => {
+    await github.reset();
+  });
+
+  afterEach(async () => {
+    await github.reset();
+    if (localDir) {
+      await rm(localDir, { recursive: true, force: true });
+      localDir = null;
+    }
+  });
+
+  test(
+    "returns zero counts for PR with no review threads",
+    async () => {
+      // Clone the test repo locally
+      const tmpResult = await $`mktemp -d`.text();
+      localDir = tmpResult.trim();
+
+      await $`git clone ${github.repoUrl}.git ${localDir}`.quiet();
+      await $`git -C ${localDir} config user.email "test@example.com"`.quiet();
+      await $`git -C ${localDir} config user.name "Test User"`.quiet();
+
+      // Create a feature branch with a commit (remove CI workflow for faster testing)
+      const uniqueId = Date.now().toString(36);
+      await $`git -C ${localDir} checkout -b feature/no-comments-${uniqueId}`.quiet();
+      await $`git -C ${localDir} rm .github/workflows/ci.yml`.quiet();
+      await Bun.write(join(localDir, `no-comments-${uniqueId}.txt`), "test content\n");
+      await $`git -C ${localDir} add .`.quiet();
+      await $`git -C ${localDir} commit -m "Add file for no comments test"`.quiet();
+
+      // Push and create PR
+      await $`git -C ${localDir} push origin feature/no-comments-${uniqueId}`.quiet();
+      const prCreateResult =
+        await $`gh pr create --repo ${github.owner}/${github.repo} --head feature/no-comments-${uniqueId} --title "Test PR with no comments" --body "Testing no comments"`.text();
+      const prUrl = prCreateResult.trim();
+      const prMatch = prUrl.match(/\/pull\/(\d+)$/);
+      if (!prMatch?.[1]) throw new Error("Failed to parse PR URL");
+      const prNumber = parseInt(prMatch[1], 10);
+
+      // Wait a moment for GitHub to process the PR
+      await Bun.sleep(2000);
+
+      // Check the comment status - should have 0 total and 0 resolved
+      const status = await getPRCommentStatus(prNumber, `${github.owner}/${github.repo}`);
+      expect(status).toEqual({ total: 0, resolved: 0 });
+    },
+    { timeout: 60000 },
+  );
+
+  test(
+    "returns correct counts for PR with unresolved review thread",
+    async () => {
+      // Clone the test repo locally
+      const tmpResult = await $`mktemp -d`.text();
+      localDir = tmpResult.trim();
+
+      await $`git clone ${github.repoUrl}.git ${localDir}`.quiet();
+      await $`git -C ${localDir} config user.email "test@example.com"`.quiet();
+      await $`git -C ${localDir} config user.name "Test User"`.quiet();
+
+      // Create a feature branch with a commit (remove CI workflow for faster testing)
+      const uniqueId = Date.now().toString(36);
+      await $`git -C ${localDir} checkout -b feature/with-comment-${uniqueId}`.quiet();
+      await $`git -C ${localDir} rm .github/workflows/ci.yml`.quiet();
+      await Bun.write(
+        join(localDir, `with-comment-${uniqueId}.txt`),
+        "test content line 1\ntest content line 2\n",
+      );
+      await $`git -C ${localDir} add .`.quiet();
+      await $`git -C ${localDir} commit -m "Add file for comment thread test"`.quiet();
+
+      // Push and create PR
+      await $`git -C ${localDir} push origin feature/with-comment-${uniqueId}`.quiet();
+      const prCreateResult =
+        await $`gh pr create --repo ${github.owner}/${github.repo} --head feature/with-comment-${uniqueId} --title "Test PR with comment thread" --body "Testing comment threads"`.text();
+      const prUrl = prCreateResult.trim();
+      const prMatch = prUrl.match(/\/pull\/(\d+)$/);
+      if (!prMatch?.[1]) throw new Error("Failed to parse PR URL");
+      const prNumber = parseInt(prMatch[1], 10);
+
+      // Wait a moment for GitHub to process the PR
+      await Bun.sleep(2000);
+
+      // Add a review comment on a specific line using GraphQL
+      // First, get the commit SHA for the PR head
+      const prDetails =
+        await $`gh pr view ${prNumber} --repo ${github.owner}/${github.repo} --json headRefOid`.text();
+      const { headRefOid } = JSON.parse(prDetails);
+
+      // Get the PR node ID first
+      const prNodeResult =
+        await $`gh api graphql -f query='query { repository(owner: "${github.owner}", name: "${github.repo}") { pullRequest(number: ${prNumber}) { id } } }'`.text();
+      const prNodeId = JSON.parse(prNodeResult).data.repository.pullRequest.id;
+
+      // Add review comment using GraphQL
+      await $`gh api graphql -f query='mutation {
+        addPullRequestReview(input: {
+          pullRequestId: "${prNodeId}",
+          event: COMMENT,
+          threads: [{
+            path: "with-comment-${uniqueId}.txt",
+            line: 1,
+            body: "This is a test review comment"
+          }],
+          commitOID: "${headRefOid}"
+        }) {
+          pullRequestReview { id }
+        }
+      }'`.quiet();
+
+      // Wait for GitHub to process the comment
+      await Bun.sleep(2000);
+
+      // Check the comment status - should have 1 total and 0 resolved
+      const status = await getPRCommentStatus(prNumber, `${github.owner}/${github.repo}`);
+      expect(status.total).toBe(1);
+      expect(status.resolved).toBe(0);
     },
     { timeout: 60000 },
   );

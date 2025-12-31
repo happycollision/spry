@@ -5,7 +5,9 @@ import {
   PRNotReadyError,
   determineChecksStatus,
   determineReviewDecision,
+  computeCommentStatus,
   type CheckRollupItem,
+  type ReviewThread,
 } from "./pr.ts";
 
 describe("github/pr", () => {
@@ -124,6 +126,41 @@ describe("github/pr", () => {
 
     test("returns 'none' for unknown value", () => {
       expect(determineReviewDecision("UNKNOWN")).toBe("none");
+    });
+  });
+
+  describe("computeCommentStatus", () => {
+    test("returns zero counts for empty threads array", () => {
+      const result = computeCommentStatus([]);
+      expect(result).toEqual({ total: 0, resolved: 0 });
+    });
+
+    test("returns correct counts when all threads are resolved", () => {
+      const threads: ReviewThread[] = [
+        { isResolved: true },
+        { isResolved: true },
+        { isResolved: true },
+      ];
+      const result = computeCommentStatus(threads);
+      expect(result).toEqual({ total: 3, resolved: 3 });
+    });
+
+    test("returns correct counts when no threads are resolved", () => {
+      const threads: ReviewThread[] = [{ isResolved: false }, { isResolved: false }];
+      const result = computeCommentStatus(threads);
+      expect(result).toEqual({ total: 2, resolved: 0 });
+    });
+
+    test("returns correct counts when some threads are resolved", () => {
+      const threads: ReviewThread[] = [
+        { isResolved: true },
+        { isResolved: false },
+        { isResolved: true },
+        { isResolved: false },
+        { isResolved: false },
+      ];
+      const result = computeCommentStatus(threads);
+      expect(result).toEqual({ total: 5, resolved: 2 });
     });
   });
 });

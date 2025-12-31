@@ -51,6 +51,11 @@ export interface CreatePROptions {
 export type ChecksStatus = "pending" | "passing" | "failing" | "none";
 export type ReviewDecision = "approved" | "changes_requested" | "review_required" | "none";
 
+export interface CommentStatus {
+  total: number;
+  resolved: number;
+}
+
 export interface PRMergeStatus {
   checksStatus: ChecksStatus;
   reviewDecision: ReviewDecision;
@@ -240,6 +245,106 @@ export async function getPRReviewStatus(prNumber: number, repo?: string): Promis
   };
 
   return determineReviewDecision(data.reviewDecision);
+}
+
+/** Raw review thread data from GraphQL API */
+export interface ReviewThread {
+  isResolved: boolean;
+}
+
+/**
+ * Compute comment status from raw review threads.
+ * Returns total thread count and resolved count.
+ * Exported for testing.
+ */
+export function computeCommentStatus(threads: ReviewThread[]): CommentStatus {
+  const total = threads.length;
+  const resolved = threads.filter((t) => t.isResolved).length;
+  return { total, resolved };
+}
+
+/**
+ * Get the comment thread resolution status for a PR.
+ * Uses GraphQL API to fetch review thread resolution status.
+ *
+ * @param prNumber - The PR number to check
+ * @param repo - Optional owner/repo string (e.g., "owner/repo"). If not provided, uses current git context.
+ */
+export async function getPRCommentStatus(prNumber: number, repo?: string): Promise<CommentStatus> {
+  await ensureGhInstalled();
+
+  // Get owner/repo from git remote if not provided
+  let owner: string;
+  let repoName: string;
+
+  if (repo) {
+    const parts = repo.split("/");
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      throw new Error(`Invalid repo format: ${repo}. Expected "owner/repo"`);
+    }
+    owner = parts[0];
+    repoName = parts[1];
+  } else {
+    const remoteResult = await $`git remote get-url origin`.quiet().nothrow();
+    if (remoteResult.exitCode !== 0) {
+      throw new Error("Failed to get git remote URL");
+    }
+    const remoteUrl = remoteResult.stdout.toString().trim();
+    // Parse owner/repo from git remote URL
+    // Supports: git@github.com:owner/repo.git or https://github.com/owner/repo.git
+    const match = remoteUrl.match(/github\.com[:/]([^/]+)\/([^/.]+)/);
+    if (!match || !match[1] || !match[2]) {
+      throw new Error(`Failed to parse owner/repo from remote URL: ${remoteUrl}`);
+    }
+    owner = match[1];
+    repoName = match[2];
+  }
+
+  const query = `
+    query($owner: String!, $repo: String!, $prNumber: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $prNumber) {
+          reviewThreads(first: 100) {
+            nodes {
+              isResolved
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const result =
+    await $`gh api graphql -f query=${query} -F owner=${owner} -F repo=${repoName} -F prNumber=${prNumber}`
+      .quiet()
+      .nothrow();
+
+  if (result.exitCode !== 0) {
+    const stderr = result.stderr.toString();
+    if (stderr.includes("not found") || stderr.includes("Could not resolve")) {
+      throw new PRNotFoundError(prNumber);
+    }
+    throw new Error(`Failed to get PR #${prNumber} comment status: ${stderr}`);
+  }
+
+  const data = JSON.parse(result.stdout.toString()) as {
+    data: {
+      repository: {
+        pullRequest: {
+          reviewThreads: {
+            nodes: ReviewThread[];
+          };
+        } | null;
+      } | null;
+    };
+  };
+
+  if (!data.data.repository?.pullRequest) {
+    throw new PRNotFoundError(prNumber);
+  }
+
+  const threads = data.data.repository.pullRequest.reviewThreads.nodes;
+  return computeCommentStatus(threads);
 }
 
 /**
