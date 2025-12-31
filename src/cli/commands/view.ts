@@ -1,6 +1,7 @@
+import { $ } from "bun";
 import { getStackCommitsWithTrailers, getCurrentBranch } from "../../git/commands.ts";
 import { parseStack } from "../../core/stack.ts";
-import { formatStackView, formatValidationError } from "../output.ts";
+import { formatStackView, formatValidationError, formatAllPRsView } from "../output.ts";
 import { getBranchNameConfig, getBranchName } from "../../github/branches.ts";
 import {
   findPRByBranch,
@@ -8,7 +9,12 @@ import {
   getPRReviewStatus,
   getPRCommentStatus,
 } from "../../github/pr.ts";
+import { ensureGhInstalled } from "../../github/api.ts";
 import type { PRUnit, EnrichedPRUnit, PRStatus } from "../../types.ts";
+
+export interface ViewOptions {
+  all?: boolean;
+}
 
 async function fetchPRStatus(prNumber: number): Promise<PRStatus> {
   const [checks, review, comments] = await Promise.all([
@@ -48,8 +54,45 @@ async function enrichUnitsWithPRInfo(units: PRUnit[]): Promise<EnrichedPRUnit[]>
   );
 }
 
-export async function viewCommand(): Promise<void> {
+export interface UserPR {
+  number: number;
+  title: string;
+  state: "OPEN" | "CLOSED" | "MERGED";
+  headRefName: string;
+  url: string;
+}
+
+async function viewAllPRs(): Promise<void> {
+  await ensureGhInstalled();
+
+  // Get current GitHub username
+  const usernameResult = await $`gh api user --jq .login`.quiet().nothrow();
+  if (usernameResult.exitCode !== 0) {
+    throw new Error("Failed to get GitHub username. Are you authenticated with `gh auth login`?");
+  }
+  const username = usernameResult.stdout.toString().trim();
+
+  // Get all PRs authored by the current user
+  const result =
+    await $`gh pr list --author ${username} --state all --json number,title,state,headRefName,url --limit 100`
+      .quiet()
+      .nothrow();
+
+  if (result.exitCode !== 0) {
+    throw new Error(`Failed to list PRs: ${result.stderr.toString()}`);
+  }
+
+  const prs = JSON.parse(result.stdout.toString()) as UserPR[];
+  console.log(formatAllPRsView(prs, username));
+}
+
+export async function viewCommand(options: ViewOptions = {}): Promise<void> {
   try {
+    if (options.all) {
+      await viewAllPRs();
+      return;
+    }
+
     const [commits, branchName] = await Promise.all([
       getStackCommitsWithTrailers(),
       getCurrentBranch(),

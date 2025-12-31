@@ -1,4 +1,5 @@
 import type { EnrichedPRUnit, PRStatus, StackParseResult } from "../types.ts";
+import type { UserPR } from "./commands/view.ts";
 import { getTasprConfig } from "../git/config.ts";
 
 const SEPARATOR = "─".repeat(72);
@@ -185,6 +186,77 @@ export function formatValidationError(result: Exclude<StackParseResult, { ok: tr
       lines.push("    1. Add Taspr-Group-Start trailer to the first commit in the group");
       lines.push("    2. Remove the Taspr-Group-End trailer");
       break;
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Get status icon based on PR state string.
+ */
+function getAllPRStatusIcon(state: "OPEN" | "CLOSED" | "MERGED"): string {
+  switch (state) {
+    case "OPEN":
+      return "◐";
+    case "MERGED":
+      return "✓";
+    case "CLOSED":
+      return "✗";
+    default:
+      return "○";
+  }
+}
+
+/**
+ * Format the view of all PRs authored by the current user.
+ */
+export function formatAllPRsView(prs: UserPR[], username: string): string {
+  const lines: string[] = [];
+
+  // Group PRs by state
+  const openPRs = prs.filter((pr) => pr.state === "OPEN");
+  const mergedPRs = prs.filter((pr) => pr.state === "MERGED");
+  const closedPRs = prs.filter((pr) => pr.state === "CLOSED");
+
+  lines.push(`All PRs by ${username}`);
+  lines.push("");
+
+  if (prs.length === 0) {
+    lines.push("  No PRs found");
+    return lines.join("\n");
+  }
+
+  // Open PRs
+  if (openPRs.length > 0) {
+    lines.push(`Open (${openPRs.length})`);
+    lines.push(SEPARATOR);
+    for (const pr of openPRs) {
+      lines.push(`  ${getAllPRStatusIcon(pr.state)} #${pr.number} ${pr.title}`);
+      lines.push(`    ${pr.url}`);
+    }
+    lines.push("");
+  }
+
+  // Merged PRs
+  if (mergedPRs.length > 0) {
+    lines.push(`Merged (${mergedPRs.length})`);
+    lines.push(SEPARATOR);
+    for (const pr of mergedPRs) {
+      lines.push(`  ${getAllPRStatusIcon(pr.state)} #${pr.number} ${pr.title}`);
+      lines.push(`    ${pr.url}`);
+    }
+    lines.push("");
+  }
+
+  // Closed PRs (not merged)
+  if (closedPRs.length > 0) {
+    lines.push(`Closed (${closedPRs.length})`);
+    lines.push(SEPARATOR);
+    for (const pr of closedPRs) {
+      lines.push(`  ${getAllPRStatusIcon(pr.state)} #${pr.number} ${pr.title}`);
+      lines.push(`    ${pr.url}`);
+    }
+    lines.push("");
   }
 
   return lines.join("\n");

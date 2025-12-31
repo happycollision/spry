@@ -9,7 +9,11 @@ const program = new Command();
 
 program.name("taspr").description("CLI tool for managing stacked PRs on GitHub").version("0.1.0");
 
-program.command("view").description("View the current stack of commits").action(viewCommand);
+program
+  .command("view")
+  .description("View the current stack of commits")
+  .option("--all", "Show all PRs authored by the current user")
+  .action((options) => viewCommand(options));
 
 program
   .command("sync")
