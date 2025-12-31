@@ -1,5 +1,5 @@
 import { requireCleanWorkingTree, DirtyWorkingTreeError } from "../../git/status.ts";
-import { injectMissingIds } from "../../git/rebase.ts";
+import { injectMissingIds, getConflictInfo, formatConflictError } from "../../git/rebase.ts";
 import { getStackCommitsWithTrailers } from "../../git/commands.ts";
 import { parseStack } from "../../core/stack.ts";
 import {
@@ -86,6 +86,13 @@ async function cleanupMergedPRs(
 
 export async function syncCommand(options: SyncOptions = {}): Promise<void> {
   try {
+    // Check for ongoing rebase conflict
+    const conflict = await getConflictInfo();
+    if (conflict) {
+      console.error(formatConflictError(conflict));
+      process.exit(1);
+    }
+
     // Check for uncommitted changes
     await requireCleanWorkingTree();
 

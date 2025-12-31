@@ -144,6 +144,50 @@ describe("cli/commands/sync", () => {
     expect(result.stderr).toBe("");
   });
 
+  test("blocks when mid-rebase conflict is detected", async () => {
+    fixture = await createGitFixture();
+
+    // Create a file that will conflict
+    const conflictFile = "conflict.txt";
+    await Bun.write(join(fixture.path, conflictFile), "Original content\n");
+    await $`git -C ${fixture.path} add .`.quiet();
+    await $`git -C ${fixture.path} commit -m "Add conflict file"`.quiet();
+    await $`git -C ${fixture.path} push origin main`.quiet();
+
+    // Create feature branch and modify the file
+    await fixture.checkout("feature-conflict", { create: true });
+    await Bun.write(join(fixture.path, conflictFile), "Feature content\n");
+    await $`git -C ${fixture.path} add .`.quiet();
+    await $`git -C ${fixture.path} commit -m "Feature change"`.quiet();
+
+    // Update main with conflicting change via worktree
+    const tempWorktree = `${fixture.originPath}-worktree`;
+    await $`git clone ${fixture.originPath} ${tempWorktree}`.quiet();
+    await $`git -C ${tempWorktree} config user.email "other@example.com"`.quiet();
+    await $`git -C ${tempWorktree} config user.name "Other User"`.quiet();
+    await Bun.write(join(tempWorktree, conflictFile), "Main content\n");
+    await $`git -C ${tempWorktree} add .`.quiet();
+    await $`git -C ${tempWorktree} commit -m "Main change"`.quiet();
+    await $`git -C ${tempWorktree} push origin main`.quiet();
+    await $`rm -rf ${tempWorktree}`.quiet();
+
+    // Fetch and attempt rebase (will conflict)
+    await $`git -C ${fixture.path} fetch origin`.quiet();
+    await $`git -C ${fixture.path} rebase origin/main`.quiet().nothrow();
+
+    // Now try to run sync - should detect the conflict
+    const result = await runSync(fixture.path);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Rebase conflict");
+    expect(result.stderr).toContain(conflictFile);
+    expect(result.stderr).toContain("git add");
+    expect(result.stderr).toContain("git rebase --continue");
+
+    // Clean up
+    await $`git -C ${fixture.path} rebase --abort`.quiet().nothrow();
+  });
+
   // TODO: Add tests for --open flag once VCR-style testing is implemented
   // See: taspr-xtq (VCR-style testing for GitHub API calls)
 });
