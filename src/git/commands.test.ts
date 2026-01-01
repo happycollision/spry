@@ -1,4 +1,4 @@
-import { test, expect, afterEach, describe } from "bun:test";
+import { test, expect, describe } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../../tests/helpers/local-repo.ts";
 import {
@@ -10,7 +10,6 @@ import {
 import { join } from "node:path";
 
 const repos = repoManager();
-afterEach(() => repos.cleanup());
 
 describe("git/commands", () => {
   describe("getMergeBase", () => {

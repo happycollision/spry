@@ -11,7 +11,6 @@ import { pushBranch, type BranchNameConfig } from "../github/branches.ts";
 import type { PRUnit } from "../types.ts";
 
 const repos = repoManager();
-afterEach(() => repos.cleanup());
 
 const testConfig: BranchNameConfig = { prefix: "taspr", username: "testuser" };
 

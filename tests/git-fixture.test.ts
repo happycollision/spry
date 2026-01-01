@@ -3,7 +3,6 @@ import { repoManager } from "./helpers/local-repo.ts";
 import { $ } from "bun";
 
 const repos = repoManager();
-afterEach(() => repos.cleanup());
 
 test("creates a git repository with initial commit", async () => {
   const repo = await repos.create();

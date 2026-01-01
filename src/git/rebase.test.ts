@@ -1,4 +1,4 @@
-import { test, expect, afterEach, describe } from "bun:test";
+import { test, expect, describe } from "bun:test";
 import { $ } from "bun";
 import { join } from "node:path";
 import { repoManager } from "../../tests/helpers/local-repo.ts";
@@ -13,7 +13,6 @@ import {
 import { getStackCommitsWithTrailers } from "./commands.ts";
 
 const repos = repoManager();
-afterEach(() => repos.cleanup());
 
 describe("git/rebase", () => {
   describe("injectMissingIds", () => {

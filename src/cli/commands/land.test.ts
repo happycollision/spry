@@ -1,9 +1,8 @@
-import { test, expect, afterEach, describe } from "bun:test";
+import { test, expect, describe } from "bun:test";
 import { repoManager } from "../../../tests/helpers/local-repo.ts";
 import { runLand } from "../../../tests/integration/helpers.ts";
 
 const repos = repoManager();
-afterEach(() => repos.cleanup());
 
 describe("cli/commands/land", () => {
   test("reports when stack is empty", async () => {

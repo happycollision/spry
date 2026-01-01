@@ -1,9 +1,8 @@
-import { test, expect, afterEach, describe } from "bun:test";
+import { test, expect, describe } from "bun:test";
 import { repoManager } from "../../tests/helpers/local-repo.ts";
 import { parseTrailers, getCommitTrailers, addTrailers } from "./trailers.ts";
 
 const repos = repoManager();
-afterEach(() => repos.cleanup());
 
 describe("git/trailers", () => {
   describe("parseTrailers", () => {

@@ -1,9 +1,8 @@
-import { test, expect, afterEach, describe } from "bun:test";
+import { test, expect, describe } from "bun:test";
 import { repoManager } from "../../tests/helpers/local-repo.ts";
 import { isStackBehindMain, getCommitsBehind } from "./behind.ts";
 
 const repos = repoManager();
-afterEach(() => repos.cleanup());
 
 describe("git/behind", () => {
   describe("isStackBehindMain", () => {

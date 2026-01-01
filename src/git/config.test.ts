@@ -10,9 +10,8 @@ beforeEach(() => {
   originalCwd = process.cwd();
 });
 
-afterEach(async () => {
+afterEach(() => {
   process.chdir(originalCwd);
-  await repos.cleanup();
 });
 
 describe("git/config", () => {

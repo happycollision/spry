@@ -359,10 +359,10 @@ export interface GitHubRepoManager {
 
 /**
  * Create a repo manager for local-only tests (bare origin, no GitHub).
+ * Automatically sets up beforeEach/afterEach hooks for cleanup.
  *
  * Usage:
  *   const repos = repoManager();
- *   afterEach(() => repos.cleanup());
  *
  *   test("...", async () => {
  *     const repo = await repos.create();
@@ -443,6 +443,17 @@ export function repoManager(options?: { github?: boolean }): LocalRepoManager | 
 
   // Local-only repos
   const activeRepos: LocalRepo[] = [];
+
+  beforeEach(() => {
+    ctx.uniqueId = generateUniqueId();
+  });
+
+  afterEach(async () => {
+    for (const repo of activeRepos) {
+      await repo.cleanup();
+    }
+    activeRepos.length = 0;
+  });
 
   return {
     async create(): Promise<LocalRepo> {

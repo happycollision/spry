@@ -1,4 +1,4 @@
-import { test, expect, afterEach, describe } from "bun:test";
+import { test, expect, describe } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../../../tests/helpers/local-repo.ts";
 import { runSync } from "../../../tests/integration/helpers.ts";
@@ -6,7 +6,6 @@ import { getStackCommitsWithTrailers } from "../../git/commands.ts";
 import { join } from "node:path";
 
 const repos = repoManager();
-afterEach(() => repos.cleanup());
 
 describe("cli/commands/sync", () => {
   test("adds IDs to commits that don't have them", async () => {

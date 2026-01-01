@@ -4,7 +4,6 @@ import { repoManager } from "../../tests/helpers/local-repo.ts";
 import { getBranchName, pushBranch, type BranchNameConfig } from "./branches.ts";
 
 const repos = repoManager();
-afterEach(() => repos.cleanup());
 
 describe("github/branches", () => {
   describe("getBranchName", () => {

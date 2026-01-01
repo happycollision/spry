@@ -1,4 +1,4 @@
-import { test, expect, afterEach, describe, setDefaultTimeout } from "bun:test";
+import { test, expect, describe, setDefaultTimeout } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../../tests/helpers/local-repo.ts";
 import { getWorkingTreeStatus, requireCleanWorkingTree, DirtyWorkingTreeError } from "./status.ts";
@@ -8,7 +8,6 @@ import { join } from "node:path";
 setDefaultTimeout(15_000);
 
 const repos = repoManager();
-afterEach(() => repos.cleanup());
 
 describe("git/status", () => {
   describe("getWorkingTreeStatus", () => {
