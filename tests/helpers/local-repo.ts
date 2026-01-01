@@ -1,14 +1,15 @@
 /**
  * Composable test primitives for taspr integration tests.
  *
- * Instead of a rigid fluent builder, these are small helpers that
- * can be mixed and matched as needed.
+ * Provides `repoManager()` for local-only repos (bare origin) and
+ * `repoManager({ github: true })` for GitHub integration tests.
  */
 
 import { $ } from "bun";
 import { beforeAll, beforeEach, afterEach } from "bun:test";
 import { join } from "node:path";
-import { rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { createGitHubFixture, type GitHubFixture } from "./github-fixture.ts";
 import { generateUniqueId } from "./unique-id.ts";
 
@@ -17,29 +18,180 @@ interface TestContext {
   uniqueId: string;
 }
 
-/**
- * A local git clone with helper methods.
- */
-export interface LocalRepo {
+// ============================================================================
+// Base repo interface (shared by both local and GitHub repos)
+// ============================================================================
+
+interface BaseRepo {
   path: string;
-  github: GitHubFixture;
-  /** Unique identifier for this test - useful for finding PRs */
+  /** Unique identifier for this test run */
   readonly uniqueId: string;
 
   /** Create a commit with auto-generated file */
-  commit(message: string): Promise<string>;
+  commit(message: string, options?: { trailers?: Record<string, string> }): Promise<string>;
 
   /** Create a commit with specific files */
-  commitFiles(message: string, files: Record<string, string>): Promise<string>;
+  commitFiles(
+    message: string,
+    files: Record<string, string>,
+    options?: { trailers?: Record<string, string> },
+  ): Promise<string>;
 
   /** Create a new branch and switch to it. Automatically made unique. */
   branch(name: string): Promise<string>;
 
-  /** Checkout existing branch */
+  /** Checkout an existing branch */
   checkout(name: string): Promise<void>;
 
   /** Fetch from origin */
   fetch(): Promise<void>;
+
+  /** Get current branch name */
+  currentBranch(): Promise<string>;
+
+  /** Clean up the repo */
+  cleanup(): Promise<void>;
+}
+
+// ============================================================================
+// Local-only repo (no GitHub)
+// ============================================================================
+
+export interface LocalRepo extends BaseRepo {
+  originPath: string;
+  /** Update origin/main with a new commit (simulates another developer's work) */
+  updateOriginMain(message: string, files?: Record<string, string>): Promise<void>;
+}
+
+/**
+ * Create a local git repo with a bare origin (no GitHub).
+ */
+async function createLocalRepo(ctx: TestContext): Promise<LocalRepo> {
+  // Create the "origin" bare repository first
+  const originPath = await mkdtemp(join(tmpdir(), "taspr-test-origin-"));
+  await $`git init --bare ${originPath}`.quiet();
+
+  // Create the working repository
+  const path = await mkdtemp(join(tmpdir(), "taspr-test-"));
+  await $`git init ${path}`.quiet();
+  await $`git -C ${path} config user.email "test@example.com"`.quiet();
+  await $`git -C ${path} config user.name "Test User"`.quiet();
+
+  // Add origin remote pointing to the bare repo
+  await $`git -C ${path} remote add origin ${originPath}`.quiet();
+
+  // Create initial commit on main
+  const readmePath = join(path, "README.md");
+  await Bun.write(readmePath, "# Test Repo\n");
+  await $`git -C ${path} add .`.quiet();
+  await $`git -C ${path} commit -m "Initial commit"`.quiet();
+
+  // Push main to origin so origin/main exists
+  await $`git -C ${path} push -u origin main`.quiet();
+
+  let fileCounter = 0;
+
+  return {
+    path,
+    originPath,
+
+    get uniqueId() {
+      return ctx.uniqueId;
+    },
+
+    async commit(
+      message: string,
+      options?: { trailers?: Record<string, string> },
+    ): Promise<string> {
+      const filename = `file-${ctx.uniqueId}-${fileCounter++}.txt`;
+      let fullMessage = `${message} [${ctx.uniqueId}]`;
+      if (options?.trailers) {
+        fullMessage += "\n\n";
+        for (const [key, value] of Object.entries(options.trailers)) {
+          fullMessage += `${key}: ${value}\n`;
+        }
+      }
+      await Bun.write(join(path, filename), `Content for: ${message}\n`);
+      await $`git -C ${path} add .`.quiet();
+      await $`git -C ${path} commit -m ${fullMessage}`.quiet();
+      return (await $`git -C ${path} rev-parse HEAD`.text()).trim();
+    },
+
+    async commitFiles(
+      message: string,
+      files: Record<string, string>,
+      options?: { trailers?: Record<string, string> },
+    ): Promise<string> {
+      for (const [filename, content] of Object.entries(files)) {
+        await Bun.write(join(path, filename), content);
+      }
+      let fullMessage = `${message} [${ctx.uniqueId}]`;
+      if (options?.trailers) {
+        fullMessage += "\n\n";
+        for (const [key, value] of Object.entries(options.trailers)) {
+          fullMessage += `${key}: ${value}\n`;
+        }
+      }
+      await $`git -C ${path} add .`.quiet();
+      await $`git -C ${path} commit -m ${fullMessage}`.quiet();
+      return (await $`git -C ${path} rev-parse HEAD`.text()).trim();
+    },
+
+    async branch(name: string): Promise<string> {
+      const branchName = `${name}-${ctx.uniqueId}`;
+      await $`git -C ${path} checkout -b ${branchName}`.quiet();
+      return branchName;
+    },
+
+    async checkout(name: string): Promise<void> {
+      await $`git -C ${path} checkout ${name}`.quiet();
+    },
+
+    async fetch(): Promise<void> {
+      await $`git -C ${path} fetch origin`.quiet();
+    },
+
+    async currentBranch(): Promise<string> {
+      return (await $`git -C ${path} rev-parse --abbrev-ref HEAD`.text()).trim();
+    },
+
+    async updateOriginMain(message: string, files?: Record<string, string>): Promise<void> {
+      const tempWorktree = `${originPath}-worktree-${Date.now()}`;
+      try {
+        await $`git clone ${originPath} ${tempWorktree}`.quiet();
+        await $`git -C ${tempWorktree} config user.email "other@example.com"`.quiet();
+        await $`git -C ${tempWorktree} config user.name "Other User"`.quiet();
+
+        if (files) {
+          for (const [filename, content] of Object.entries(files)) {
+            await Bun.write(join(tempWorktree, filename), content);
+          }
+        } else {
+          const filename = `main-update-${Date.now()}.txt`;
+          await Bun.write(join(tempWorktree, filename), `Update: ${message}\n`);
+        }
+
+        await $`git -C ${tempWorktree} add .`.quiet();
+        await $`git -C ${tempWorktree} commit -m ${message}`.quiet();
+        await $`git -C ${tempWorktree} push origin main`.quiet();
+      } finally {
+        await rm(tempWorktree, { recursive: true, force: true });
+      }
+    },
+
+    async cleanup(): Promise<void> {
+      await rm(path, { recursive: true, force: true });
+      await rm(originPath, { recursive: true, force: true });
+    },
+  };
+}
+
+// ============================================================================
+// GitHub repo (with PR support)
+// ============================================================================
+
+export interface GitHubRepo extends BaseRepo {
+  github: GitHubFixture;
 
   /** Find PR by title substring */
   findPR(titleSubstring: string): Promise<{ number: number; title: string; headRefName: string }>;
@@ -51,18 +203,12 @@ export interface LocalRepo {
 
   /** Wait for branch to be deleted (handles GitHub eventual consistency) */
   waitForBranchGone(branchName: string, timeoutMs?: number): Promise<boolean>;
-
-  /** Get current branch name */
-  currentBranch(): Promise<string>;
-
-  /** Clean up the repo */
-  cleanup(): Promise<void>;
 }
 
 /**
- * Clone a GitHub repo and return a LocalRepo with helpers.
+ * Clone a GitHub repo and return a GitHubRepo with helpers.
  */
-async function cloneRepo(github: GitHubFixture, ctx: TestContext): Promise<LocalRepo> {
+async function cloneGitHubRepo(github: GitHubFixture, ctx: TestContext): Promise<GitHubRepo> {
   const tmpResult = await $`mktemp -d`.text();
   const path = tmpResult.trim();
 
@@ -88,27 +234,44 @@ async function cloneRepo(github: GitHubFixture, ctx: TestContext): Promise<Local
   return {
     path,
     github,
-    // Getter so it always returns the current value from context
+
     get uniqueId() {
       return ctx.uniqueId;
     },
 
-    async commit(message: string): Promise<string> {
+    async commit(
+      message: string,
+      options?: { trailers?: Record<string, string> },
+    ): Promise<string> {
       const filename = `file-${ctx.uniqueId}-${fileCounter++}.txt`;
-      // Append uniqueId to commit message for easy PR discovery
-      const fullMessage = `${message} [${ctx.uniqueId}]`;
+      let fullMessage = `${message} [${ctx.uniqueId}]`;
+      if (options?.trailers) {
+        fullMessage += "\n\n";
+        for (const [key, value] of Object.entries(options.trailers)) {
+          fullMessage += `${key}: ${value}\n`;
+        }
+      }
       await Bun.write(join(path, filename), `Content for: ${message}\n`);
       await $`git -C ${path} add .`.quiet();
       await $`git -C ${path} commit -m ${fullMessage}`.quiet();
       return (await $`git -C ${path} rev-parse HEAD`.text()).trim();
     },
 
-    async commitFiles(message: string, files: Record<string, string>): Promise<string> {
+    async commitFiles(
+      message: string,
+      files: Record<string, string>,
+      options?: { trailers?: Record<string, string> },
+    ): Promise<string> {
       for (const [filename, content] of Object.entries(files)) {
         await Bun.write(join(path, filename), content);
       }
-      // Append uniqueId to commit message for easy PR discovery
-      const fullMessage = `${message} [${ctx.uniqueId}]`;
+      let fullMessage = `${message} [${ctx.uniqueId}]`;
+      if (options?.trailers) {
+        fullMessage += "\n\n";
+        for (const [key, value] of Object.entries(options.trailers)) {
+          fullMessage += `${key}: ${value}\n`;
+        }
+      }
       await $`git -C ${path} add .`.quiet();
       await $`git -C ${path} commit -m ${fullMessage}`.quiet();
       return (await $`git -C ${path} rev-parse HEAD`.text()).trim();
@@ -126,6 +289,10 @@ async function cloneRepo(github: GitHubFixture, ctx: TestContext): Promise<Local
 
     async fetch(): Promise<void> {
       await $`git -C ${path} fetch origin`.quiet();
+    },
+
+    async currentBranch(): Promise<string> {
+      return (await $`git -C ${path} rev-parse --abbrev-ref HEAD`.text()).trim();
     },
 
     async findPR(
@@ -160,66 +327,78 @@ async function cloneRepo(github: GitHubFixture, ctx: TestContext): Promise<Local
       return false;
     },
 
-    async currentBranch(): Promise<string> {
-      return (await $`git -C ${path} rev-parse --abbrev-ref HEAD`.text()).trim();
-    },
-
     async cleanup(): Promise<void> {
       await rm(path, { recursive: true, force: true });
     },
   };
 }
 
-export interface RepoManagerOptions {
-  /** Set up GitHub fixture with beforeAll/beforeEach/afterEach hooks */
-  github?: boolean;
-}
+// ============================================================================
+// Repo managers (with function overloads for type safety)
+// ============================================================================
 
-export interface RepoManager {
-  /** Clone a repo (uses internal github fixture if github option was set) */
-  clone(github?: GitHubFixture): Promise<LocalRepo>;
+export interface LocalRepoManager {
+  /** Create a local repo with bare origin */
+  create(): Promise<LocalRepo>;
   /** Clean up all repos */
   cleanup(): Promise<void>;
-  /** The GitHub fixture (only available if github option was set) */
-  github: GitHubFixture | null;
-  /** Current test's unique ID (e.g., "happy-penguin-x3f") - regenerated each test */
-  uniqueId: string;
+  /** Current test's unique ID */
+  readonly uniqueId: string;
+}
+
+export interface GitHubRepoManager {
+  /** Clone the GitHub test repo */
+  clone(): Promise<GitHubRepo>;
+  /** Clean up all repos */
+  cleanup(): Promise<void>;
+  /** The GitHub fixture */
+  readonly github: GitHubFixture;
+  /** Current test's unique ID */
+  readonly uniqueId: string;
 }
 
 /**
- * Manages multiple repos with automatic cleanup.
+ * Create a repo manager for local-only tests (bare origin, no GitHub).
  *
- * Usage (simple):
+ * Usage:
  *   const repos = repoManager();
  *   afterEach(() => repos.cleanup());
  *
  *   test("...", async () => {
- *     const repo = await repos.clone(github);
- *     // ...
+ *     const repo = await repos.create();
+ *     await repo.commit("Add feature");
+ *     await repo.updateOriginMain("Upstream change");
  *   });
+ */
+export function repoManager(): LocalRepoManager;
+
+/**
+ * Create a repo manager for GitHub integration tests.
+ * Automatically sets up beforeAll/beforeEach/afterEach hooks.
  *
- * Usage (with github fixture auto-setup):
+ * Usage:
  *   const repos = repoManager({ github: true });
- *   // beforeAll, beforeEach, afterEach are called automatically
  *
  *   test("...", async () => {
  *     const repo = await repos.clone();
- *     // repos.github is available
- *     // repos.uniqueId is "happy-penguin-x3f" or similar
+ *     await repo.commit("Add feature");
+ *     const pr = await repo.findPR("Add feature");
  *   });
  */
-export function repoManager(options?: RepoManagerOptions): RepoManager {
-  const activeRepos: LocalRepo[] = [];
-  let githubFixture: GitHubFixture | null = null;
+export function repoManager(options: { github: true }): GitHubRepoManager;
+
+export function repoManager(options?: { github?: boolean }): LocalRepoManager | GitHubRepoManager {
   const ctx: TestContext = { uniqueId: generateUniqueId() };
 
   if (options?.github) {
+    const activeRepos: GitHubRepo[] = [];
+    let githubFixture: GitHubFixture | null = null;
+
     beforeAll(async () => {
       githubFixture = await createGitHubFixture();
     });
 
     beforeEach(async () => {
-      // Generate fresh unique ID for each test
       ctx.uniqueId = generateUniqueId();
       await githubFixture?.reset();
     });
@@ -231,17 +410,43 @@ export function repoManager(options?: RepoManagerOptions): RepoManager {
       }
       activeRepos.length = 0;
     });
+
+    return {
+      async clone(): Promise<GitHubRepo> {
+        if (!githubFixture) {
+          throw new Error("GitHub fixture not initialized - beforeAll hasn't run yet");
+        }
+        const repo = await cloneGitHubRepo(githubFixture, ctx);
+        activeRepos.push(repo);
+        return repo;
+      },
+
+      async cleanup(): Promise<void> {
+        for (const repo of activeRepos) {
+          await repo.cleanup();
+        }
+        activeRepos.length = 0;
+      },
+
+      get github(): GitHubFixture {
+        if (!githubFixture) {
+          throw new Error("GitHub fixture not initialized - beforeAll hasn't run yet");
+        }
+        return githubFixture;
+      },
+
+      get uniqueId(): string {
+        return ctx.uniqueId;
+      },
+    };
   }
 
+  // Local-only repos
+  const activeRepos: LocalRepo[] = [];
+
   return {
-    async clone(github?: GitHubFixture): Promise<LocalRepo> {
-      const fixture = github ?? githubFixture;
-      if (!fixture) {
-        throw new Error(
-          "No GitHub fixture available. Either pass one to clone() or use repoManager({ github: true })",
-        );
-      }
-      const repo = await cloneRepo(fixture, ctx);
+    async create(): Promise<LocalRepo> {
+      const repo = await createLocalRepo(ctx);
       activeRepos.push(repo);
       return repo;
     },
@@ -251,10 +456,6 @@ export function repoManager(options?: RepoManagerOptions): RepoManager {
         await repo.cleanup();
       }
       activeRepos.length = 0;
-    },
-
-    get github(): GitHubFixture | null {
-      return githubFixture;
     },
 
     get uniqueId(): string {

@@ -1,21 +1,21 @@
 import { test, expect, afterEach, describe, setDefaultTimeout } from "bun:test";
 import { $ } from "bun";
-import { fixtureManager } from "../../tests/helpers/git-fixture.ts";
+import { repoManager } from "../../tests/helpers/local-repo.ts";
 import { getWorkingTreeStatus, requireCleanWorkingTree, DirtyWorkingTreeError } from "./status.ts";
 import { join } from "node:path";
 
 // Git operations can be slow under load, increase default timeout
 setDefaultTimeout(15_000);
 
-const fixtures = fixtureManager();
-afterEach(() => fixtures.cleanup());
+const repos = repoManager();
+afterEach(() => repos.cleanup());
 
 describe("git/status", () => {
   describe("getWorkingTreeStatus", () => {
     test("clean working tree", async () => {
-      const fixture = await fixtures.create();
+      const repo = await repos.create();
 
-      const status = await getWorkingTreeStatus({ cwd: fixture.path });
+      const status = await getWorkingTreeStatus({ cwd: repo.path });
 
       expect(status.isDirty).toBe(false);
       expect(status.hasStagedChanges).toBe(false);
@@ -24,10 +24,10 @@ describe("git/status", () => {
     });
 
     test("detects untracked files", async () => {
-      const fixture = await fixtures.create();
-      await Bun.write(join(fixture.path, "untracked.ts"), "// untracked");
+      const repo = await repos.create();
+      await Bun.write(join(repo.path, "untracked.ts"), "// untracked");
 
-      const status = await getWorkingTreeStatus({ cwd: fixture.path });
+      const status = await getWorkingTreeStatus({ cwd: repo.path });
 
       expect(status.isDirty).toBe(true);
       expect(status.hasUntrackedFiles).toBe(true);
@@ -36,11 +36,11 @@ describe("git/status", () => {
     });
 
     test("detects staged changes", async () => {
-      const fixture = await fixtures.create();
-      await Bun.write(join(fixture.path, "staged.ts"), "// staged");
-      await $`git -C ${fixture.path} add staged.ts`.quiet();
+      const repo = await repos.create();
+      await Bun.write(join(repo.path, "staged.ts"), "// staged");
+      await $`git -C ${repo.path} add staged.ts`.quiet();
 
-      const status = await getWorkingTreeStatus({ cwd: fixture.path });
+      const status = await getWorkingTreeStatus({ cwd: repo.path });
 
       expect(status.isDirty).toBe(true);
       expect(status.hasStagedChanges).toBe(true);
@@ -49,11 +49,11 @@ describe("git/status", () => {
     });
 
     test("detects unstaged changes to tracked file", async () => {
-      const fixture = await fixtures.create();
+      const repo = await repos.create();
       // Modify existing tracked file
-      await Bun.write(join(fixture.path, "README.md"), "# Modified");
+      await Bun.write(join(repo.path, "README.md"), "# Modified");
 
-      const status = await getWorkingTreeStatus({ cwd: fixture.path });
+      const status = await getWorkingTreeStatus({ cwd: repo.path });
 
       expect(status.isDirty).toBe(true);
       expect(status.hasUnstagedChanges).toBe(true);
@@ -62,14 +62,14 @@ describe("git/status", () => {
     });
 
     test("detects both staged and unstaged changes", async () => {
-      const fixture = await fixtures.create();
+      const repo = await repos.create();
       // Stage a new file
-      await Bun.write(join(fixture.path, "staged.ts"), "// staged");
-      await $`git -C ${fixture.path} add staged.ts`.quiet();
+      await Bun.write(join(repo.path, "staged.ts"), "// staged");
+      await $`git -C ${repo.path} add staged.ts`.quiet();
       // Modify tracked file without staging
-      await Bun.write(join(fixture.path, "README.md"), "# Modified");
+      await Bun.write(join(repo.path, "README.md"), "# Modified");
 
-      const status = await getWorkingTreeStatus({ cwd: fixture.path });
+      const status = await getWorkingTreeStatus({ cwd: repo.path });
 
       expect(status.isDirty).toBe(true);
       expect(status.hasStagedChanges).toBe(true);
@@ -79,27 +79,27 @@ describe("git/status", () => {
 
   describe("requireCleanWorkingTree", () => {
     test("passes with clean working tree", async () => {
-      const fixture = await fixtures.create();
+      const repo = await repos.create();
 
       // Should not throw
-      await requireCleanWorkingTree({ cwd: fixture.path });
+      await requireCleanWorkingTree({ cwd: repo.path });
     });
 
     test("passes with only untracked files", async () => {
-      const fixture = await fixtures.create();
-      await Bun.write(join(fixture.path, "untracked.ts"), "// untracked");
+      const repo = await repos.create();
+      await Bun.write(join(repo.path, "untracked.ts"), "// untracked");
 
       // Should not throw - untracked files don't affect rebase
-      await requireCleanWorkingTree({ cwd: fixture.path });
+      await requireCleanWorkingTree({ cwd: repo.path });
     });
 
     test("throws DirtyWorkingTreeError with staged changes", async () => {
-      const fixture = await fixtures.create();
-      await Bun.write(join(fixture.path, "staged.ts"), "// staged");
-      await $`git -C ${fixture.path} add staged.ts`.quiet();
+      const repo = await repos.create();
+      await Bun.write(join(repo.path, "staged.ts"), "// staged");
+      await $`git -C ${repo.path} add staged.ts`.quiet();
 
       try {
-        await requireCleanWorkingTree({ cwd: fixture.path });
+        await requireCleanWorkingTree({ cwd: repo.path });
         expect.unreachable("Should have thrown");
       } catch (e) {
         expect(e).toBeInstanceOf(DirtyWorkingTreeError);
@@ -107,11 +107,11 @@ describe("git/status", () => {
     });
 
     test("throws DirtyWorkingTreeError with unstaged changes", async () => {
-      const fixture = await fixtures.create();
-      await Bun.write(join(fixture.path, "README.md"), "# Modified");
+      const repo = await repos.create();
+      await Bun.write(join(repo.path, "README.md"), "# Modified");
 
       try {
-        await requireCleanWorkingTree({ cwd: fixture.path });
+        await requireCleanWorkingTree({ cwd: repo.path });
         expect.unreachable("Should have thrown");
       } catch (e) {
         expect(e).toBeInstanceOf(DirtyWorkingTreeError);
@@ -119,13 +119,13 @@ describe("git/status", () => {
     });
 
     test("error message describes the problem", async () => {
-      const fixture = await fixtures.create();
-      await Bun.write(join(fixture.path, "staged.ts"), "// staged");
-      await $`git -C ${fixture.path} add staged.ts`.quiet();
-      await Bun.write(join(fixture.path, "README.md"), "# Modified");
+      const repo = await repos.create();
+      await Bun.write(join(repo.path, "staged.ts"), "// staged");
+      await $`git -C ${repo.path} add staged.ts`.quiet();
+      await Bun.write(join(repo.path, "README.md"), "# Modified");
 
       try {
-        await requireCleanWorkingTree({ cwd: fixture.path });
+        await requireCleanWorkingTree({ cwd: repo.path });
         expect.unreachable("Should have thrown");
       } catch (e) {
         expect(e).toBeInstanceOf(DirtyWorkingTreeError);

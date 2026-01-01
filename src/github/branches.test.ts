@@ -1,10 +1,10 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import { $ } from "bun";
-import { fixtureManager } from "../../tests/helpers/git-fixture.ts";
+import { repoManager } from "../../tests/helpers/local-repo.ts";
 import { getBranchName, pushBranch, type BranchNameConfig } from "./branches.ts";
 
-const fixtures = fixtureManager();
-afterEach(() => fixtures.cleanup());
+const repos = repoManager();
+afterEach(() => repos.cleanup());
 
 describe("github/branches", () => {
   describe("getBranchName", () => {
@@ -21,51 +21,49 @@ describe("github/branches", () => {
 
   describe("pushBranch", () => {
     test("pushes a commit to a new branch", async () => {
-      const fixture = await fixtures.create();
-      await fixture.checkout("feature-push-test", { create: true });
+      const repo = await repos.create();
+      await repo.branch("feature");
 
-      const commitHash = await fixture.commit("Test commit");
+      const commitHash = await repo.commit("Test commit");
 
       // Push to a new branch in origin
-      await pushBranch(commitHash, "taspr/testuser/test123", false, { cwd: fixture.path });
+      await pushBranch(commitHash, "taspr/testuser/test123", false, { cwd: repo.path });
 
       // Verify the branch exists in origin
-      const result =
-        await $`git -C ${fixture.originPath} branch --list taspr/testuser/test123`.text();
+      const result = await $`git -C ${repo.originPath} branch --list taspr/testuser/test123`.text();
       expect(result.trim()).toBe("taspr/testuser/test123");
     });
 
     test("updates an existing branch", async () => {
-      const fixture = await fixtures.create();
-      await fixture.checkout("feature-update-test", { create: true });
+      const repo = await repos.create();
+      await repo.branch("feature");
 
-      const firstCommit = await fixture.commit("First commit");
-      await pushBranch(firstCommit, "taspr/testuser/update123", false, { cwd: fixture.path });
+      const firstCommit = await repo.commit("First commit");
+      await pushBranch(firstCommit, "taspr/testuser/update123", false, { cwd: repo.path });
 
-      const secondCommit = await fixture.commit("Second commit");
-      await pushBranch(secondCommit, "taspr/testuser/update123", true, { cwd: fixture.path });
+      const secondCommit = await repo.commit("Second commit");
+      await pushBranch(secondCommit, "taspr/testuser/update123", true, { cwd: repo.path });
 
       // Verify the branch points to the second commit
-      const result =
-        await $`git -C ${fixture.originPath} rev-parse taspr/testuser/update123`.text();
+      const result = await $`git -C ${repo.originPath} rev-parse taspr/testuser/update123`.text();
       expect(result.trim()).toBe(secondCommit);
     });
 
     test("force push overwrites divergent history", async () => {
-      const fixture = await fixtures.create();
-      await fixture.checkout("feature-force-test", { create: true });
+      const repo = await repos.create();
+      await repo.branch("feature");
 
-      const commit1 = await fixture.commit("Commit 1");
-      await pushBranch(commit1, "taspr/testuser/force123", false, { cwd: fixture.path });
+      const commit1 = await repo.commit("Commit 1");
+      await pushBranch(commit1, "taspr/testuser/force123", false, { cwd: repo.path });
 
       // Create a different commit (simulating a rebase)
-      await $`git -C ${fixture.path} reset --hard HEAD~1`.quiet();
-      const commit2 = await fixture.commit("Different commit");
+      await $`git -C ${repo.path} reset --hard HEAD~1`.quiet();
+      const commit2 = await repo.commit("Different commit");
 
       // Force push should succeed
-      await pushBranch(commit2, "taspr/testuser/force123", true, { cwd: fixture.path });
+      await pushBranch(commit2, "taspr/testuser/force123", true, { cwd: repo.path });
 
-      const result = await $`git -C ${fixture.originPath} rev-parse taspr/testuser/force123`.text();
+      const result = await $`git -C ${repo.originPath} rev-parse taspr/testuser/force123`.text();
       expect(result.trim()).toBe(commit2);
     });
   });

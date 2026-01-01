@@ -1,6 +1,5 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { $ } from "bun";
-import { fixtureManager } from "../../tests/helpers/git-fixture.ts";
+import { repoManager } from "../../tests/helpers/local-repo.ts";
 import {
   getRemoteBranchCommit,
   getSyncStatus,
@@ -11,32 +10,31 @@ import {
 import { pushBranch, type BranchNameConfig } from "../github/branches.ts";
 import type { PRUnit } from "../types.ts";
 
-const fixtures = fixtureManager();
-afterEach(() => fixtures.cleanup());
+const repos = repoManager();
+afterEach(() => repos.cleanup());
 
 const testConfig: BranchNameConfig = { prefix: "taspr", username: "testuser" };
 
 describe("git/remote", () => {
   describe("getRemoteBranchCommit", () => {
     test("returns null for non-existent branch", async () => {
-      const fixture = await fixtures.create();
+      const repo = await repos.create();
 
-      const result = await getRemoteBranchCommit("nonexistent/branch", { cwd: fixture.path });
+      const result = await getRemoteBranchCommit("nonexistent/branch", { cwd: repo.path });
 
       expect(result).toBeNull();
     });
 
     test("returns commit hash for existing branch", async () => {
-      const fixture = await fixtures.create();
-      await fixture.checkout("feature-test", { create: true });
+      const repo = await repos.create();
+      await repo.branch("feature");
 
-      const commitHash = await fixture.commit("Test commit");
-      await pushBranch(commitHash, "taspr/testuser/abc123", false, { cwd: fixture.path });
+      const commitHash = await repo.commit("Test commit");
+      await pushBranch(commitHash, "taspr/testuser/abc123", false, { cwd: repo.path });
 
-      // Fetch to update remote refs
-      await $`git -C ${fixture.path} fetch origin`.quiet();
+      await repo.fetch();
 
-      const result = await getRemoteBranchCommit("taspr/testuser/abc123", { cwd: fixture.path });
+      const result = await getRemoteBranchCommit("taspr/testuser/abc123", { cwd: repo.path });
 
       expect(result).toBe(commitHash);
     });
@@ -44,10 +42,10 @@ describe("git/remote", () => {
 
   describe("getSyncStatus", () => {
     test("returns needsCreate=true for new branch", async () => {
-      const fixture = await fixtures.create();
-      await fixture.checkout("feature-new", { create: true });
+      const repo = await repos.create();
+      await repo.branch("feature");
 
-      const commitHash = await fixture.commit("New commit");
+      const commitHash = await repo.commit("New commit");
 
       const unit: PRUnit = {
         type: "single",
@@ -57,7 +55,7 @@ describe("git/remote", () => {
         commits: [commitHash],
       };
 
-      const status = await getSyncStatus(unit, testConfig, { cwd: fixture.path });
+      const status = await getSyncStatus(unit, testConfig, { cwd: repo.path });
 
       expect(status.branchName).toBe("taspr/testuser/newbranch");
       expect(status.localCommit).toBe(commitHash);
@@ -67,17 +65,16 @@ describe("git/remote", () => {
     });
 
     test("returns needsUpdate=true when local differs from remote", async () => {
-      const fixture = await fixtures.create();
-      await fixture.checkout("feature-update", { create: true });
+      const repo = await repos.create();
+      await repo.branch("feature");
 
-      const firstCommit = await fixture.commit("First commit");
-      await pushBranch(firstCommit, "taspr/testuser/updateme", false, { cwd: fixture.path });
+      const firstCommit = await repo.commit("First commit");
+      await pushBranch(firstCommit, "taspr/testuser/updateme", false, { cwd: repo.path });
 
       // Make a new local commit (simulating amend/rebase)
-      const secondCommit = await fixture.commit("Second commit");
+      const secondCommit = await repo.commit("Second commit");
 
-      // Fetch to update remote refs
-      await $`git -C ${fixture.path} fetch origin`.quiet();
+      await repo.fetch();
 
       const unit: PRUnit = {
         type: "single",
@@ -87,7 +84,7 @@ describe("git/remote", () => {
         commits: [secondCommit],
       };
 
-      const status = await getSyncStatus(unit, testConfig, { cwd: fixture.path });
+      const status = await getSyncStatus(unit, testConfig, { cwd: repo.path });
 
       expect(status.branchName).toBe("taspr/testuser/updateme");
       expect(status.localCommit).toBe(secondCommit);
@@ -97,14 +94,13 @@ describe("git/remote", () => {
     });
 
     test("returns both false when already in sync", async () => {
-      const fixture = await fixtures.create();
-      await fixture.checkout("feature-sync", { create: true });
+      const repo = await repos.create();
+      await repo.branch("feature");
 
-      const commitHash = await fixture.commit("Synced commit");
-      await pushBranch(commitHash, "taspr/testuser/synced", false, { cwd: fixture.path });
+      const commitHash = await repo.commit("Synced commit");
+      await pushBranch(commitHash, "taspr/testuser/synced", false, { cwd: repo.path });
 
-      // Fetch to update remote refs
-      await $`git -C ${fixture.path} fetch origin`.quiet();
+      await repo.fetch();
 
       const unit: PRUnit = {
         type: "single",
@@ -114,7 +110,7 @@ describe("git/remote", () => {
         commits: [commitHash],
       };
 
-      const status = await getSyncStatus(unit, testConfig, { cwd: fixture.path });
+      const status = await getSyncStatus(unit, testConfig, { cwd: repo.path });
 
       expect(status.branchName).toBe("taspr/testuser/synced");
       expect(status.localCommit).toBe(commitHash);
@@ -126,14 +122,14 @@ describe("git/remote", () => {
 
   describe("getAllSyncStatuses", () => {
     test("returns statuses for all units", async () => {
-      const fixture = await fixtures.create();
-      await fixture.checkout("feature-multi", { create: true });
+      const repo = await repos.create();
+      await repo.branch("feature");
 
-      const commit1 = await fixture.commit("Commit 1");
-      const commit2 = await fixture.commit("Commit 2");
+      const commit1 = await repo.commit("Commit 1");
+      const commit2 = await repo.commit("Commit 2");
 
       // Push only the first commit's branch
-      await pushBranch(commit1, "taspr/testuser/unit1", false, { cwd: fixture.path });
+      await pushBranch(commit1, "taspr/testuser/unit1", false, { cwd: repo.path });
 
       const units: PRUnit[] = [
         {
@@ -152,7 +148,7 @@ describe("git/remote", () => {
         },
       ];
 
-      const statuses = await getAllSyncStatuses(units, testConfig, { cwd: fixture.path });
+      const statuses = await getAllSyncStatuses(units, testConfig, { cwd: repo.path });
 
       expect(statuses.size).toBe(2);
 

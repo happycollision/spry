@@ -1,41 +1,41 @@
 import { test, expect, afterEach, describe } from "bun:test";
-import { fixtureManager } from "../../../tests/helpers/git-fixture.ts";
+import { repoManager } from "../../../tests/helpers/local-repo.ts";
 import { runLand } from "../../../tests/integration/helpers.ts";
 
-const fixtures = fixtureManager();
-afterEach(() => fixtures.cleanup());
+const repos = repoManager();
+afterEach(() => repos.cleanup());
 
 describe("cli/commands/land", () => {
   test("reports when stack is empty", async () => {
-    const fixture = await fixtures.create();
+    const repo = await repos.create();
     // No commits beyond merge-base
 
-    const result = await runLand(fixture.path);
+    const result = await runLand(repo.path);
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("No commits in stack");
   });
 
   test("reports when there are commits but no open PRs", async () => {
-    const fixture = await fixtures.create();
-    await fixture.checkout("feature-no-prs", { create: true });
+    const repo = await repos.create();
+    await repo.branch("feature");
 
     // Create commits with IDs (so they're valid PR units)
-    await fixture.commit("First commit", { trailers: { "Taspr-Commit-Id": "id111111" } });
-    await fixture.commit("Second commit", { trailers: { "Taspr-Commit-Id": "id222222" } });
+    await repo.commit("First commit", { trailers: { "Taspr-Commit-Id": "id111111" } });
+    await repo.commit("Second commit", { trailers: { "Taspr-Commit-Id": "id222222" } });
 
-    const result = await runLand(fixture.path);
+    const result = await runLand(repo.path);
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("No open PRs in stack");
   });
 
   test("handles validation error for unclosed group", async () => {
-    const fixture = await fixtures.create();
-    await fixture.checkout("feature-unclosed", { create: true });
+    const repo = await repos.create();
+    await repo.branch("feature");
 
     // Create a group start without a corresponding end
-    await fixture.commit("Start group", {
+    await repo.commit("Start group", {
       trailers: {
         "Taspr-Commit-Id": "id333333",
         "Taspr-Group-Start": "grp1",
@@ -43,7 +43,7 @@ describe("cli/commands/land", () => {
       },
     });
 
-    const result = await runLand(fixture.path);
+    const result = await runLand(repo.path);
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("Unclosed group");

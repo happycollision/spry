@@ -1,43 +1,50 @@
 import { test, expect, afterEach } from "bun:test";
-import { fixtureManager } from "./helpers/git-fixture.ts";
+import { repoManager } from "./helpers/local-repo.ts";
 import { $ } from "bun";
 
-const fixtures = fixtureManager();
-afterEach(() => fixtures.cleanup());
+const repos = repoManager();
+afterEach(() => repos.cleanup());
 
 test("creates a git repository with initial commit", async () => {
-  const fixture = await fixtures.create();
+  const repo = await repos.create();
 
-  const result = await $`git -C ${fixture.path} log --oneline`.text();
+  const result = await $`git -C ${repo.path} log --oneline`.text();
   expect(result).toContain("Initial commit");
 });
 
-test("can create commits with trailers", async () => {
-  const fixture = await fixtures.create();
+test("can create commits", async () => {
+  const repo = await repos.create();
 
-  await fixture.commit("Add feature", {
-    trailers: {
-      "Taspr-Commit-Id": "abc12345",
-    },
-  });
+  await repo.commit("Add feature");
 
-  const result = await $`git -C ${fixture.path} log -1 --format=%B`.text();
+  const result = await $`git -C ${repo.path} log -1 --format=%B`.text();
   expect(result).toContain("Add feature");
-  expect(result).toContain("Taspr-Commit-Id: abc12345");
+});
+
+test("can create commits with specific files", async () => {
+  const repo = await repos.create();
+
+  await repo.commitFiles("Add config", { "config.json": '{"key": "value"}\n' });
+
+  const result = await $`git -C ${repo.path} log -1 --format=%B`.text();
+  expect(result).toContain("Add config");
+
+  const content = await $`cat ${repo.path}/config.json`.text();
+  expect(content).toContain('"key": "value"');
 });
 
 test("updateOriginMain creates a commit on origin/main", async () => {
-  const fixture = await fixtures.create();
+  const repo = await repos.create();
 
   // Create feature branch
-  await fixture.checkout("feature", { create: true });
-  await fixture.commit("Feature commit");
+  await repo.branch("feature");
+  await repo.commit("Feature commit");
 
   // Update origin/main
-  await fixture.updateOriginMain("Main update", { "main-file.txt": "content\n" });
+  await repo.updateOriginMain("Main update", { "main-file.txt": "content\n" });
 
   // Fetch and verify
-  await $`git -C ${fixture.path} fetch origin`.quiet();
-  const log = await $`git -C ${fixture.path} log origin/main --oneline -2`.text();
+  await repo.fetch();
+  const log = await $`git -C ${repo.path} log origin/main --oneline -2`.text();
   expect(log).toContain("Main update");
 });

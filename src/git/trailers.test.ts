@@ -1,9 +1,9 @@
 import { test, expect, afterEach, describe } from "bun:test";
-import { fixtureManager } from "../../tests/helpers/git-fixture.ts";
+import { repoManager } from "../../tests/helpers/local-repo.ts";
 import { parseTrailers, getCommitTrailers, addTrailers } from "./trailers.ts";
 
-const fixtures = fixtureManager();
-afterEach(() => fixtures.cleanup());
+const repos = repoManager();
+afterEach(() => repos.cleanup());
 
 describe("git/trailers", () => {
   describe("parseTrailers", () => {
@@ -110,43 +110,43 @@ Taspr-Group-End: f7e8d9c0`;
 
   describe("getCommitTrailers", () => {
     test("returns trailers from a commit", async () => {
-      const fixture = await fixtures.create();
-      await fixture.checkout("feature-trailers", { create: true });
+      const repo = await repos.create();
+      await repo.branch("feature");
 
-      const hash = await fixture.commit("Add feature", {
+      const hash = await repo.commit("Add feature", {
         trailers: {
           "Taspr-Commit-Id": "a1b2c3d4",
           "Taspr-Group-Start": "f7e8d9c0",
         },
       });
 
-      const trailers = await getCommitTrailers(hash, { cwd: fixture.path });
+      const trailers = await getCommitTrailers(hash, { cwd: repo.path });
       expect(trailers["Taspr-Commit-Id"]).toBe("a1b2c3d4");
       expect(trailers["Taspr-Group-Start"]).toBe("f7e8d9c0");
     });
 
     test("returns empty object for commit without trailers", async () => {
-      const fixture = await fixtures.create();
-      await fixture.checkout("feature-no-trailers", { create: true });
+      const repo = await repos.create();
+      await repo.branch("feature");
 
-      const hash = await fixture.commit("Plain commit");
+      const hash = await repo.commit("Plain commit");
 
-      const trailers = await getCommitTrailers(hash, { cwd: fixture.path });
+      const trailers = await getCommitTrailers(hash, { cwd: repo.path });
       expect(trailers).toEqual({});
     });
 
     test("handles commit with only non-taspr trailers", async () => {
-      const fixture = await fixtures.create();
-      await fixture.checkout("feature-other-trailers", { create: true });
+      const repo = await repos.create();
+      await repo.branch("feature");
 
-      const hash = await fixture.commit("Collaborative commit", {
+      const hash = await repo.commit("Collaborative commit", {
         trailers: {
           "Co-authored-by": "Alice <alice@example.com>",
           "Signed-off-by": "Bob <bob@example.com>",
         },
       });
 
-      const trailers = await getCommitTrailers(hash, { cwd: fixture.path });
+      const trailers = await getCommitTrailers(hash, { cwd: repo.path });
       expect(trailers["Co-authored-by"]).toBe("Alice <alice@example.com>");
       expect(trailers["Signed-off-by"]).toBe("Bob <bob@example.com>");
       expect(trailers["Taspr-Commit-Id"]).toBeUndefined();

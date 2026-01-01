@@ -1,9 +1,9 @@
 import { test, expect, afterEach, describe, beforeEach } from "bun:test";
 import { $ } from "bun";
-import { fixtureManager } from "../../tests/helpers/git-fixture.ts";
+import { repoManager } from "../../tests/helpers/local-repo.ts";
 import { getTasprConfig, detectDefaultBranch, getDefaultBranchRef } from "./config.ts";
 
-const fixtures = fixtureManager();
+const repos = repoManager();
 let originalCwd: string;
 
 beforeEach(() => {
@@ -12,14 +12,14 @@ beforeEach(() => {
 
 afterEach(async () => {
   process.chdir(originalCwd);
-  await fixtures.cleanup();
+  await repos.cleanup();
 });
 
 describe("git/config", () => {
   describe("getTasprConfig", () => {
     test("returns default values when no config is set", async () => {
-      const fixture = await fixtures.create();
-      process.chdir(fixture.path);
+      const repo = await repos.create();
+      process.chdir(repo.path);
 
       const config = await getTasprConfig();
 
@@ -28,8 +28,8 @@ describe("git/config", () => {
     });
 
     test("reads custom branchPrefix from git config", async () => {
-      const fixture = await fixtures.create();
-      process.chdir(fixture.path);
+      const repo = await repos.create();
+      process.chdir(repo.path);
 
       await $`git config taspr.branchPrefix jaspr`.quiet();
 
@@ -39,8 +39,8 @@ describe("git/config", () => {
     });
 
     test("reads custom defaultBranch from git config", async () => {
-      const fixture = await fixtures.create();
-      process.chdir(fixture.path);
+      const repo = await repos.create();
+      process.chdir(repo.path);
 
       await $`git config taspr.defaultBranch develop`.quiet();
 
@@ -50,8 +50,8 @@ describe("git/config", () => {
     });
 
     test("caches config for subsequent calls", async () => {
-      const fixture = await fixtures.create();
-      process.chdir(fixture.path);
+      const repo = await repos.create();
+      process.chdir(repo.path);
 
       const config1 = await getTasprConfig();
       await $`git config taspr.branchPrefix changed`.quiet();
@@ -65,8 +65,8 @@ describe("git/config", () => {
 
   describe("detectDefaultBranch", () => {
     test("detects main branch from origin", async () => {
-      const fixture = await fixtures.create();
-      process.chdir(fixture.path);
+      const repo = await repos.create();
+      process.chdir(repo.path);
 
       const branch = await detectDefaultBranch();
 
@@ -74,11 +74,11 @@ describe("git/config", () => {
     });
 
     test("detects master branch when main does not exist", async () => {
-      const fixture = await fixtures.create();
-      process.chdir(fixture.path);
+      const repo = await repos.create();
+      process.chdir(repo.path);
 
       // Rename main to master
-      await $`git -C ${fixture.originPath} branch -m main master`.quiet();
+      await $`git -C ${repo.originPath} branch -m main master`.quiet();
       await $`git fetch origin`.quiet();
       await $`git branch -m main master`.quiet();
       await $`git branch -u origin/master master`.quiet();
@@ -89,8 +89,8 @@ describe("git/config", () => {
     });
 
     test("throws error when no default branch can be detected", async () => {
-      const fixture = await fixtures.create();
-      process.chdir(fixture.path);
+      const repo = await repos.create();
+      process.chdir(repo.path);
 
       // Remove origin remote
       await $`git remote remove origin`.quiet();
@@ -101,8 +101,8 @@ describe("git/config", () => {
 
   describe("getDefaultBranchRef", () => {
     test("returns origin/main by default", async () => {
-      const fixture = await fixtures.create();
-      process.chdir(fixture.path);
+      const repo = await repos.create();
+      process.chdir(repo.path);
 
       const ref = await getDefaultBranchRef();
 
@@ -110,8 +110,8 @@ describe("git/config", () => {
     });
 
     test("returns custom default branch ref when configured", async () => {
-      const fixture = await fixtures.create();
-      process.chdir(fixture.path);
+      const repo = await repos.create();
+      process.chdir(repo.path);
 
       await $`git config taspr.defaultBranch develop`.quiet();
 

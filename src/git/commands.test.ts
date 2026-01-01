@@ -1,6 +1,6 @@
 import { test, expect, afterEach, describe } from "bun:test";
 import { $ } from "bun";
-import { fixtureManager } from "../../tests/helpers/git-fixture.ts";
+import { repoManager } from "../../tests/helpers/local-repo.ts";
 import {
   getStackCommits,
   getMergeBase,
@@ -9,51 +9,51 @@ import {
 } from "./commands.ts";
 import { join } from "node:path";
 
-const fixtures = fixtureManager();
-afterEach(() => fixtures.cleanup());
+const repos = repoManager();
+afterEach(() => repos.cleanup());
 
 describe("git/commands", () => {
   describe("getMergeBase", () => {
     test("returns merge-base with origin/main", async () => {
-      const fixture = await fixtures.create();
+      const repo = await repos.create();
 
-      const mergeBase = await getMergeBase({ cwd: fixture.path });
+      const mergeBase = await getMergeBase({ cwd: repo.path });
       expect(mergeBase).toMatch(/^[a-f0-9]{40}$/);
     });
   });
 
   describe("getCurrentBranch", () => {
     test("returns current branch name", async () => {
-      const fixture = await fixtures.create();
+      const repo = await repos.create();
 
-      const branch = await getCurrentBranch({ cwd: fixture.path });
+      const branch = await getCurrentBranch({ cwd: repo.path });
       expect(branch).toBe("main");
     });
   });
 
   describe("getStackCommits", () => {
     test("returns empty array when no commits ahead of main", async () => {
-      const fixture = await fixtures.create();
+      const repo = await repos.create();
 
-      const commits = await getStackCommits({ cwd: fixture.path });
+      const commits = await getStackCommits({ cwd: repo.path });
       expect(commits).toEqual([]);
     });
 
     test("returns commits in oldest-to-newest order", async () => {
-      const fixture = await fixtures.create();
+      const repo = await repos.create();
 
-      await fixture.checkout("feature-test", { create: true });
-      await fixture.commit("First commit");
-      await fixture.commit("Second commit");
-      await fixture.commit("Third commit");
+      await repo.branch("feature");
+      await repo.commit("First commit");
+      await repo.commit("Second commit");
+      await repo.commit("Third commit");
 
-      const commits = await getStackCommits({ cwd: fixture.path });
+      const commits = await getStackCommits({ cwd: repo.path });
 
       expect(commits).toHaveLength(3);
       const [first, second, third] = commits;
-      expect(first?.subject).toBe("First commit");
-      expect(second?.subject).toBe("Second commit");
-      expect(third?.subject).toBe("Third commit");
+      expect(first?.subject).toContain("First commit");
+      expect(second?.subject).toContain("Second commit");
+      expect(third?.subject).toContain("Third commit");
 
       // Each commit should have a valid hash
       for (const commit of commits) {
@@ -62,35 +62,35 @@ describe("git/commands", () => {
     });
 
     test("correctly parses commit body with trailers", async () => {
-      const fixture = await fixtures.create();
+      const repo = await repos.create();
 
-      await fixture.checkout("feature-body-test", { create: true });
-      await fixture.commit("Add feature X", {
+      await repo.branch("feature");
+      await repo.commit("Add feature X", {
         trailers: {
           "Taspr-Commit-Id": "a1b2c3d4",
           "Co-authored-by": "Someone <someone@example.com>",
         },
       });
 
-      const commits = await getStackCommits({ cwd: fixture.path });
+      const commits = await getStackCommits({ cwd: repo.path });
 
       expect(commits).toHaveLength(1);
       const [commit] = commits;
-      expect(commit?.subject).toBe("Add feature X");
+      expect(commit?.subject).toContain("Add feature X");
       expect(commit?.body).toContain("Taspr-Commit-Id: a1b2c3d4");
     });
 
     test("handles commits with special characters in subject", async () => {
-      const fixture = await fixtures.create();
+      const repo = await repos.create();
 
-      await fixture.checkout("feature-special-chars", { create: true });
+      await repo.branch("feature");
 
-      // Create commit directly since fixture.commit doesn't support special chars in message
-      await Bun.write(join(fixture.path, "special.ts"), "// special");
-      await $`git -C ${fixture.path} add special.ts`.quiet();
-      await $`git -C ${fixture.path} commit -m "fix: handle \"quoted\" strings & <special> chars"`.quiet();
+      // Create commit directly since repo.commit doesn't support special chars in message
+      await Bun.write(join(repo.path, "special.ts"), "// special");
+      await $`git -C ${repo.path} add special.ts`.quiet();
+      await $`git -C ${repo.path} commit -m "fix: handle \"quoted\" strings & <special> chars"`.quiet();
 
-      const commits = await getStackCommits({ cwd: fixture.path });
+      const commits = await getStackCommits({ cwd: repo.path });
 
       expect(commits).toHaveLength(1);
       const [commit] = commits;
@@ -100,18 +100,18 @@ describe("git/commands", () => {
 
   describe("hasUncommittedChanges", () => {
     test("returns false when working tree is clean", async () => {
-      const fixture = await fixtures.create();
+      const repo = await repos.create();
 
-      const hasChanges = await hasUncommittedChanges({ cwd: fixture.path });
+      const hasChanges = await hasUncommittedChanges({ cwd: repo.path });
       expect(hasChanges).toBe(false);
     });
 
     test("returns true when there are uncommitted changes", async () => {
-      const fixture = await fixtures.create();
+      const repo = await repos.create();
 
-      await Bun.write(join(fixture.path, "uncommitted.ts"), "// uncommitted");
+      await Bun.write(join(repo.path, "uncommitted.ts"), "// uncommitted");
 
-      const hasChanges = await hasUncommittedChanges({ cwd: fixture.path });
+      const hasChanges = await hasUncommittedChanges({ cwd: repo.path });
       expect(hasChanges).toBe(true);
     });
   });
