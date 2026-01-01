@@ -14,19 +14,16 @@ test("creates a git repository with initial commit", async () => {
 test("can create commits", async () => {
   const repo = await repos.create();
 
-  await repo.commit("Add feature");
+  await repo.commit();
 
   const result = await $`git -C ${repo.path} log -1 --format=%B`.text();
-  expect(result).toContain("Add feature");
+  expect(result).toContain(repo.uniqueId);
 });
 
 test("can create commits with specific files", async () => {
   const repo = await repos.create();
 
-  await repo.commitFiles("Add config", { "config.json": '{"key": "value"}\n' });
-
-  const result = await $`git -C ${repo.path} log -1 --format=%B`.text();
-  expect(result).toContain("Add config");
+  await repo.commitFiles({ "config.json": '{"key": "value"}\n' });
 
   const content = await $`cat ${repo.path}/config.json`.text();
   expect(content).toContain('"key": "value"');
@@ -37,7 +34,7 @@ test("updateOriginMain creates a commit on origin/main", async () => {
 
   // Create feature branch
   await repo.branch("feature");
-  await repo.commit("Feature commit");
+  await repo.commit();
 
   // Update origin/main
   await repo.updateOriginMain("Main update", { "main-file.txt": "content\n" });

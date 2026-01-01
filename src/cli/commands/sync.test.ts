@@ -12,8 +12,8 @@ describe("cli/commands/sync", () => {
     const repo = await repos.create();
     await repo.branch("feature");
 
-    await repo.commit("First commit");
-    await repo.commit("Second commit");
+    await repo.commit();
+    await repo.commit();
 
     // Run sync
     const result = await runSync(repo.path);
@@ -32,7 +32,7 @@ describe("cli/commands/sync", () => {
     const repo = await repos.create();
     await repo.branch("feature");
 
-    await repo.commit("Has ID", { trailers: { "Taspr-Commit-Id": "id111111" } });
+    await repo.commit({ trailers: { "Taspr-Commit-Id": "id111111" } });
 
     const result = await runSync(repo.path);
 
@@ -53,7 +53,7 @@ describe("cli/commands/sync", () => {
   test("blocks on dirty working tree with staged changes", async () => {
     const repo = await repos.create();
     await repo.branch("feature");
-    await repo.commit("A commit");
+    await repo.commit();
 
     // Stage a change
     await Bun.write(join(repo.path, "dirty.ts"), "// dirty");
@@ -69,7 +69,7 @@ describe("cli/commands/sync", () => {
   test("blocks on dirty working tree with unstaged changes", async () => {
     const repo = await repos.create();
     await repo.branch("feature");
-    await repo.commit("A commit");
+    await repo.commit();
 
     // Modify tracked file
     await Bun.write(join(repo.path, "README.md"), "# Modified");
@@ -85,7 +85,7 @@ describe("cli/commands/sync", () => {
     const repo = await repos.create();
     await repo.branch("feature");
 
-    await repo.commit("Test commit for clean output");
+    await repo.commit();
 
     const result = await runSync(repo.path);
 
@@ -162,7 +162,7 @@ describe("cli/commands/sync", () => {
 
     // Create initial feature branch with a commit that has an ID
     await repo.branch("feature");
-    await repo.commit("Feature commit", { trailers: { "Taspr-Commit-Id": "rebase01" } });
+    await repo.commit({ trailers: { "Taspr-Commit-Id": "rebase01" } });
 
     // Run initial sync to push the branch
     let result = await runSync(repo.path);

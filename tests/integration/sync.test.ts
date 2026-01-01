@@ -71,7 +71,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/test-pr");
-      await repo.commit("Add test file");
+      await repo.commit();
 
       const result = await runSync(repo.path, { open: true });
 
@@ -79,7 +79,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
       expect(result.stdout).toContain("Created");
 
       // Verify PR was created
-      const prs = await repo.findPRs("Add test file");
+      const prs = await repo.findPRs(repo.uniqueId);
       expect(prs.length).toBeGreaterThanOrEqual(1);
     },
     { timeout: 60000 },
@@ -90,8 +90,8 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/stacked-no-pr");
-      await repo.commit("First commit in stack");
-      await repo.commit("Second commit in stack");
+      await repo.commit();
+      await repo.commit();
 
       // Run taspr sync WITHOUT --open (just push branches)
       const syncResult = await runSync(repo.path, { open: false });
@@ -117,12 +117,12 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/ci-pass-test");
-      await repo.commit("Add file that should pass CI");
+      await repo.commit();
 
       const result = await runSync(repo.path, { open: true });
       expect(result.exitCode).toBe(0);
 
-      const pr = await repo.findPR("Add file that should pass CI");
+      const pr = await repo.findPR(repo.uniqueId);
 
       // Wait for CI to complete
       const ciStatus = await repo.github.waitForCI(pr.number, { timeout: 180000 });
@@ -136,12 +136,12 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/ci-fail-test");
-      await repo.commit("[FAIL_CI] Add file that should fail CI");
+      await repo.commit({ message: "[FAIL_CI] trigger CI failure" });
 
       const result = await runSync(repo.path, { open: true });
       expect(result.exitCode).toBe(0);
 
-      const pr = await repo.findPR("FAIL_CI");
+      const pr = await repo.findPR(repo.uniqueId);
 
       // Wait for CI to complete
       const ciStatus = await repo.github.waitForCI(pr.number, { timeout: 180000 });
@@ -159,16 +159,19 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync cleanup", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/cleanup-test");
-      await repo.commit("First commit for cleanup test");
-      await repo.commit("Second commit for cleanup test");
+      await repo.commit();
+      await repo.commit();
 
       // Run taspr sync --open to create PRs
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
-      // Get PRs
-      const firstPr = await repo.findPR("First commit for cleanup test");
-      const secondPr = await repo.findPR("Second commit for cleanup test");
+      // Get PRs (both will have uniqueId in title)
+      const prs = await repo.findPRs(repo.uniqueId);
+      expect(prs.length).toBe(2);
+      const firstPr = prs[0];
+      const secondPr = prs[1];
+      if (!firstPr || !secondPr) throw new Error("Expected 2 PRs");
 
       // Wait for CI on the first PR
       await repo.github.waitForCI(firstPr.number, { timeout: 180000 });

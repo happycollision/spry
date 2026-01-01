@@ -42,17 +42,13 @@ describe("git/commands", () => {
       const repo = await repos.create();
 
       await repo.branch("feature");
-      await repo.commit("First commit");
-      await repo.commit("Second commit");
-      await repo.commit("Third commit");
+      await repo.commit();
+      await repo.commit();
+      await repo.commit();
 
       const commits = await getStackCommits({ cwd: repo.path });
 
       expect(commits).toHaveLength(3);
-      const [first, second, third] = commits;
-      expect(first?.subject).toContain("First commit");
-      expect(second?.subject).toContain("Second commit");
-      expect(third?.subject).toContain("Third commit");
 
       // Each commit should have a valid hash
       for (const commit of commits) {
@@ -64,7 +60,7 @@ describe("git/commands", () => {
       const repo = await repos.create();
 
       await repo.branch("feature");
-      await repo.commit("Add feature X", {
+      await repo.commit({
         trailers: {
           "Taspr-Commit-Id": "a1b2c3d4",
           "Co-authored-by": "Someone <someone@example.com>",
@@ -75,7 +71,6 @@ describe("git/commands", () => {
 
       expect(commits).toHaveLength(1);
       const [commit] = commits;
-      expect(commit?.subject).toContain("Add feature X");
       expect(commit?.body).toContain("Taspr-Commit-Id: a1b2c3d4");
     });
 

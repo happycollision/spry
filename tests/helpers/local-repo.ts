@@ -22,20 +22,24 @@ interface TestContext {
 // Base repo interface (shared by both local and GitHub repos)
 // ============================================================================
 
+/** Options for creating a commit */
+export interface CommitOptions {
+  /** Optional commit message (auto-generated if not provided) */
+  message?: string;
+  /** Git trailers to add to the commit */
+  trailers?: Record<string, string>;
+}
+
 interface BaseRepo {
   path: string;
   /** Unique identifier for this test run */
   readonly uniqueId: string;
 
   /** Create a commit with auto-generated file */
-  commit(message: string, options?: { trailers?: Record<string, string> }): Promise<string>;
+  commit(options?: CommitOptions): Promise<string>;
 
   /** Create a commit with specific files */
-  commitFiles(
-    message: string,
-    files: Record<string, string>,
-    options?: { trailers?: Record<string, string> },
-  ): Promise<string>;
+  commitFiles(files: Record<string, string>, options?: CommitOptions): Promise<string>;
 
   /** Create a new branch and switch to it. Automatically made unique. */
   branch(name: string): Promise<string>;
@@ -72,11 +76,9 @@ function createRepoMethods(config: RepoMethodsConfig) {
       return ctx.uniqueId;
     },
 
-    async commit(
-      message: string,
-      options?: { trailers?: Record<string, string> },
-    ): Promise<string> {
+    async commit(options?: CommitOptions): Promise<string> {
       const filename = `file-${ctx.uniqueId}-${fileCounter++}.txt`;
+      const message = options?.message ?? `commit-${fileCounter}`;
       let fullMessage = `${message} [${ctx.uniqueId}]`;
       if (options?.trailers) {
         fullMessage += "\n\n";
@@ -90,14 +92,11 @@ function createRepoMethods(config: RepoMethodsConfig) {
       return (await $`git -C ${path} rev-parse HEAD`.text()).trim();
     },
 
-    async commitFiles(
-      message: string,
-      files: Record<string, string>,
-      options?: { trailers?: Record<string, string> },
-    ): Promise<string> {
+    async commitFiles(files: Record<string, string>, options?: CommitOptions): Promise<string> {
       for (const [filename, content] of Object.entries(files)) {
         await Bun.write(join(path, filename), content);
       }
+      const message = options?.message ?? `commit-${fileCounter++}`;
       let fullMessage = `${message} [${ctx.uniqueId}]`;
       if (options?.trailers) {
         fullMessage += "\n\n";
@@ -331,7 +330,7 @@ export interface GitHubRepoManager {
  *
  *   test("...", async () => {
  *     const repo = await repos.create();
- *     await repo.commit("Add feature");
+ *     await repo.commit();
  *     await repo.updateOriginMain("Upstream change");
  *   });
  */
@@ -346,8 +345,8 @@ export function repoManager(): LocalRepoManager;
  *
  *   test("...", async () => {
  *     const repo = await repos.clone();
- *     await repo.commit("Add feature");
- *     const pr = await repo.findPR("Add feature");
+ *     await repo.commit();
+ *     const pr = await repo.findPR(repo.uniqueId);
  *   });
  */
 export function repoManager(options: { github: true }): GitHubRepoManager;

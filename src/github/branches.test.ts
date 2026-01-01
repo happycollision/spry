@@ -23,7 +23,7 @@ describe("github/branches", () => {
       const repo = await repos.create();
       await repo.branch("feature");
 
-      const commitHash = await repo.commit("Test commit");
+      const commitHash = await repo.commit();
 
       // Push to a new branch in origin
       await pushBranch(commitHash, "taspr/testuser/test123", false, { cwd: repo.path });
@@ -37,10 +37,10 @@ describe("github/branches", () => {
       const repo = await repos.create();
       await repo.branch("feature");
 
-      const firstCommit = await repo.commit("First commit");
+      const firstCommit = await repo.commit();
       await pushBranch(firstCommit, "taspr/testuser/update123", false, { cwd: repo.path });
 
-      const secondCommit = await repo.commit("Second commit");
+      const secondCommit = await repo.commit();
       await pushBranch(secondCommit, "taspr/testuser/update123", true, { cwd: repo.path });
 
       // Verify the branch points to the second commit
@@ -52,12 +52,12 @@ describe("github/branches", () => {
       const repo = await repos.create();
       await repo.branch("feature");
 
-      const commit1 = await repo.commit("Commit 1");
+      const commit1 = await repo.commit();
       await pushBranch(commit1, "taspr/testuser/force123", false, { cwd: repo.path });
 
       // Create a different commit (simulating a rebase)
       await $`git -C ${repo.path} reset --hard HEAD~1`.quiet();
-      const commit2 = await repo.commit("Different commit");
+      const commit2 = await repo.commit();
 
       // Force push should succeed
       await pushBranch(commit2, "taspr/testuser/force123", true, { cwd: repo.path });

@@ -21,8 +21,8 @@ describe("git/rebase", () => {
       await repo.branch("feature");
 
       // Create commits without IDs
-      await repo.commit("First commit");
-      await repo.commit("Second commit");
+      await repo.commit();
+      await repo.commit();
 
       // Verify they don't have IDs
       const beforeCommits = await getStackCommitsWithTrailers({ cwd: repo.path });
@@ -48,8 +48,8 @@ describe("git/rebase", () => {
       await repo.branch("feature");
 
       // Create commits - one with ID, one without
-      await repo.commit("Has ID", { trailers: { "Taspr-Commit-Id": "existing1" } });
-      await repo.commit("No ID");
+      await repo.commit({ trailers: { "Taspr-Commit-Id": "existing1" } });
+      await repo.commit();
 
       const result = await injectMissingIds({ cwd: repo.path });
 
@@ -66,8 +66,8 @@ describe("git/rebase", () => {
       const repo = await repos.create();
       await repo.branch("feature");
 
-      await repo.commit("Has ID 1", { trailers: { "Taspr-Commit-Id": "id111111" } });
-      await repo.commit("Has ID 2", { trailers: { "Taspr-Commit-Id": "id222222" } });
+      await repo.commit({ trailers: { "Taspr-Commit-Id": "id111111" } });
+      await repo.commit({ trailers: { "Taspr-Commit-Id": "id222222" } });
 
       const result = await injectMissingIds({ cwd: repo.path });
 
@@ -96,8 +96,8 @@ describe("git/rebase", () => {
       const repo = await repos.create();
       await repo.branch("feature");
 
-      await repo.commit("Commit 1", { trailers: { "Taspr-Commit-Id": "id111111" } });
-      await repo.commit("Commit 2", { trailers: { "Taspr-Commit-Id": "id222222" } });
+      await repo.commit({ trailers: { "Taspr-Commit-Id": "id111111" } });
+      await repo.commit({ trailers: { "Taspr-Commit-Id": "id222222" } });
 
       const result = await allCommitsHaveIds({ cwd: repo.path });
       expect(result).toBe(true);
@@ -107,8 +107,8 @@ describe("git/rebase", () => {
       const repo = await repos.create();
       await repo.branch("feature");
 
-      await repo.commit("Has ID", { trailers: { "Taspr-Commit-Id": "id111111" } });
-      await repo.commit("No ID");
+      await repo.commit({ trailers: { "Taspr-Commit-Id": "id111111" } });
+      await repo.commit();
 
       const result = await allCommitsHaveIds({ cwd: repo.path });
       expect(result).toBe(false);
@@ -127,9 +127,9 @@ describe("git/rebase", () => {
       const repo = await repos.create();
       await repo.branch("feature");
 
-      await repo.commit("Has ID", { trailers: { "Taspr-Commit-Id": "id111111" } });
-      await repo.commit("No ID 1");
-      await repo.commit("No ID 2");
+      await repo.commit({ trailers: { "Taspr-Commit-Id": "id111111" } });
+      await repo.commit();
+      await repo.commit();
 
       const count = await countCommitsMissingIds({ cwd: repo.path });
       expect(count).toBe(2);
@@ -139,7 +139,7 @@ describe("git/rebase", () => {
       const repo = await repos.create();
       await repo.branch("feature");
 
-      await repo.commit("Has ID", { trailers: { "Taspr-Commit-Id": "id111111" } });
+      await repo.commit({ trailers: { "Taspr-Commit-Id": "id111111" } });
 
       const count = await countCommitsMissingIds({ cwd: repo.path });
       expect(count).toBe(0);
@@ -150,8 +150,8 @@ describe("git/rebase", () => {
     test("successfully rebases stack onto updated main", async () => {
       const repo = await repos.create();
       await repo.branch("feature");
-      await repo.commit("Feature commit 1", { trailers: { "Taspr-Commit-Id": "feat0001" } });
-      await repo.commit("Feature commit 2", { trailers: { "Taspr-Commit-Id": "feat0002" } });
+      await repo.commit({ trailers: { "Taspr-Commit-Id": "feat0001" } });
+      await repo.commit({ trailers: { "Taspr-Commit-Id": "feat0002" } });
 
       // Update origin/main (simulating other developer's work)
       await repo.updateOriginMain("Update on main");
@@ -168,7 +168,7 @@ describe("git/rebase", () => {
     test("preserves Taspr trailers through rebase", async () => {
       const repo = await repos.create();
       await repo.branch("feature");
-      await repo.commit("Feature commit", { trailers: { "Taspr-Commit-Id": "preserve1" } });
+      await repo.commit({ trailers: { "Taspr-Commit-Id": "preserve1" } });
 
       // Update origin/main
       await repo.updateOriginMain("Main commit");
@@ -216,7 +216,7 @@ describe("git/rebase", () => {
     test("no-op when already up to date", async () => {
       const repo = await repos.create();
       await repo.branch("feature");
-      await repo.commit("Feature commit", { trailers: { "Taspr-Commit-Id": "uptodate1" } });
+      await repo.commit({ trailers: { "Taspr-Commit-Id": "uptodate1" } });
 
       // No changes to main, just fetch
       await repo.fetch();
@@ -232,7 +232,7 @@ describe("git/rebase", () => {
     test("returns null when not in a rebase", async () => {
       const repo = await repos.create();
       await repo.branch("feature");
-      await repo.commit("Normal commit");
+      await repo.commit();
 
       const info = await getConflictInfo({ cwd: repo.path });
       expect(info).toBeNull();

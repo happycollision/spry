@@ -20,8 +20,8 @@ describe("cli/commands/land", () => {
     await repo.branch("feature");
 
     // Create commits with IDs (so they're valid PR units)
-    await repo.commit("First commit", { trailers: { "Taspr-Commit-Id": "id111111" } });
-    await repo.commit("Second commit", { trailers: { "Taspr-Commit-Id": "id222222" } });
+    await repo.commit({ trailers: { "Taspr-Commit-Id": "id111111" } });
+    await repo.commit({ trailers: { "Taspr-Commit-Id": "id222222" } });
 
     const result = await runLand(repo.path);
 
@@ -34,7 +34,7 @@ describe("cli/commands/land", () => {
     await repo.branch("feature");
 
     // Create a group start without a corresponding end
-    await repo.commit("Start group", {
+    await repo.commit({
       trailers: {
         "Taspr-Commit-Id": "id333333",
         "Taspr-Group-Start": "grp1",

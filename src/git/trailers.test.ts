@@ -112,7 +112,7 @@ Taspr-Group-End: f7e8d9c0`;
       const repo = await repos.create();
       await repo.branch("feature");
 
-      const hash = await repo.commit("Add feature", {
+      const hash = await repo.commit({
         trailers: {
           "Taspr-Commit-Id": "a1b2c3d4",
           "Taspr-Group-Start": "f7e8d9c0",
@@ -128,7 +128,7 @@ Taspr-Group-End: f7e8d9c0`;
       const repo = await repos.create();
       await repo.branch("feature");
 
-      const hash = await repo.commit("Plain commit");
+      const hash = await repo.commit();
 
       const trailers = await getCommitTrailers(hash, { cwd: repo.path });
       expect(trailers).toEqual({});
@@ -138,7 +138,7 @@ Taspr-Group-End: f7e8d9c0`;
       const repo = await repos.create();
       await repo.branch("feature");
 
-      const hash = await repo.commit("Collaborative commit", {
+      const hash = await repo.commit({
         trailers: {
           "Co-authored-by": "Alice <alice@example.com>",
           "Signed-off-by": "Bob <bob@example.com>",

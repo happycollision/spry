@@ -11,14 +11,14 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/land-test");
-      await repo.commit("Add file to land");
+      await repo.commit();
 
       // Run taspr sync --open to create the PR
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
       expect(syncResult.stdout).toContain("Created");
 
-      const pr = await repo.findPR("Add file to land");
+      const pr = await repo.findPR(repo.uniqueId);
 
       // Wait for CI to pass before landing
       await repo.github.waitForCI(pr.number, { timeout: 180000 });
@@ -43,7 +43,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
       // Verify the commit is now on main
       await repo.fetch();
       const mainLog = await $`git -C ${repo.path} log origin/main --oneline -5`.text();
-      expect(mainLog).toContain("Add file to land");
+      expect(mainLog).toContain(repo.uniqueId);
     },
     { timeout: 200000 },
   );
@@ -53,18 +53,21 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/retarget-test");
-      await repo.commit("First commit for retarget test");
-      await repo.commit("Second commit for retarget test");
-      await repo.commit("Third commit for retarget test");
+      await repo.commit();
+      await repo.commit();
+      await repo.commit();
 
       // Run taspr sync --open to create PRs for all commits
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
-      // Get all PRs
-      const firstPr = await repo.findPR("First commit for retarget test");
-      const secondPr = await repo.findPR("Second commit for retarget test");
-      const thirdPr = await repo.findPR("Third commit for retarget test");
+      // Get all PRs (all will have uniqueId in title)
+      const prs = await repo.findPRs(repo.uniqueId);
+      expect(prs.length).toBe(3);
+      const firstPr = prs[0];
+      const secondPr = prs[1];
+      const thirdPr = prs[2];
+      if (!firstPr || !secondPr || !thirdPr) throw new Error("Expected 3 PRs");
 
       // Wait for CI to pass on all PRs
       await Promise.all([
@@ -125,13 +128,13 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/land-conflict-test");
-      await repo.commit("Add conflicting file");
+      await repo.commit();
 
       // Run taspr sync --open to create the PR
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
-      const pr = await repo.findPR("Add conflicting file");
+      const pr = await repo.findPR(repo.uniqueId);
 
       // Wait for CI to pass first (so CI check doesn't fail before fast-forward check)
       await repo.github.waitForCI(pr.number, { timeout: 180000 });
@@ -139,7 +142,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
       // Now push a different commit directly to main (simulating someone else merging)
       await repo.checkout("main");
       await $`git -C ${repo.path} pull origin main`.quiet();
-      await repo.commit("Direct commit to main");
+      await repo.commit();
       await $`git -C ${repo.path} push origin main`.quiet();
 
       // Go back to feature branch
@@ -166,7 +169,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/no-pr-test");
-      await repo.commit("Commit without PR");
+      await repo.commit();
 
       // Run sync WITHOUT --open (just adds IDs, no PR)
       const syncResult = await runSync(repo.path, { open: false });
@@ -186,13 +189,13 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/ci-fail-land-test");
-      await repo.commit("[FAIL_CI] Add file that should fail CI");
+      await repo.commit({ message: "[FAIL_CI] trigger CI failure" });
 
       // Run taspr sync --open to create the PR
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
-      const pr = await repo.findPR("FAIL_CI");
+      const pr = await repo.findPR(repo.uniqueId);
 
       // Wait for CI to complete (and fail)
       await repo.github.waitForCI(pr.number, { timeout: 180000 });
@@ -216,16 +219,16 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/land-all-test");
-      await repo.commit("First commit in stack");
-      await repo.commit("Second commit in stack");
-      await repo.commit("Third commit in stack");
+      await repo.commit();
+      await repo.commit();
+      await repo.commit();
 
       // Run taspr sync --open to create PRs for all commits
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
-      // Get all PRs
-      const stackPrs = await repo.findPRs("commit in stack");
+      // Get all PRs (all will have uniqueId in title)
+      const stackPrs = await repo.findPRs(repo.uniqueId);
       expect(stackPrs.length).toBe(3);
 
       // Wait for CI to pass on all PRs
@@ -249,9 +252,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
       // Verify the commits are now on main
       await repo.fetch();
       const mainLog = await $`git -C ${repo.path} log origin/main --oneline -10`.text();
-      expect(mainLog).toContain("First commit in stack");
-      expect(mainLog).toContain("Second commit in stack");
-      expect(mainLog).toContain("Third commit in stack");
+      expect(mainLog).toContain(repo.uniqueId);
     },
     { timeout: 300000 },
   );
@@ -261,18 +262,18 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/land-all-stop");
-      await repo.commit("First commit passes");
-      await repo.commit("[FAIL_CI] Second commit fails");
-      await repo.commit("Third commit passes");
+      await repo.commit({ message: "first-passes" });
+      await repo.commit({ message: "[FAIL_CI] second-fails" });
+      await repo.commit({ message: "third-passes" });
 
       // Run taspr sync --open to create PRs for all commits
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
-      // Get all PRs
-      const firstPr = await repo.findPR("First commit passes");
-      const secondPr = await repo.findPR("FAIL_CI");
-      const thirdPr = await repo.findPR("Third commit passes");
+      // Get all PRs by distinct message patterns
+      const firstPr = await repo.findPR("first-passes");
+      const secondPr = await repo.findPR("second-fails");
+      const thirdPr = await repo.findPR("third-passes");
 
       // Wait for CI to complete on all PRs
       await Promise.all([
@@ -311,16 +312,16 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/snapshot-test");
-      await repo.commit("First commit ready");
-      await repo.commit("[FAIL_CI] Second not ready");
+      await repo.commit({ message: "first-ready" });
+      await repo.commit({ message: "[FAIL_CI] second-not-ready" });
 
       // Run taspr sync --open
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
-      // Get PRs
-      const firstPr = await repo.findPR("First commit ready");
-      const secondPr = await repo.findPR("FAIL_CI");
+      // Get PRs by distinct message patterns
+      const firstPr = await repo.findPR("first-ready");
+      const secondPr = await repo.findPR("second-not-ready");
 
       // Wait for CI on both
       await Promise.all([
@@ -353,13 +354,13 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/not-ready");
-      await repo.commit("[CI_SLOW_TEST] Commit with slow CI");
+      await repo.commit({ message: "[CI_SLOW_TEST] slow commit" });
 
       // Run taspr sync --open
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
-      const pr = await repo.findPR("CI_SLOW_TEST");
+      const pr = await repo.findPR(repo.uniqueId);
 
       // Wait for CI to start (so we know checks are being reported)
       await repo.github.waitForCIToStart(pr.number);

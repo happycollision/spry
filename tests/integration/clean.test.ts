@@ -25,13 +25,13 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/clean-dry-run");
-      await repo.commit("Test commit for dry run");
+      await repo.commit();
 
       // Run taspr sync --open to create a PR
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
-      const pr = await repo.findPR("Test commit for dry run");
+      const pr = await repo.findPR(repo.uniqueId);
 
       // Merge the PR via GitHub API WITHOUT deleting the branch (creates orphan)
       await repo.github.mergePR(pr.number, { deleteBranch: false });
@@ -66,13 +66,13 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/clean-delete");
-      await repo.commit("Test commit for clean deletion");
+      await repo.commit();
 
       // Run taspr sync --open to create a PR
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
-      const pr = await repo.findPR("Test commit for clean deletion");
+      const pr = await repo.findPR(repo.uniqueId);
 
       // Wait for CI to complete
       await repo.github.waitForCI(pr.number, { timeout: 180000 });
@@ -107,16 +107,19 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/clean-multi");
-      await repo.commit("First commit for multi-clean test");
-      await repo.commit("Second commit for multi-clean test");
+      await repo.commit();
+      await repo.commit();
 
       // Run taspr sync --open to create PRs
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
-      // Find the PRs
-      const firstPr = await repo.findPR("First commit for multi-clean test");
-      const secondPr = await repo.findPR("Second commit for multi-clean test");
+      // Find the PRs (both will have the uniqueId in the title)
+      const prs = await repo.findPRs(repo.uniqueId);
+      expect(prs.length).toBe(2);
+      const firstPr = prs[0];
+      const secondPr = prs[1];
+      if (!firstPr || !secondPr) throw new Error("Expected 2 PRs");
 
       // Merge both PRs WITHOUT deleting branches (creates orphans)
       // Note: Merging in order since second depends on first
@@ -155,13 +158,13 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
 
       const repo = await repos.clone();
       await repo.branch("feature/amended-test");
-      await repo.commit("Test commit for amended scenario");
+      await repo.commit();
 
       // Run taspr sync --open to create a PR (this adds the Taspr-Commit-Id trailer)
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
-      const pr = await repo.findPR("Test commit for amended scenario");
+      const pr = await repo.findPR(repo.uniqueId);
 
       // Get the Taspr-Commit-Id from the current commit
       const commitIdMatch = pr.headRefName.match(/\/([^/]+)$/);
@@ -180,7 +183,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
       await $`git -C ${repo.path} cherry-pick ${featureBranchSha}`.quiet();
 
       // Amend the commit message (this changes the SHA while preserving the trailer)
-      await $`git -C ${repo.path} commit --amend -m "Amended: Test commit for amended scenario
+      await $`git -C ${repo.path} commit --amend -m "Amended commit [${repo.uniqueId}]
 
 Taspr-Commit-Id: ${commitId}"`.quiet();
 

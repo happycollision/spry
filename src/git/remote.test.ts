@@ -28,7 +28,7 @@ describe("git/remote", () => {
       const repo = await repos.create();
       await repo.branch("feature");
 
-      const commitHash = await repo.commit("Test commit");
+      const commitHash = await repo.commit();
       await pushBranch(commitHash, "taspr/testuser/abc123", false, { cwd: repo.path });
 
       await repo.fetch();
@@ -44,7 +44,7 @@ describe("git/remote", () => {
       const repo = await repos.create();
       await repo.branch("feature");
 
-      const commitHash = await repo.commit("New commit");
+      const commitHash = await repo.commit();
 
       const unit: PRUnit = {
         type: "single",
@@ -67,11 +67,11 @@ describe("git/remote", () => {
       const repo = await repos.create();
       await repo.branch("feature");
 
-      const firstCommit = await repo.commit("First commit");
+      const firstCommit = await repo.commit();
       await pushBranch(firstCommit, "taspr/testuser/updateme", false, { cwd: repo.path });
 
       // Make a new local commit (simulating amend/rebase)
-      const secondCommit = await repo.commit("Second commit");
+      const secondCommit = await repo.commit();
 
       await repo.fetch();
 
@@ -96,7 +96,7 @@ describe("git/remote", () => {
       const repo = await repos.create();
       await repo.branch("feature");
 
-      const commitHash = await repo.commit("Synced commit");
+      const commitHash = await repo.commit();
       await pushBranch(commitHash, "taspr/testuser/synced", false, { cwd: repo.path });
 
       await repo.fetch();
@@ -124,8 +124,8 @@ describe("git/remote", () => {
       const repo = await repos.create();
       await repo.branch("feature");
 
-      const commit1 = await repo.commit("Commit 1");
-      const commit2 = await repo.commit("Commit 2");
+      const commit1 = await repo.commit();
+      const commit2 = await repo.commit();
 
       // Push only the first commit's branch
       await pushBranch(commit1, "taspr/testuser/unit1", false, { cwd: repo.path });

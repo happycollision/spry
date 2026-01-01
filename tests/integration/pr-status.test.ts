@@ -12,12 +12,12 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR checks status", () =>
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/checks-pass");
-      await repo.commit("Add file that will pass CI");
+      await repo.commit();
 
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
-      const pr = await repo.findPR("Add file that will pass CI");
+      const pr = await repo.findPR(repo.uniqueId);
 
       // Wait for CI to complete
       await repo.github.waitForCI(pr.number, { timeout: 180000 });
@@ -34,12 +34,12 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR checks status", () =>
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/checks-fail");
-      await repo.commit("[FAIL_CI] Add file that will fail CI");
+      await repo.commit({ message: "[FAIL_CI] trigger CI failure" });
 
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
-      const pr = await repo.findPR("FAIL_CI");
+      const pr = await repo.findPR(repo.uniqueId);
 
       // Wait for CI to complete (and fail)
       await repo.github.waitForCI(pr.number, { timeout: 180000 });
@@ -56,12 +56,12 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR checks status", () =>
     async () => {
       const repo = await repos.clone();
       await repo.branch("feature/checks-pending");
-      await repo.commit("[CI_SLOW_TEST] Add file with slow CI");
+      await repo.commit({ message: "[CI_SLOW_TEST] slow commit" });
 
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
-      const pr = await repo.findPR("CI_SLOW_TEST");
+      const pr = await repo.findPR(repo.uniqueId);
 
       // Wait for CI to start (but not complete)
       await repo.github.waitForCIToStart(pr.number);
@@ -114,7 +114,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR review status", () =>
 
       // Remove CI workflow for faster testing
       await $`git -C ${repo.path} rm .github/workflows/ci.yml`.quiet();
-      await repo.commit("Add file for review test");
+      await repo.commit();
 
       // Push and create PR
       await $`git -C ${repo.path} push origin ${branchName}`.quiet();
@@ -146,7 +146,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR review status", () =>
 
       // Remove CI workflow for faster testing
       await $`git -C ${repo.path} rm .github/workflows/ci.yml`.quiet();
-      await repo.commit("Add file for approval test");
+      await repo.commit();
 
       // Push and create PR
       await $`git -C ${repo.path} push origin ${branchName}`.quiet();
@@ -181,7 +181,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR review status", () =>
 
       // Remove CI workflow for faster testing
       await $`git -C ${repo.path} rm .github/workflows/ci.yml`.quiet();
-      await repo.commit("Add file for changes requested test");
+      await repo.commit();
 
       // Push and create PR
       await $`git -C ${repo.path} push origin ${branchName}`.quiet();
@@ -221,7 +221,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR review status", () =>
 
         // Remove CI workflow for faster testing
         await $`git -C ${repo.path} rm .github/workflows/ci.yml`.quiet();
-        await repo.commit("Add file for review required test");
+        await repo.commit();
 
         // Push and create PR
         await $`git -C ${repo.path} push origin ${branchName}`.quiet();
@@ -261,7 +261,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR comment status", () =
 
       // Remove CI workflow for faster testing
       await $`git -C ${repo.path} rm .github/workflows/ci.yml`.quiet();
-      await repo.commit("Add file for no comments test");
+      await repo.commit();
 
       // Push and create PR
       await $`git -C ${repo.path} push origin ${branchName}`.quiet();
@@ -291,7 +291,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR comment status", () =
 
       // Remove CI workflow for faster testing
       await $`git -C ${repo.path} rm .github/workflows/ci.yml`.quiet();
-      await repo.commitFiles("Add file for comment thread test", {
+      await repo.commitFiles({
         [`with-comment-${uniqueId}.txt`]: "test content line 1\ntest content line 2\n",
       });
 
