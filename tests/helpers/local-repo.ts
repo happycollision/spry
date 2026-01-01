@@ -54,6 +54,85 @@ interface BaseRepo {
 }
 
 // ============================================================================
+// Shared repo methods factory
+// ============================================================================
+
+interface RepoMethodsConfig {
+  path: string;
+  ctx: TestContext;
+  cleanupFn: () => Promise<void>;
+}
+
+function createRepoMethods(config: RepoMethodsConfig) {
+  const { path, ctx, cleanupFn } = config;
+  let fileCounter = 0;
+
+  return {
+    get uniqueId() {
+      return ctx.uniqueId;
+    },
+
+    async commit(
+      message: string,
+      options?: { trailers?: Record<string, string> },
+    ): Promise<string> {
+      const filename = `file-${ctx.uniqueId}-${fileCounter++}.txt`;
+      let fullMessage = `${message} [${ctx.uniqueId}]`;
+      if (options?.trailers) {
+        fullMessage += "\n\n";
+        for (const [key, value] of Object.entries(options.trailers)) {
+          fullMessage += `${key}: ${value}\n`;
+        }
+      }
+      await Bun.write(join(path, filename), `Content for: ${message}\n`);
+      await $`git -C ${path} add .`.quiet();
+      await $`git -C ${path} commit -m ${fullMessage}`.quiet();
+      return (await $`git -C ${path} rev-parse HEAD`.text()).trim();
+    },
+
+    async commitFiles(
+      message: string,
+      files: Record<string, string>,
+      options?: { trailers?: Record<string, string> },
+    ): Promise<string> {
+      for (const [filename, content] of Object.entries(files)) {
+        await Bun.write(join(path, filename), content);
+      }
+      let fullMessage = `${message} [${ctx.uniqueId}]`;
+      if (options?.trailers) {
+        fullMessage += "\n\n";
+        for (const [key, value] of Object.entries(options.trailers)) {
+          fullMessage += `${key}: ${value}\n`;
+        }
+      }
+      await $`git -C ${path} add .`.quiet();
+      await $`git -C ${path} commit -m ${fullMessage}`.quiet();
+      return (await $`git -C ${path} rev-parse HEAD`.text()).trim();
+    },
+
+    async branch(name: string): Promise<string> {
+      const branchName = `${name}-${ctx.uniqueId}`;
+      await $`git -C ${path} checkout -b ${branchName}`.quiet();
+      return branchName;
+    },
+
+    async checkout(name: string): Promise<void> {
+      await $`git -C ${path} checkout ${name}`.quiet();
+    },
+
+    async fetch(): Promise<void> {
+      await $`git -C ${path} fetch origin`.quiet();
+    },
+
+    async currentBranch(): Promise<string> {
+      return (await $`git -C ${path} rev-parse --abbrev-ref HEAD`.text()).trim();
+    },
+
+    cleanup: cleanupFn,
+  };
+}
+
+// ============================================================================
 // Local-only repo (no GitHub)
 // ============================================================================
 
@@ -89,71 +168,19 @@ async function createLocalRepo(ctx: TestContext): Promise<LocalRepo> {
   // Push main to origin so origin/main exists
   await $`git -C ${path} push -u origin main`.quiet();
 
-  let fileCounter = 0;
+  const methods = createRepoMethods({
+    path,
+    ctx,
+    cleanupFn: async () => {
+      await rm(path, { recursive: true, force: true });
+      await rm(originPath, { recursive: true, force: true });
+    },
+  });
 
   return {
     path,
     originPath,
-
-    get uniqueId() {
-      return ctx.uniqueId;
-    },
-
-    async commit(
-      message: string,
-      options?: { trailers?: Record<string, string> },
-    ): Promise<string> {
-      const filename = `file-${ctx.uniqueId}-${fileCounter++}.txt`;
-      let fullMessage = `${message} [${ctx.uniqueId}]`;
-      if (options?.trailers) {
-        fullMessage += "\n\n";
-        for (const [key, value] of Object.entries(options.trailers)) {
-          fullMessage += `${key}: ${value}\n`;
-        }
-      }
-      await Bun.write(join(path, filename), `Content for: ${message}\n`);
-      await $`git -C ${path} add .`.quiet();
-      await $`git -C ${path} commit -m ${fullMessage}`.quiet();
-      return (await $`git -C ${path} rev-parse HEAD`.text()).trim();
-    },
-
-    async commitFiles(
-      message: string,
-      files: Record<string, string>,
-      options?: { trailers?: Record<string, string> },
-    ): Promise<string> {
-      for (const [filename, content] of Object.entries(files)) {
-        await Bun.write(join(path, filename), content);
-      }
-      let fullMessage = `${message} [${ctx.uniqueId}]`;
-      if (options?.trailers) {
-        fullMessage += "\n\n";
-        for (const [key, value] of Object.entries(options.trailers)) {
-          fullMessage += `${key}: ${value}\n`;
-        }
-      }
-      await $`git -C ${path} add .`.quiet();
-      await $`git -C ${path} commit -m ${fullMessage}`.quiet();
-      return (await $`git -C ${path} rev-parse HEAD`.text()).trim();
-    },
-
-    async branch(name: string): Promise<string> {
-      const branchName = `${name}-${ctx.uniqueId}`;
-      await $`git -C ${path} checkout -b ${branchName}`.quiet();
-      return branchName;
-    },
-
-    async checkout(name: string): Promise<void> {
-      await $`git -C ${path} checkout ${name}`.quiet();
-    },
-
-    async fetch(): Promise<void> {
-      await $`git -C ${path} fetch origin`.quiet();
-    },
-
-    async currentBranch(): Promise<string> {
-      return (await $`git -C ${path} rev-parse --abbrev-ref HEAD`.text()).trim();
-    },
+    ...methods,
 
     async updateOriginMain(message: string, files?: Record<string, string>): Promise<void> {
       const tempWorktree = `${originPath}-worktree-${Date.now()}`;
@@ -177,11 +204,6 @@ async function createLocalRepo(ctx: TestContext): Promise<LocalRepo> {
       } finally {
         await rm(tempWorktree, { recursive: true, force: true });
       }
-    },
-
-    async cleanup(): Promise<void> {
-      await rm(path, { recursive: true, force: true });
-      await rm(originPath, { recursive: true, force: true });
     },
   };
 }
@@ -216,7 +238,13 @@ async function cloneGitHubRepo(github: GitHubFixture, ctx: TestContext): Promise
   await $`git -C ${path} config user.email "test@example.com"`.quiet();
   await $`git -C ${path} config user.name "Test User"`.quiet();
 
-  let fileCounter = 0;
+  const methods = createRepoMethods({
+    path,
+    ctx,
+    cleanupFn: async () => {
+      await rm(path, { recursive: true, force: true });
+    },
+  });
 
   async function findPRsImpl(
     titleSubstring: string,
@@ -234,66 +262,7 @@ async function cloneGitHubRepo(github: GitHubFixture, ctx: TestContext): Promise
   return {
     path,
     github,
-
-    get uniqueId() {
-      return ctx.uniqueId;
-    },
-
-    async commit(
-      message: string,
-      options?: { trailers?: Record<string, string> },
-    ): Promise<string> {
-      const filename = `file-${ctx.uniqueId}-${fileCounter++}.txt`;
-      let fullMessage = `${message} [${ctx.uniqueId}]`;
-      if (options?.trailers) {
-        fullMessage += "\n\n";
-        for (const [key, value] of Object.entries(options.trailers)) {
-          fullMessage += `${key}: ${value}\n`;
-        }
-      }
-      await Bun.write(join(path, filename), `Content for: ${message}\n`);
-      await $`git -C ${path} add .`.quiet();
-      await $`git -C ${path} commit -m ${fullMessage}`.quiet();
-      return (await $`git -C ${path} rev-parse HEAD`.text()).trim();
-    },
-
-    async commitFiles(
-      message: string,
-      files: Record<string, string>,
-      options?: { trailers?: Record<string, string> },
-    ): Promise<string> {
-      for (const [filename, content] of Object.entries(files)) {
-        await Bun.write(join(path, filename), content);
-      }
-      let fullMessage = `${message} [${ctx.uniqueId}]`;
-      if (options?.trailers) {
-        fullMessage += "\n\n";
-        for (const [key, value] of Object.entries(options.trailers)) {
-          fullMessage += `${key}: ${value}\n`;
-        }
-      }
-      await $`git -C ${path} add .`.quiet();
-      await $`git -C ${path} commit -m ${fullMessage}`.quiet();
-      return (await $`git -C ${path} rev-parse HEAD`.text()).trim();
-    },
-
-    async branch(name: string): Promise<string> {
-      const branchName = `${name}-${ctx.uniqueId}`;
-      await $`git -C ${path} checkout -b ${branchName}`.quiet();
-      return branchName;
-    },
-
-    async checkout(name: string): Promise<void> {
-      await $`git -C ${path} checkout ${name}`.quiet();
-    },
-
-    async fetch(): Promise<void> {
-      await $`git -C ${path} fetch origin`.quiet();
-    },
-
-    async currentBranch(): Promise<string> {
-      return (await $`git -C ${path} rev-parse --abbrev-ref HEAD`.text()).trim();
-    },
+    ...methods,
 
     async findPR(
       titleSubstring: string,
@@ -325,10 +294,6 @@ async function cloneGitHubRepo(github: GitHubFixture, ctx: TestContext): Promise
         }
       }
       return false;
-    },
-
-    async cleanup(): Promise<void> {
-      await rm(path, { recursive: true, force: true });
     },
   };
 }
