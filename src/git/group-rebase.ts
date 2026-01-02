@@ -423,3 +423,96 @@ export async function abortRebase(options: GitOptions = {}): Promise<void> {
     await $`git rebase --abort`.quiet().nothrow();
   }
 }
+
+/**
+ * Remove all group trailers from all commits in the stack.
+ * Used by --fix to repair invalid group configurations.
+ */
+export async function removeAllGroupTrailers(options: GitOptions = {}): Promise<ReorderResult> {
+  const { cwd } = options;
+  const commits = await getStackCommitsWithTrailers(options);
+
+  if (commits.length === 0) {
+    return { success: true };
+  }
+
+  // Find commits that have any group trailers
+  const commitsWithGroupTrailers = commits.filter(
+    (c) =>
+      c.trailers["Taspr-Group-Start"] ||
+      c.trailers["Taspr-Group-End"] ||
+      c.trailers["Taspr-Group-Title"],
+  );
+
+  if (commitsWithGroupTrailers.length === 0) {
+    return { success: true };
+  }
+
+  const mergeBase = await getMergeBase(options);
+
+  // Build todo with exec commands to remove all group trailers
+  const todoLines: string[] = [];
+  for (const commit of commits) {
+    todoLines.push(`pick ${commit.hash}`);
+
+    const hasGroupTrailers =
+      commit.trailers["Taspr-Group-Start"] ||
+      commit.trailers["Taspr-Group-End"] ||
+      commit.trailers["Taspr-Group-Title"];
+
+    if (hasGroupTrailers) {
+      // Remove all Taspr-Group-* trailers
+      todoLines.push(
+        `exec NEW_MSG=$(git log -1 --format=%B | grep -v "^Taspr-Group-") && git commit --amend --allow-empty --no-edit -m "$NEW_MSG"`,
+      );
+    }
+  }
+
+  const scriptPath = join(tmpdir(), `taspr-fix-${Date.now()}.sh`);
+  const script = `#!/bin/bash
+set -e
+TODO_FILE="$1"
+
+cat > "$TODO_FILE" << 'TODOEOF'
+${todoLines.join("\n")}
+TODOEOF
+`;
+
+  try {
+    await writeFile(scriptPath, script);
+    await chmod(scriptPath, "755");
+
+    const result = cwd
+      ? await $`GIT_SEQUENCE_EDITOR=${scriptPath} git -C ${cwd} rebase -i ${mergeBase}`
+          .quiet()
+          .nothrow()
+      : await $`GIT_SEQUENCE_EDITOR=${scriptPath} git rebase -i ${mergeBase}`.quiet().nothrow();
+
+    if (result.exitCode !== 0) {
+      // Check for conflict
+      const statusResult = cwd
+        ? await $`git -C ${cwd} status --porcelain`.text()
+        : await $`git status --porcelain`.text();
+
+      const conflictMatch = statusResult.match(/^(?:UU|AA|DD|AU|UA|DU|UD) (.+)$/m);
+
+      if (conflictMatch?.[1]) {
+        return {
+          success: false,
+          error: "Rebase conflict",
+          conflictFile: conflictMatch[1],
+        };
+      }
+
+      return { success: false, error: result.stderr.toString() };
+    }
+
+    return { success: true };
+  } finally {
+    try {
+      await unlink(scriptPath);
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}

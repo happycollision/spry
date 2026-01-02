@@ -1,5 +1,10 @@
 import { runGroupEditor } from "../../tui/group-editor.ts";
-import { dissolveGroup, applyGroupSpec, parseGroupSpec } from "../../git/group-rebase.ts";
+import {
+  dissolveGroup,
+  applyGroupSpec,
+  parseGroupSpec,
+  removeAllGroupTrailers,
+} from "../../git/group-rebase.ts";
 import { getStackCommitsWithTrailers } from "../../git/commands.ts";
 import { parseStack } from "../../core/stack.ts";
 import { formatValidationError } from "../output.ts";
@@ -9,12 +14,19 @@ import type { PRUnit } from "../../types.ts";
 
 export interface GroupCommandOptions {
   apply?: string;
+  fix?: boolean;
 }
 
 /**
  * Main group command - launches the TUI editor or applies a spec.
  */
 export async function groupCommand(options: GroupCommandOptions = {}): Promise<void> {
+  // Fix mode: repair invalid group trailers
+  if (options.fix) {
+    await fixCommand();
+    return;
+  }
+
   // Non-interactive mode: apply a JSON spec
   if (options.apply) {
     await applyCommand(options.apply);
@@ -169,4 +181,56 @@ async function dissolveSingleGroup(group: PRUnit): Promise<void> {
   }
 
   console.log(`✓ Group "${group.title}" dissolved.`);
+}
+
+/**
+ * Fix invalid group trailers by removing all group trailers from commits.
+ * This repairs unclosed groups, overlapping groups, and orphan group ends.
+ */
+async function fixCommand(): Promise<void> {
+  const commits = await getStackCommitsWithTrailers();
+
+  if (commits.length === 0) {
+    console.log("No commits in stack.");
+    return;
+  }
+
+  // Check for validation errors
+  const validation = parseStack(commits);
+
+  if (validation.ok) {
+    console.log("✓ No invalid groups found. Stack is valid.");
+    return;
+  }
+
+  // Show what's wrong
+  console.log(formatValidationError(validation));
+  console.log("");
+
+  // Count commits with group trailers
+  const commitsWithTrailers = commits.filter(
+    (c) =>
+      c.trailers["Taspr-Group-Start"] ||
+      c.trailers["Taspr-Group-End"] ||
+      c.trailers["Taspr-Group-Title"],
+  );
+
+  if (commitsWithTrailers.length === 0) {
+    console.log("No group trailers found to remove.");
+    return;
+  }
+
+  console.log(`Removing group trailers from ${commitsWithTrailers.length} commit(s)...`);
+
+  const result = await removeAllGroupTrailers();
+
+  if (!result.success) {
+    console.error(`✗ Error: ${result.error}`);
+    if (result.conflictFile) {
+      console.error(`  Conflict in: ${result.conflictFile}`);
+    }
+    process.exit(1);
+  }
+
+  console.log("✓ All group trailers removed. Commits are now ungrouped.");
 }
