@@ -18,6 +18,7 @@
  * - `withGroups` - Stack with existing group trailers (for dissolve testing)
  * - `unclosedGroup` - Stack with unclosed group (for sync validation testing)
  * - `overlappingGroups` - Stack with overlapping groups (for sync validation testing)
+ * - `orphanGroupEnd` - Stack with orphan group end (for sync validation testing)
  *
  * ## Usage in tests
  * ```ts
@@ -313,6 +314,36 @@ export const scenarios = {
           "Taspr-Commit-Id": "ovr00003",
           "Taspr-Group-End": "group-inner",
         },
+      });
+    },
+  },
+
+  /**
+   * Stack with an orphan group end (Taspr-Group-End but no matching Taspr-Group-Start).
+   * For testing sync validation blocking and interactive repair.
+   */
+  orphanGroupEnd: {
+    name: "orphan-group-end",
+    description: "Stack with orphan group end (for sync validation testing)",
+    setup: async (repo: LocalRepo) => {
+      await repo.branch("feature");
+      // Regular commit without group trailers
+      await repo.commit({
+        message: "First commit (no group)",
+        trailers: { "Taspr-Commit-Id": "orp00001" },
+      });
+      // Commit with group end but no matching start
+      await repo.commit({
+        message: "Second commit (orphan group end)",
+        trailers: {
+          "Taspr-Commit-Id": "orp00002",
+          "Taspr-Group-End": "group-orphan",
+        },
+      });
+      // Another regular commit
+      await repo.commit({
+        message: "Third commit",
+        trailers: { "Taspr-Commit-Id": "orp00003" },
       });
     },
   },

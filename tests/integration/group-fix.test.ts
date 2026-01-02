@@ -9,8 +9,10 @@ import { runTaspr } from "./helpers.ts";
  */
 async function runGroupFix(
   cwd: string,
+  mode?: string,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  return runTaspr(cwd, "group", ["--fix"]);
+  const args = mode ? [`--fix=${mode}`] : ["--fix"];
+  return runTaspr(cwd, "group", args);
 }
 
 /**
@@ -34,7 +36,7 @@ describe("taspr group --fix", () => {
     expect(result.stdout).toContain("Stack is valid");
   });
 
-  test("fixes unclosed group by removing all group trailers", async () => {
+  test("fixes unclosed group by removing only the start marker (non-TTY fallback)", async () => {
     const repo = await repos.create();
     await scenarios.unclosedGroup.setup(repo);
 
@@ -43,22 +45,21 @@ describe("taspr group --fix", () => {
     expect(beforeTrailers).toContain("Taspr-Group-Start");
     expect(beforeTrailers).toContain("Taspr-Group-Title");
 
+    // In non-TTY mode, --fix falls back to dissolve behavior
     const result = await runGroupFix(repo.path);
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Unclosed group");
-    expect(result.stdout).toContain("Removing group trailers");
-    expect(result.stdout).toContain("All group trailers removed");
+    expect(result.stdout).toContain("start removed");
 
-    // Verify group trailers are removed but commit IDs preserved
+    // Verify only the unclosed group's start marker is removed
     const afterTrailers = await getCommitTrailers(repo.path, 2);
     expect(afterTrailers).not.toContain("Taspr-Group-Start");
     expect(afterTrailers).not.toContain("Taspr-Group-Title");
-    expect(afterTrailers).not.toContain("Taspr-Group-End");
     expect(afterTrailers).toContain("Taspr-Commit-Id"); // Should preserve commit IDs
   });
 
-  test("fixes overlapping groups by removing all group trailers", async () => {
+  test("fixes overlapping groups by removing the inner group start (non-TTY fallback)", async () => {
     const repo = await repos.create();
     await scenarios.overlappingGroups.setup(repo);
 
@@ -67,18 +68,18 @@ describe("taspr group --fix", () => {
     expect(beforeTrailers).toContain("Taspr-Group-Start: group-outer");
     expect(beforeTrailers).toContain("Taspr-Group-Start: group-inner");
 
+    // In non-TTY mode, --fix falls back to dissolve behavior (removes inner group)
     const result = await runGroupFix(repo.path);
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Overlapping groups");
-    expect(result.stdout).toContain("Removing group trailers");
-    expect(result.stdout).toContain("All group trailers removed");
+    expect(result.stdout).toContain("Inner Group");
+    expect(result.stdout).toContain("start removed");
 
-    // Verify all group trailers are removed
+    // Verify only the inner group's start marker is removed, outer group still exists
     const afterTrailers = await getCommitTrailers(repo.path, 3);
-    expect(afterTrailers).not.toContain("Taspr-Group-Start");
-    expect(afterTrailers).not.toContain("Taspr-Group-Title");
-    expect(afterTrailers).not.toContain("Taspr-Group-End");
+    expect(afterTrailers).toContain("Taspr-Group-Start: group-outer"); // Outer still exists
+    expect(afterTrailers).not.toContain("Taspr-Group-Start: group-inner"); // Inner removed
     expect(afterTrailers).toContain("Taspr-Commit-Id"); // Should preserve commit IDs
   });
 
@@ -100,5 +101,44 @@ describe("taspr group --fix", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("No invalid groups found");
+  });
+
+  test("fixes orphan group end by removing only the orphan end (dissolve mode)", async () => {
+    const repo = await repos.create();
+    await scenarios.orphanGroupEnd.setup(repo);
+
+    // Verify initial state has orphan group end
+    const beforeTrailers = await getCommitTrailers(repo.path, 3);
+    expect(beforeTrailers).toContain("Taspr-Group-End: group-orphan");
+    expect(beforeTrailers).not.toContain("Taspr-Group-Start");
+
+    const result = await runGroupFix(repo.path, "dissolve");
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Group end without matching start");
+    expect(result.stdout).toContain("Removing orphan group end");
+    expect(result.stdout).toContain("Orphan group end removed");
+
+    // Verify orphan group end is removed but commit IDs preserved
+    const afterTrailers = await getCommitTrailers(repo.path, 3);
+    expect(afterTrailers).not.toContain("Taspr-Group-End");
+    expect(afterTrailers).toContain("Taspr-Commit-Id"); // Should preserve commit IDs
+  });
+
+  test("--fix=dissolve removes only the problematic group start", async () => {
+    const repo = await repos.create();
+    await scenarios.unclosedGroup.setup(repo);
+
+    const result = await runGroupFix(repo.path, "dissolve");
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Unclosed group");
+    expect(result.stdout).toContain("start removed");
+
+    // Verify only group start/title trailers are removed
+    const afterTrailers = await getCommitTrailers(repo.path, 2);
+    expect(afterTrailers).not.toContain("Taspr-Group-Start");
+    expect(afterTrailers).not.toContain("Taspr-Group-Title");
+    expect(afterTrailers).toContain("Taspr-Commit-Id"); // Should preserve commit IDs
   });
 });

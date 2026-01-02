@@ -41,7 +41,10 @@ const groupCmd = program.command("group").description("Manage commit groups");
 // Default action (no subcommand) - launches the TUI or applies a spec
 groupCmd
   .option("--apply <json>", "Apply a group spec (JSON format) non-interactively")
-  .option("--fix", "Repair invalid group trailers by removing all group markers")
+  .option(
+    "--fix [mode]",
+    "Repair invalid group trailers (interactive by default, 'dissolve' for non-interactive)",
+  )
   .action((options) => groupCommand(options));
 
 // Dissolve subcommand

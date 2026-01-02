@@ -425,6 +425,275 @@ export async function abortRebase(options: GitOptions = {}): Promise<void> {
 }
 
 /**
+ * Add a Taspr-Group-End trailer to a specific commit.
+ * Used to close an unclosed group.
+ */
+export async function addGroupEnd(
+  commitHash: string,
+  groupId: string,
+  options: GitOptions = {},
+): Promise<ReorderResult> {
+  const { cwd } = options;
+  const commits = await getStackCommitsWithTrailers(options);
+
+  const targetCommit = commits.find((c) => c.hash === commitHash || c.hash.startsWith(commitHash));
+  if (!targetCommit) {
+    return { success: false, error: `Commit ${commitHash} not found in stack` };
+  }
+
+  const mergeBase = await getMergeBase(options);
+
+  // Build todo with exec command to add the trailer
+  const todoLines: string[] = [];
+  for (const commit of commits) {
+    todoLines.push(`pick ${commit.hash}`);
+
+    if (commit.hash === targetCommit.hash) {
+      // Add Taspr-Group-End trailer
+      const cmd = `NEW_MSG=$(git log -1 --format=%B | git interpret-trailers --trailer "Taspr-Group-End: ${groupId}") && git commit --amend --no-edit -m "$NEW_MSG"`;
+      todoLines.push(`exec ${cmd}`);
+    }
+  }
+
+  const scriptPath = join(tmpdir(), `taspr-add-end-${Date.now()}.sh`);
+  const script = `#!/bin/bash
+set -e
+TODO_FILE="$1"
+
+cat > "$TODO_FILE" << 'TODOEOF'
+${todoLines.join("\n")}
+TODOEOF
+`;
+
+  try {
+    await writeFile(scriptPath, script);
+    await chmod(scriptPath, "755");
+
+    const result = cwd
+      ? await $`GIT_SEQUENCE_EDITOR=${scriptPath} git -C ${cwd} rebase -i ${mergeBase}`
+          .quiet()
+          .nothrow()
+      : await $`GIT_SEQUENCE_EDITOR=${scriptPath} git rebase -i ${mergeBase}`.quiet().nothrow();
+
+    if (result.exitCode !== 0) {
+      return { success: false, error: result.stderr.toString() };
+    }
+
+    return { success: true };
+  } finally {
+    try {
+      await unlink(scriptPath);
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+/**
+ * Remove Taspr-Group-Start and Taspr-Group-Title trailers from a specific commit.
+ * Used to remove the start marker of an unclosed group.
+ */
+export async function removeGroupStart(
+  commitHash: string,
+  groupId: string,
+  options: GitOptions = {},
+): Promise<ReorderResult> {
+  const { cwd } = options;
+  const commits = await getStackCommitsWithTrailers(options);
+
+  const targetCommit = commits.find((c) => c.hash === commitHash || c.hash.startsWith(commitHash));
+  if (!targetCommit) {
+    return { success: false, error: `Commit ${commitHash} not found in stack` };
+  }
+
+  const mergeBase = await getMergeBase(options);
+
+  // Build todo with exec command to remove the trailers
+  const todoLines: string[] = [];
+  for (const commit of commits) {
+    todoLines.push(`pick ${commit.hash}`);
+
+    if (commit.hash === targetCommit.hash) {
+      // Remove Taspr-Group-Start and Taspr-Group-Title for this group
+      const trailersToRemove: string[] = [`Taspr-Group-Start: ${groupId}`];
+      const title = commit.trailers["Taspr-Group-Title"];
+      if (title) {
+        trailersToRemove.push(`Taspr-Group-Title: ${title}`);
+      }
+      const grepPatterns = trailersToRemove.map((t) => `-e "^${t}$"`).join(" ");
+      todoLines.push(
+        `exec NEW_MSG=$(git log -1 --format=%B | grep -v ${grepPatterns}) && git commit --amend --no-edit -m "$NEW_MSG"`,
+      );
+    }
+  }
+
+  const scriptPath = join(tmpdir(), `taspr-remove-start-${Date.now()}.sh`);
+  const script = `#!/bin/bash
+set -e
+TODO_FILE="$1"
+
+cat > "$TODO_FILE" << 'TODOEOF'
+${todoLines.join("\n")}
+TODOEOF
+`;
+
+  try {
+    await writeFile(scriptPath, script);
+    await chmod(scriptPath, "755");
+
+    const result = cwd
+      ? await $`GIT_SEQUENCE_EDITOR=${scriptPath} git -C ${cwd} rebase -i ${mergeBase}`
+          .quiet()
+          .nothrow()
+      : await $`GIT_SEQUENCE_EDITOR=${scriptPath} git rebase -i ${mergeBase}`.quiet().nothrow();
+
+    if (result.exitCode !== 0) {
+      return { success: false, error: result.stderr.toString() };
+    }
+
+    return { success: true };
+  } finally {
+    try {
+      await unlink(scriptPath);
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+/**
+ * Add Taspr-Group-Start and Taspr-Group-Title trailers to a specific commit.
+ * Used to add a start marker for an orphan group end.
+ */
+export async function addGroupStart(
+  commitHash: string,
+  groupId: string,
+  groupTitle: string,
+  options: GitOptions = {},
+): Promise<ReorderResult> {
+  const { cwd } = options;
+  const commits = await getStackCommitsWithTrailers(options);
+
+  const targetCommit = commits.find((c) => c.hash === commitHash || c.hash.startsWith(commitHash));
+  if (!targetCommit) {
+    return { success: false, error: `Commit ${commitHash} not found in stack` };
+  }
+
+  const mergeBase = await getMergeBase(options);
+
+  // Build todo with exec command to add the trailers
+  const todoLines: string[] = [];
+  for (const commit of commits) {
+    todoLines.push(`pick ${commit.hash}`);
+
+    if (commit.hash === targetCommit.hash) {
+      // Add Taspr-Group-Start and Taspr-Group-Title trailers
+      const cmd = `NEW_MSG=$(git log -1 --format=%B | git interpret-trailers --trailer "Taspr-Group-Start: ${groupId}" --trailer "Taspr-Group-Title: ${groupTitle}") && git commit --amend --no-edit -m "$NEW_MSG"`;
+      todoLines.push(`exec ${cmd}`);
+    }
+  }
+
+  const scriptPath = join(tmpdir(), `taspr-add-start-${Date.now()}.sh`);
+  const script = `#!/bin/bash
+set -e
+TODO_FILE="$1"
+
+cat > "$TODO_FILE" << 'TODOEOF'
+${todoLines.join("\n")}
+TODOEOF
+`;
+
+  try {
+    await writeFile(scriptPath, script);
+    await chmod(scriptPath, "755");
+
+    const result = cwd
+      ? await $`GIT_SEQUENCE_EDITOR=${scriptPath} git -C ${cwd} rebase -i ${mergeBase}`
+          .quiet()
+          .nothrow()
+      : await $`GIT_SEQUENCE_EDITOR=${scriptPath} git rebase -i ${mergeBase}`.quiet().nothrow();
+
+    if (result.exitCode !== 0) {
+      return { success: false, error: result.stderr.toString() };
+    }
+
+    return { success: true };
+  } finally {
+    try {
+      await unlink(scriptPath);
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+/**
+ * Remove Taspr-Group-End trailer from a specific commit.
+ * Used to remove an orphan group end.
+ */
+export async function removeGroupEnd(
+  commitHash: string,
+  groupId: string,
+  options: GitOptions = {},
+): Promise<ReorderResult> {
+  const { cwd } = options;
+  const commits = await getStackCommitsWithTrailers(options);
+
+  const targetCommit = commits.find((c) => c.hash === commitHash || c.hash.startsWith(commitHash));
+  if (!targetCommit) {
+    return { success: false, error: `Commit ${commitHash} not found in stack` };
+  }
+
+  const mergeBase = await getMergeBase(options);
+
+  // Build todo with exec command to remove the trailer
+  const todoLines: string[] = [];
+  for (const commit of commits) {
+    todoLines.push(`pick ${commit.hash}`);
+
+    if (commit.hash === targetCommit.hash) {
+      // Remove Taspr-Group-End for this group
+      todoLines.push(
+        `exec NEW_MSG=$(git log -1 --format=%B | grep -v -e "^Taspr-Group-End: ${groupId}$") && git commit --amend --no-edit -m "$NEW_MSG"`,
+      );
+    }
+  }
+
+  const scriptPath = join(tmpdir(), `taspr-remove-end-${Date.now()}.sh`);
+  const script = `#!/bin/bash
+set -e
+TODO_FILE="$1"
+
+cat > "$TODO_FILE" << 'TODOEOF'
+${todoLines.join("\n")}
+TODOEOF
+`;
+
+  try {
+    await writeFile(scriptPath, script);
+    await chmod(scriptPath, "755");
+
+    const result = cwd
+      ? await $`GIT_SEQUENCE_EDITOR=${scriptPath} git -C ${cwd} rebase -i ${mergeBase}`
+          .quiet()
+          .nothrow()
+      : await $`GIT_SEQUENCE_EDITOR=${scriptPath} git rebase -i ${mergeBase}`.quiet().nothrow();
+
+    if (result.exitCode !== 0) {
+      return { success: false, error: result.stderr.toString() };
+    }
+
+    return { success: true };
+  } finally {
+    try {
+      await unlink(scriptPath);
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+/**
  * Remove all group trailers from all commits in the stack.
  * Used by --fix to repair invalid group configurations.
  */

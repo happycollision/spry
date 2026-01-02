@@ -4,17 +4,24 @@ import {
   applyGroupSpec,
   parseGroupSpec,
   removeAllGroupTrailers,
+  addGroupEnd,
+  removeGroupStart,
+  addGroupStart,
+  removeGroupEnd,
 } from "../../git/group-rebase.ts";
 import { getStackCommitsWithTrailers } from "../../git/commands.ts";
-import { parseStack } from "../../core/stack.ts";
+import { parseStack, type CommitWithTrailers } from "../../core/stack.ts";
 import { formatValidationError } from "../output.ts";
 import { multiSelect } from "../../tui/multi-select.ts";
+import { repairSelect } from "../../tui/repair-select.ts";
+import { commitSelect } from "../../tui/commit-select.ts";
 import { isTTY } from "../../tui/terminal.ts";
-import type { PRUnit } from "../../types.ts";
+import type { PRUnit, StackParseResult } from "../../types.ts";
+import * as readline from "node:readline";
 
 export interface GroupCommandOptions {
   apply?: string;
-  fix?: boolean;
+  fix?: boolean | string;
 }
 
 /**
@@ -22,8 +29,9 @@ export interface GroupCommandOptions {
  */
 export async function groupCommand(options: GroupCommandOptions = {}): Promise<void> {
   // Fix mode: repair invalid group trailers
-  if (options.fix) {
-    await fixCommand();
+  if (options.fix !== undefined) {
+    const mode = typeof options.fix === "string" ? options.fix : undefined;
+    await fixCommand(mode);
     return;
   }
 
@@ -184,10 +192,10 @@ async function dissolveSingleGroup(group: PRUnit): Promise<void> {
 }
 
 /**
- * Fix invalid group trailers by removing all group trailers from commits.
- * This repairs unclosed groups, overlapping groups, and orphan group ends.
+ * Fix invalid group trailers.
+ * Interactive mode by default, or "dissolve" mode for non-interactive.
  */
-async function fixCommand(): Promise<void> {
+async function fixCommand(mode?: string): Promise<void> {
   const commits = await getStackCommitsWithTrailers();
 
   if (commits.length === 0) {
@@ -203,34 +211,452 @@ async function fixCommand(): Promise<void> {
     return;
   }
 
+  // Non-interactive dissolve mode
+  if (mode === "dissolve" || !isTTY()) {
+    await dissolveErrorGroup(commits, validation);
+    return;
+  }
+
+  // Interactive repair mode
+  switch (validation.error) {
+    case "unclosed-group":
+      await repairUnclosedGroup(commits, validation);
+      break;
+    case "overlapping-groups":
+      await repairOverlappingGroups(commits, validation);
+      break;
+    case "orphan-group-end":
+      await repairOrphanEnd(commits, validation);
+      break;
+  }
+}
+
+/**
+ * Non-interactive dissolve: remove only the problematic group trailers.
+ */
+async function dissolveErrorGroup(
+  _commits: CommitWithTrailers[],
+  validation: Exclude<StackParseResult, { ok: true }>,
+): Promise<void> {
   // Show what's wrong
   console.log(formatValidationError(validation));
   console.log("");
 
-  // Count commits with group trailers
-  const commitsWithTrailers = commits.filter(
-    (c) =>
-      c.trailers["Taspr-Group-Start"] ||
-      c.trailers["Taspr-Group-End"] ||
-      c.trailers["Taspr-Group-Title"],
-  );
+  // Dissolve only the group(s) with errors
+  switch (validation.error) {
+    case "unclosed-group": {
+      console.log(`Removing group "${validation.groupTitle}" start marker...`);
+      const result = await removeGroupStart(validation.startCommit, validation.groupId);
+      if (!result.success) {
+        console.error(`✗ Error: ${result.error}`);
+        process.exit(1);
+      }
+      console.log(`✓ Group "${validation.groupTitle}" start removed.`);
+      break;
+    }
 
-  if (commitsWithTrailers.length === 0) {
-    console.log("No group trailers found to remove.");
+    case "overlapping-groups": {
+      // Remove the inner (second) group that's causing the overlap
+      console.log(`Removing overlapping group "${validation.group2.title}" start marker...`);
+      const result = await removeGroupStart(validation.group2.startCommit, validation.group2.id);
+      if (!result.success) {
+        console.error(`✗ Error: ${result.error}`);
+        process.exit(1);
+      }
+      console.log(`✓ Group "${validation.group2.title}" start removed.`);
+      console.log(
+        `  Note: "${validation.group1.title}" is still open - run --fix again if needed.`,
+      );
+      break;
+    }
+
+    case "orphan-group-end": {
+      console.log(`Removing orphan group end marker...`);
+      const result = await removeGroupEnd(validation.commit, validation.groupId);
+      if (!result.success) {
+        console.error(`✗ Error: ${result.error}`);
+        process.exit(1);
+      }
+      console.log("✓ Orphan group end removed.");
+      break;
+    }
+  }
+}
+
+/**
+ * Format error summary for repair UI.
+ */
+function formatErrorSummary(validation: Exclude<StackParseResult, { ok: true }>): string {
+  switch (validation.error) {
+    case "unclosed-group":
+      return `✗ Unclosed group: "${validation.groupTitle}" (${validation.groupId.slice(0, 8)})\n  Started at commit ${validation.startCommit.slice(0, 8)} but has no matching end.`;
+    case "overlapping-groups":
+      return `✗ Overlapping groups detected:\n  "${validation.group1.title}" starts at ${validation.group1.startCommit.slice(0, 8)}\n  "${validation.group2.title}" starts at ${validation.group2.startCommit.slice(0, 8)} (inside first group)`;
+    case "orphan-group-end":
+      return `✗ Orphan group end: ${validation.groupId.slice(0, 8)}\n  Found Taspr-Group-End at ${validation.commit.slice(0, 8)} with no matching start.`;
+  }
+}
+
+type UnclosedGroupValidation = {
+  ok: false;
+  error: "unclosed-group";
+  groupId: string;
+  startCommit: string;
+  groupTitle: string;
+};
+
+type OverlappingGroupsValidation = {
+  ok: false;
+  error: "overlapping-groups";
+  group1: { id: string; title: string; startCommit: string };
+  group2: { id: string; title: string; startCommit: string };
+  overlappingCommit: string;
+};
+
+type OrphanGroupEndValidation = {
+  ok: false;
+  error: "orphan-group-end";
+  groupId: string;
+  commit: string;
+};
+
+/**
+ * Repair an unclosed group interactively.
+ */
+async function repairUnclosedGroup(
+  commits: CommitWithTrailers[],
+  validation: UnclosedGroupValidation,
+): Promise<void> {
+  const errorSummary = formatErrorSummary(validation);
+
+  type RepairAction = "pick-end" | "remove-start" | "dissolve";
+
+  const options: Array<{ label: string; value: RepairAction; description: string }> = [
+    {
+      label: "Pick end commit",
+      value: "pick-end",
+      description: "Select which commit should close this group",
+    },
+    {
+      label: "Remove group start",
+      value: "remove-start",
+      description: "Remove the Taspr-Group-Start trailer (commits become ungrouped)",
+    },
+    {
+      label: "Dissolve all groups",
+      value: "dissolve",
+      description: "Remove ALL group trailers from the stack",
+    },
+  ];
+
+  const result = await repairSelect(options, "Select repair action:", errorSummary);
+
+  if (result.cancelled || !result.selected) {
+    console.log("Repair cancelled.");
     return;
   }
 
-  console.log(`Removing group trailers from ${commitsWithTrailers.length} commit(s)...`);
+  switch (result.selected) {
+    case "pick-end": {
+      // Find commits at or after the start commit
+      const startIndex = commits.findIndex(
+        (c) => c.hash === validation.startCommit || c.hash.startsWith(validation.startCommit),
+      );
+      if (startIndex === -1) {
+        console.error("Could not find start commit in stack.");
+        process.exit(1);
+      }
 
-  const result = await removeAllGroupTrailers();
+      // Eligible commits are those at or after the start
+      const eligibleCommits = commits.slice(startIndex);
 
-  if (!result.success) {
-    console.error(`✗ Error: ${result.error}`);
-    if (result.conflictFile) {
-      console.error(`  Conflict in: ${result.conflictFile}`);
+      if (eligibleCommits.length === 0) {
+        console.log("No eligible commits to select as group end.");
+        return;
+      }
+
+      const selected = await commitSelect(
+        eligibleCommits,
+        "Select the commit to be the group end:",
+        validation.startCommit,
+      );
+
+      if (selected.cancelled || !selected.commit) {
+        console.log("Selection cancelled.");
+        return;
+      }
+
+      console.log(`Adding Taspr-Group-End to commit ${selected.commit.slice(0, 8)}...`);
+      const addResult = await addGroupEnd(selected.commit, validation.groupId);
+
+      if (!addResult.success) {
+        console.error(`✗ Error: ${addResult.error}`);
+        process.exit(1);
+      }
+
+      console.log("✓ Group end added. Group is now closed.");
+      break;
     }
-    process.exit(1);
+
+    case "remove-start": {
+      console.log(
+        `Removing Taspr-Group-Start from commit ${validation.startCommit.slice(0, 8)}...`,
+      );
+      const removeResult = await removeGroupStart(validation.startCommit, validation.groupId);
+
+      if (!removeResult.success) {
+        console.error(`✗ Error: ${removeResult.error}`);
+        process.exit(1);
+      }
+
+      console.log("✓ Group start removed. Commits are now ungrouped.");
+      break;
+    }
+
+    case "dissolve": {
+      console.log("Removing all group trailers...");
+      const dissolveResult = await removeAllGroupTrailers();
+
+      if (!dissolveResult.success) {
+        console.error(`✗ Error: ${dissolveResult.error}`);
+        process.exit(1);
+      }
+
+      console.log("✓ All group trailers removed.");
+      break;
+    }
+  }
+}
+
+/**
+ * Repair overlapping groups interactively.
+ */
+async function repairOverlappingGroups(
+  commits: CommitWithTrailers[],
+  validation: OverlappingGroupsValidation,
+): Promise<void> {
+  const errorSummary = formatErrorSummary(validation);
+
+  // Find the commit right before the overlap
+  const overlapIndex = commits.findIndex(
+    (c) =>
+      c.hash === validation.overlappingCommit || c.hash.startsWith(validation.overlappingCommit),
+  );
+  const commitBeforeOverlap = overlapIndex > 0 ? commits[overlapIndex - 1] : null;
+
+  type RepairAction = "close-first" | "remove-second" | "dissolve";
+
+  const options: Array<{ label: string; value: RepairAction; description: string }> = [
+    {
+      label: `Close "${validation.group1.title}" before overlap`,
+      value: "close-first",
+      description: commitBeforeOverlap
+        ? `Add Taspr-Group-End to ${commitBeforeOverlap.hash.slice(0, 8)}`
+        : "Add end marker to close the first group",
+    },
+    {
+      label: `Remove "${validation.group2.title}" start`,
+      value: "remove-second",
+      description: "Remove the nested group's start marker",
+    },
+    {
+      label: "Dissolve all groups",
+      value: "dissolve",
+      description: "Remove ALL group trailers from the stack",
+    },
+  ];
+
+  const result = await repairSelect(options, "Select repair action:", errorSummary);
+
+  if (result.cancelled || !result.selected) {
+    console.log("Repair cancelled.");
+    return;
   }
 
-  console.log("✓ All group trailers removed. Commits are now ungrouped.");
+  switch (result.selected) {
+    case "close-first": {
+      if (!commitBeforeOverlap) {
+        console.error("Cannot close group: no commits before overlap.");
+        process.exit(1);
+      }
+
+      console.log(
+        `Adding Taspr-Group-End to commit ${commitBeforeOverlap.hash.slice(0, 8)} to close "${validation.group1.title}"...`,
+      );
+      const addResult = await addGroupEnd(commitBeforeOverlap.hash, validation.group1.id);
+
+      if (!addResult.success) {
+        console.error(`✗ Error: ${addResult.error}`);
+        process.exit(1);
+      }
+
+      console.log(`✓ Group "${validation.group1.title}" closed.`);
+      console.log(
+        `  Note: "${validation.group2.title}" is still open - run --fix again if needed.`,
+      );
+      break;
+    }
+
+    case "remove-second": {
+      console.log(
+        `Removing Taspr-Group-Start from commit ${validation.group2.startCommit.slice(0, 8)}...`,
+      );
+      const removeResult = await removeGroupStart(
+        validation.group2.startCommit,
+        validation.group2.id,
+      );
+
+      if (!removeResult.success) {
+        console.error(`✗ Error: ${removeResult.error}`);
+        process.exit(1);
+      }
+
+      console.log(`✓ Group "${validation.group2.title}" start removed.`);
+      break;
+    }
+
+    case "dissolve": {
+      console.log("Removing all group trailers...");
+      const dissolveResult = await removeAllGroupTrailers();
+
+      if (!dissolveResult.success) {
+        console.error(`✗ Error: ${dissolveResult.error}`);
+        process.exit(1);
+      }
+
+      console.log("✓ All group trailers removed.");
+      break;
+    }
+  }
+}
+
+/**
+ * Prompt for group name using readline.
+ */
+async function promptGroupName(defaultName: string): Promise<string> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    rl.question(`Group name [${defaultName}]: `, (answer) => {
+      rl.close();
+      resolve(answer.trim() || defaultName);
+    });
+  });
+}
+
+/**
+ * Repair an orphan group end interactively.
+ */
+async function repairOrphanEnd(
+  commits: CommitWithTrailers[],
+  validation: OrphanGroupEndValidation,
+): Promise<void> {
+  const errorSummary = formatErrorSummary(validation);
+
+  type RepairAction = "pick-start" | "remove-end" | "dissolve";
+
+  const options: Array<{ label: string; value: RepairAction; description: string }> = [
+    {
+      label: "Pick start commit",
+      value: "pick-start",
+      description: "Select which commit should start this group",
+    },
+    {
+      label: "Remove orphan end",
+      value: "remove-end",
+      description: "Remove the Taspr-Group-End trailer",
+    },
+    {
+      label: "Dissolve all groups",
+      value: "dissolve",
+      description: "Remove ALL group trailers from the stack",
+    },
+  ];
+
+  const result = await repairSelect(options, "Select repair action:", errorSummary);
+
+  if (result.cancelled || !result.selected) {
+    console.log("Repair cancelled.");
+    return;
+  }
+
+  switch (result.selected) {
+    case "pick-start": {
+      // Find commits up to and including the orphan end commit
+      const endIndex = commits.findIndex(
+        (c) => c.hash === validation.commit || c.hash.startsWith(validation.commit),
+      );
+      if (endIndex === -1) {
+        console.error("Could not find end commit in stack.");
+        process.exit(1);
+      }
+
+      // Eligible commits are those at or before the end
+      const eligibleCommits = commits.slice(0, endIndex + 1);
+
+      if (eligibleCommits.length === 0) {
+        console.log("No eligible commits to select as group start.");
+        return;
+      }
+
+      const selected = await commitSelect(
+        eligibleCommits,
+        "Select the commit to be the group start:",
+        validation.commit,
+      );
+
+      if (selected.cancelled || !selected.commit) {
+        console.log("Selection cancelled.");
+        return;
+      }
+
+      // Prompt for group name
+      const selectedCommit = commits.find(
+        (c) => c.hash === selected.commit || c.hash.startsWith(selected.commit || ""),
+      );
+      const defaultName = selectedCommit?.subject || "New Group";
+      console.log("");
+      const groupName = await promptGroupName(defaultName);
+
+      console.log(`Adding Taspr-Group-Start to commit ${selected.commit.slice(0, 8)}...`);
+      const addResult = await addGroupStart(selected.commit, validation.groupId, groupName);
+
+      if (!addResult.success) {
+        console.error(`✗ Error: ${addResult.error}`);
+        process.exit(1);
+      }
+
+      console.log(`✓ Group "${groupName}" created.`);
+      break;
+    }
+
+    case "remove-end": {
+      console.log(`Removing Taspr-Group-End from commit ${validation.commit.slice(0, 8)}...`);
+      const removeResult = await removeGroupEnd(validation.commit, validation.groupId);
+
+      if (!removeResult.success) {
+        console.error(`✗ Error: ${removeResult.error}`);
+        process.exit(1);
+      }
+
+      console.log("✓ Orphan group end removed.");
+      break;
+    }
+
+    case "dissolve": {
+      console.log("Removing all group trailers...");
+      const dissolveResult = await removeAllGroupTrailers();
+
+      if (!dissolveResult.success) {
+        console.error(`✗ Error: ${dissolveResult.error}`);
+        process.exit(1);
+      }
+
+      console.log("✓ All group trailers removed.");
+      break;
+    }
+  }
 }
