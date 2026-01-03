@@ -169,6 +169,99 @@ git config taspr.branchPrefix my-prefix
 
 # Custom default branch (auto-detected if not set)
 git config taspr.defaultBranch main
+
+# Temporary commit prefixes (default: "WIP,fixup!,amend!,squash!")
+git config taspr.tempCommitPrefixes "WIP,DRAFT,TODO"
+
+# Disable temp commit detection (create PRs for all commits)
+git config taspr.tempCommitPrefixes ""
+```
+
+### Temporary Commits
+
+Commits with certain prefixes are considered "temporary" and won't automatically get PRs created during `taspr sync --open`. This is useful for:
+
+- **WIP commits**: Work you're not ready to review yet
+- **fixup!/amend!/squash! commits**: Commits meant to be squashed during interactive rebase
+
+**Default prefixes** (case-insensitive matching):
+
+- `WIP` - Work in progress
+- `fixup!` - Git's autosquash fixup commits
+- `amend!` - Git's autosquash amend commits
+- `squash!` - Git's autosquash squash commits
+
+**Behavior when detected:**
+
+1. Branches are still pushed (for stacking dependent commits)
+2. PR creation is skipped
+3. Output shows which commits were skipped
+
+**Escape hatch:** If you group a temporary commit with other commits, a PR will be created for the group. This lets you explicitly opt-in when ready.
+
+```bash
+# Example: WIP commit won't get a PR
+git commit -m "WIP: experimenting with new approach"
+taspr sync --open
+# Output: ⚠ Skipped PR for 1 temporary commit(s)
+
+# Later, when ready, amend the commit message
+git commit --amend -m "Add new caching approach"
+taspr sync --open
+# Now creates a PR
+```
+
+**Using fixup! with stacked PRs:**
+
+When you need to fix an earlier commit in your stack, use git's `--fixup` flag. The fixup commit won't get its own PR, keeping your stack clean:
+
+```bash
+# Your stack has 3 commits, each with its own PR
+# PR #1: Add user model
+# PR #2: Add user API
+# PR #3: Add user tests
+
+# You notice a bug in the user model (PR #1)
+# Create a fixup commit targeting that commit
+git commit --fixup "Add user model"
+
+# Sync - the fixup commit pushes but doesn't get a PR
+taspr sync --open
+# Output: ⚠ Skipped PR for 1 temporary commit(s):
+#   fixup! Add user model
+
+# When ready to squash, run interactive rebase with autosquash
+git rebase -i --autosquash origin/main
+# The fixup commit automatically moves next to "Add user model" and squashes
+
+# Sync again to update PR #1 with the fix
+taspr sync
+```
+
+**Alternative: Adding fixup! commits to an existing PR:**
+
+<!-- FIXUP_GROUP_DOCS: Update after taspr-b3e is resolved - squashing grouped fixups has edge cases -->
+
+Some teams prefer reviewers to see fixup! commits that address feedback, rather than squashing immediately. You can group the fixup! commit with the original to add it to the same PR:
+
+```bash
+# PR #1 exists for "Add user model"
+# Reviewer requests changes
+
+# Create a fixup commit
+git commit --fixup "Add user model"
+
+# Group the fixup! commit with the original using taspr group
+taspr group
+# Select both "Add user model" and "fixup! Add user model" in the TUI
+
+# Sync - now the fixup! commit is part of PR #1
+taspr sync
+# Reviewer can see exactly what changed in response to feedback
+
+# Later, when approved, squash before merging
+git rebase -i --autosquash origin/main
+taspr sync
 ```
 
 ## Workflow Example

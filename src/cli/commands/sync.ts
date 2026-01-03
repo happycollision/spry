@@ -250,7 +250,7 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       for (const title of skippedTemp) {
         console.log(`  ${title}`);
       }
-      console.log(`  See: TEMP_COMMITS_DOC_URL`);
+      console.log(`  See: https://github.com/happycollision/taspr#temporary-commits`);
     }
 
     if (summary.upToDate > 0 && pushedCount === 0 && skippedNoPR.length === 0) {
