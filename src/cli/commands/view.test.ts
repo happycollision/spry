@@ -20,7 +20,8 @@ describe("cli/commands/view", () => {
       const lines = output.split("\n");
 
       expect(lines[0]).toContain("Stack: main");
-      expect(lines[2]).toBe("  → origin/main");
+      expect(lines[1]).toContain("○ no PR"); // Legend line
+      expect(lines[3]).toBe("  → origin/main");
     });
 
     test("shows 'PRs: 0/N opened' when no PRs are open", async () => {
@@ -217,10 +218,10 @@ describe("cli/commands/view", () => {
       const output = await formatStackView(units, "main", 1);
       const lines = output.split("\n");
 
-      // origin/main should only appear once, after the header
+      // origin/main should only appear once, after the header and legend
       const originMainLines = lines.filter((l: string) => l.includes("origin/main"));
       expect(originMainLines.length).toBe(1);
-      expect(lines[2]).toContain("origin/main");
+      expect(lines[3]).toContain("origin/main");
     });
 
     test("returns message when no commits", async () => {

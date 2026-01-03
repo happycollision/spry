@@ -6,15 +6,10 @@ const SEPARATOR = "─".repeat(72);
 
 /**
  * Format blocking indicators for a PR's status.
- * Shows unresolved comments, CI check status, and review status.
+ * Shows CI check status, review status, and unresolved comments.
  */
 export function formatBlockingIndicators(status: PRStatus): string {
   const indicators: string[] = [];
-
-  // Comment threads - show if any unresolved
-  if (status.comments.total > 0 && status.comments.resolved < status.comments.total) {
-    indicators.push(`💬 ${status.comments.resolved}/${status.comments.total}`);
-  }
 
   // CI checks
   if (status.checks === "pending") {
@@ -28,6 +23,11 @@ export function formatBlockingIndicators(status: PRStatus): string {
     indicators.push("👀 review");
   } else if (status.review === "changes_requested") {
     indicators.push("❌ review");
+  }
+
+  // Comment threads - show if any unresolved
+  if (status.comments.total > 0 && status.comments.resolved < status.comments.total) {
+    indicators.push(`💬 ${status.comments.resolved}/${status.comments.total}`);
   }
 
   return indicators.join("  ");
@@ -78,6 +78,11 @@ export async function formatStackView(
   lines.push(
     `Stack: ${branchName} (${commitCount} commit${commitCount === 1 ? "" : "s"}, PRs: ${openedPRCount}/${units.length} opened)`,
   );
+
+  // Legend
+  const dim = "\x1b[2m";
+  const reset = "\x1b[0m";
+  lines.push(`${dim}○ no PR  ◐ open  ✓ merged  ✗ closed${reset}`);
   lines.push("");
 
   // Origin/main indicator
@@ -109,23 +114,17 @@ function formatPRUnit(unit: EnrichedPRUnit): string {
 
   const statusIcon = getPRStatusIcon(unit.pr);
   const prNum = unit.pr ? `#${unit.pr.number} ` : "";
-
-  // Get blocking indicators if PR has status
-  const indicators = unit.pr?.status ? formatBlockingIndicators(unit.pr.status) : "";
-  const indicatorSuffix = indicators ? `  ${indicators}` : "";
+  const dim = "\x1b[2m";
+  const reset = "\x1b[0m";
 
   if (unit.type === "single") {
     // Single commit - show ID inline in dim style
-    const dim = "\x1b[2m";
-    const reset = "\x1b[0m";
     const idDisplay = hasCommitId(unit) ? ` ${dim}(${unit.id})${reset}` : ` ${dim}(no ID)${reset}`;
-    lines.push(`  ${statusIcon} ${prNum}${unit.title}${idDisplay}${indicatorSuffix}`);
+    lines.push(`  ${statusIcon} ${prNum}${unit.title}${idDisplay}`);
   } else {
     // Group
-    const dim = "\x1b[2m";
-    const reset = "\x1b[0m";
     const groupIdDisplay = hasCommitId(unit) ? `[${unit.id}]` : "(no commit ID yet)";
-    lines.push(`  ${statusIcon} ${prNum}${unit.title} ${groupIdDisplay}${indicatorSuffix}`);
+    lines.push(`  ${statusIcon} ${prNum}${unit.title} ${groupIdDisplay}`);
 
     // List commits with tree structure
     const commitCount = unit.commits.length;
@@ -141,7 +140,14 @@ function formatPRUnit(unit: EnrichedPRUnit): string {
 
   // PR URL
   if (unit.pr) {
-    lines.push(`    ${unit.pr.url}`);
+    const blue = "\x1b[34m";
+    lines.push(`    ${blue}${unit.pr.url}${reset}`);
+  }
+
+  // Blocking indicators on separate line below URL
+  const indicators = unit.pr?.status ? formatBlockingIndicators(unit.pr.status) : "";
+  if (indicators) {
+    lines.push(`    ${indicators}`);
   }
 
   return lines.join("\n");

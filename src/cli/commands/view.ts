@@ -14,6 +14,7 @@ import type { PRUnit, EnrichedPRUnit, PRStatus } from "../../types.ts";
 
 export interface ViewOptions {
   all?: boolean;
+  mock?: boolean;
 }
 
 async function fetchPRStatus(prNumber: number): Promise<PRStatus> {
@@ -52,6 +53,50 @@ async function enrichUnitsWithPRInfo(units: PRUnit[]): Promise<EnrichedPRUnit[]>
       return unit;
     }),
   );
+}
+
+/**
+ * Add mock PR data to units for testing display without hitting GitHub API.
+ * Merged PRs are contiguous from the bottom, then open PRs with various statuses.
+ */
+function enrichUnitsWithMockPRInfo(units: PRUnit[]): EnrichedPRUnit[] {
+  // Statuses for open PRs - cycle through these
+  const openStatuses: PRStatus[] = [
+    { checks: "passing", review: "approved", comments: { total: 3, resolved: 3 } },
+    { checks: "failing", review: "changes_requested", comments: { total: 5, resolved: 2 } },
+    { checks: "pending", review: "review_required", comments: { total: 0, resolved: 0 } },
+  ];
+
+  return units.map((unit, i): EnrichedPRUnit => {
+    // First unit is merged, rest are open with varying statuses
+    // One unit has no PR yet
+    if (i === 0) {
+      // Bottom of stack: merged
+      return {
+        ...unit,
+        pr: {
+          number: 100 + i,
+          url: `https://github.com/example/repo/pull/${100 + i}`,
+          state: "MERGED",
+        },
+      };
+    } else if (i === units.length - 1 && units.length > 2) {
+      // Top of stack: no PR yet
+      return unit;
+    } else {
+      // Middle: open PRs with various statuses
+      const statusIndex = (i - 1) % openStatuses.length;
+      return {
+        ...unit,
+        pr: {
+          number: 100 + i,
+          url: `https://github.com/example/repo/pull/${100 + i}`,
+          state: "OPEN",
+          status: openStatuses[statusIndex],
+        },
+      };
+    }
+  });
 }
 
 export interface UserPR {
@@ -105,7 +150,9 @@ export async function viewCommand(options: ViewOptions = {}): Promise<void> {
       process.exit(1);
     }
 
-    const enrichedUnits = await enrichUnitsWithPRInfo(result.units);
+    const enrichedUnits = options.mock
+      ? enrichUnitsWithMockPRInfo(result.units)
+      : await enrichUnitsWithPRInfo(result.units);
     const commitCount = commits.length;
     console.log(await formatStackView(enrichedUnits, branchName, commitCount));
   } catch (error) {

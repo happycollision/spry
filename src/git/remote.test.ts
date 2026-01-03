@@ -52,6 +52,7 @@ describe("git/remote", () => {
         title: "New feature",
         commitIds: ["newbranch"],
         commits: [commitHash],
+        subjects: ["New feature"],
       };
 
       const status = await getSyncStatus(unit, testConfig, { cwd: repo.path });
@@ -81,6 +82,7 @@ describe("git/remote", () => {
         title: "Updated feature",
         commitIds: ["updateme"],
         commits: [secondCommit],
+        subjects: ["Updated feature"],
       };
 
       const status = await getSyncStatus(unit, testConfig, { cwd: repo.path });
@@ -107,6 +109,7 @@ describe("git/remote", () => {
         title: "Synced feature",
         commitIds: ["synced"],
         commits: [commitHash],
+        subjects: ["Synced feature"],
       };
 
       const status = await getSyncStatus(unit, testConfig, { cwd: repo.path });
@@ -137,6 +140,7 @@ describe("git/remote", () => {
           title: "Unit 1",
           commitIds: ["unit1"],
           commits: [commit1],
+          subjects: ["Unit 1"],
         },
         {
           type: "single",
@@ -144,6 +148,7 @@ describe("git/remote", () => {
           title: "Unit 2",
           commitIds: ["unit2"],
           commits: [commit2],
+          subjects: ["Unit 2"],
         },
       ];
 

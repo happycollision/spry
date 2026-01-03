@@ -83,7 +83,7 @@ describe("cli/output", () => {
         review: "review_required",
         comments: { total: 5, resolved: 3 },
       };
-      expect(formatBlockingIndicators(status)).toBe("💬 3/5  ⏳ checks  👀 review");
+      expect(formatBlockingIndicators(status)).toBe("⏳ checks  👀 review  💬 3/5");
     });
 
     test("shows all failing indicators", () => {
@@ -92,7 +92,7 @@ describe("cli/output", () => {
         review: "changes_requested",
         comments: { total: 2, resolved: 0 },
       };
-      expect(formatBlockingIndicators(status)).toBe("💬 0/2  ❌ checks  ❌ review");
+      expect(formatBlockingIndicators(status)).toBe("❌ checks  ❌ review  💬 0/2");
     });
   });
 

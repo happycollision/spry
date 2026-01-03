@@ -14,6 +14,7 @@ program
   .command("view")
   .description("View the current stack of commits")
   .option("--all", "Show all PRs authored by the current user")
+  .option("--mock", "Use mock PR data for testing display")
   .action((options) => viewCommand(options));
 
 program
