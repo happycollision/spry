@@ -11,6 +11,7 @@ export interface PRUnit {
   title: string;
   commitIds: string[];
   commits: string[];
+  subjects: string[];
 }
 
 export interface PRStatus {

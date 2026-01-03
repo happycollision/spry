@@ -37,6 +37,7 @@ describe("core/stack", () => {
         title: "Add user model",
         commitIds: ["a1b2c3d4"],
         commits: ["aaa111"],
+        subjects: ["Add user model"],
       });
       expect(units[1]).toEqual({
         type: "single",
@@ -44,6 +45,7 @@ describe("core/stack", () => {
         title: "Add auth endpoints",
         commitIds: ["b2c3d4e5"],
         commits: ["bbb222"],
+        subjects: ["Add auth endpoints"],
       });
       expect(units[2]).toEqual({
         type: "single",
@@ -51,6 +53,7 @@ describe("core/stack", () => {
         title: "Add UI components",
         commitIds: ["c3d4e5f6"],
         commits: ["ccc333"],
+        subjects: ["Add UI components"],
       });
     });
 
@@ -77,6 +80,7 @@ describe("core/stack", () => {
         title: "Authentication Feature",
         commitIds: ["a1b2c3d4", "b2c3d4e5", "c3d4e5f6"],
         commits: ["aaa111", "bbb222", "ccc333"],
+        subjects: ["Start auth feature", "Add login endpoint", "Add 2FA support"],
       });
     });
 

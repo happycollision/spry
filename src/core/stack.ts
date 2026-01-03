@@ -32,6 +32,7 @@ export function detectPRUnits(commits: CommitWithTrailers[]): PRUnit[] {
         title: commit.trailers["Taspr-Group-Title"] || commit.subject,
         commitIds: commitId ? [commitId] : [],
         commits: [commit.hash],
+        subjects: [commit.subject],
       };
 
       // Check if this is a single-commit group (Start and End on same commit)
@@ -45,6 +46,7 @@ export function detectPRUnits(commits: CommitWithTrailers[]): PRUnit[] {
         currentGroup.commitIds.push(commitId);
       }
       currentGroup.commits.push(commit.hash);
+      currentGroup.subjects.push(commit.subject);
 
       if (endId === currentGroup.id) {
         // End of group
@@ -59,6 +61,7 @@ export function detectPRUnits(commits: CommitWithTrailers[]): PRUnit[] {
         title: commit.subject,
         commitIds: commitId ? [commitId] : [],
         commits: [commit.hash],
+        subjects: [commit.subject],
       });
     }
   }

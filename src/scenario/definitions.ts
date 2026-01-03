@@ -19,6 +19,7 @@
  * - `unclosedGroup` - Stack with unclosed group (for sync validation testing)
  * - `overlappingGroups` - Stack with overlapping groups (for sync validation testing)
  * - `orphanGroupEnd` - Stack with orphan group end (for sync validation testing)
+ * - `mixedGroupStack` - Mixed stack with ungrouped + multi-commit group + single-commit group
  *
  * ## Usage in tests
  * ```ts
@@ -344,6 +345,68 @@ export const scenarios = {
       await repo.commit({
         message: "Third commit",
         trailers: { "Taspr-Commit-Id": "orp00003" },
+      });
+    },
+  },
+
+  /**
+   * Mixed stack with ungrouped commits, a multi-commit group, and a single-commit group.
+   * For testing and styling the view command's group display.
+   */
+  mixedGroupStack: {
+    name: "mixed-group-stack",
+    description: "Mixed stack: ungrouped commits + multi-commit group + single-commit group",
+    setup: async (repo: LocalRepo) => {
+      await repo.branch("feature");
+
+      // 1. Ungrouped commit at the base
+      await repo.commit({
+        message: "Add initial utils",
+        trailers: { "Taspr-Commit-Id": "mix00001" },
+      });
+
+      // 2. Multi-commit group (3 commits)
+      await repo.commit({
+        message: "Add user authentication",
+        trailers: {
+          "Taspr-Commit-Id": "mix00002",
+          "Taspr-Group-Start": "group-auth",
+          "Taspr-Group-Title": "User Authentication",
+        },
+      });
+      await repo.commit({
+        message: "Add login form component",
+        trailers: { "Taspr-Commit-Id": "mix00003" },
+      });
+      await repo.commit({
+        message: "Add session management",
+        trailers: {
+          "Taspr-Commit-Id": "mix00004",
+          "Taspr-Group-End": "group-auth",
+        },
+      });
+
+      // 3. Another ungrouped commit
+      await repo.commit({
+        message: "Fix typo in readme",
+        trailers: { "Taspr-Commit-Id": "mix00005" },
+      });
+
+      // 4. Single-commit group
+      await repo.commit({
+        message: "Add dark mode support",
+        trailers: {
+          "Taspr-Commit-Id": "mix00006",
+          "Taspr-Group-Start": "group-dark",
+          "Taspr-Group-Title": "Dark Mode",
+          "Taspr-Group-End": "group-dark",
+        },
+      });
+
+      // 5. Ungrouped commit at the top
+      await repo.commit({
+        message: "Update dependencies",
+        trailers: { "Taspr-Commit-Id": "mix00007" },
       });
     },
   },

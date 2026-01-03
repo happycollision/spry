@@ -115,12 +115,15 @@ function formatPRUnit(unit: EnrichedPRUnit): string {
   const indicatorSuffix = indicators ? `  ${indicators}` : "";
 
   if (unit.type === "single") {
-    // Single commit
-    lines.push(`  ${statusIcon} ${prNum}${unit.title}${indicatorSuffix}`);
-    const idDisplay = hasCommitId(unit) ? unit.id : "(no commit ID yet)";
-    lines.push(`    └─ ${idDisplay}`);
+    // Single commit - show ID inline in dim style
+    const dim = "\x1b[2m";
+    const reset = "\x1b[0m";
+    const idDisplay = hasCommitId(unit) ? ` ${dim}(${unit.id})${reset}` : ` ${dim}(no ID)${reset}`;
+    lines.push(`  ${statusIcon} ${prNum}${unit.title}${idDisplay}${indicatorSuffix}`);
   } else {
     // Group
+    const dim = "\x1b[2m";
+    const reset = "\x1b[0m";
     const groupIdDisplay = hasCommitId(unit) ? `[${unit.id}]` : "(no commit ID yet)";
     lines.push(`  ${statusIcon} ${prNum}${unit.title} ${groupIdDisplay}${indicatorSuffix}`);
 
@@ -129,8 +132,10 @@ function formatPRUnit(unit: EnrichedPRUnit): string {
     for (let i = 0; i < commitCount; i++) {
       const isLast = i === commitCount - 1;
       const prefix = isLast ? "└─" : "├─";
-      const commitId = unit.commitIds[i] || "(no commit ID yet)";
-      lines.push(`    ${prefix} ${commitId}`);
+      const subject = unit.subjects[i] || "Unknown commit";
+      const commitId = unit.commitIds[i];
+      const idDisplay = commitId ? ` ${dim}(${commitId})${reset}` : ` ${dim}(no ID)${reset}`;
+      lines.push(`    ${prefix} ${subject}${idDisplay}`);
     }
   }
 

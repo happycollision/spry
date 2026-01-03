@@ -12,6 +12,7 @@ describe("cli/commands/view", () => {
           title: "Add feature",
           commitIds: ["abc12345"],
           commits: ["abc12345678901234567890123456789012345678"],
+          subjects: ["Add feature"],
         },
       ];
 
@@ -30,6 +31,7 @@ describe("cli/commands/view", () => {
           title: "First commit",
           commitIds: ["abc12345"],
           commits: ["abc12345678901234567890123456789012345678"],
+          subjects: ["First commit"],
         },
         {
           type: "single",
@@ -37,6 +39,7 @@ describe("cli/commands/view", () => {
           title: "Second commit",
           commitIds: ["def67890"],
           commits: ["def67890678901234567890123456789012345678"],
+          subjects: ["Second commit"],
         },
       ];
 
@@ -53,6 +56,7 @@ describe("cli/commands/view", () => {
           title: "First commit",
           commitIds: ["abc12345"],
           commits: ["abc12345678901234567890123456789012345678"],
+          subjects: ["First commit"],
           pr: { number: 1, url: "https://github.com/org/repo/pull/1", state: "OPEN" },
         },
         {
@@ -61,6 +65,7 @@ describe("cli/commands/view", () => {
           title: "Second commit",
           commitIds: ["def67890"],
           commits: ["def67890678901234567890123456789012345678"],
+          subjects: ["Second commit"],
         },
       ];
 
@@ -77,6 +82,7 @@ describe("cli/commands/view", () => {
           title: "First commit",
           commitIds: ["abc12345"],
           commits: ["abc12345678901234567890123456789012345678"],
+          subjects: ["First commit"],
           pr: { number: 1, url: "https://github.com/org/repo/pull/1", state: "OPEN" },
         },
         {
@@ -85,6 +91,7 @@ describe("cli/commands/view", () => {
           title: "Second commit",
           commitIds: ["def67890"],
           commits: ["def67890678901234567890123456789012345678"],
+          subjects: ["Second commit"],
           pr: { number: 2, url: "https://github.com/org/repo/pull/2", state: "OPEN" },
         },
       ];
@@ -102,6 +109,7 @@ describe("cli/commands/view", () => {
           title: "First commit",
           commitIds: ["abc12345"],
           commits: ["abc12345678901234567890123456789012345678"],
+          subjects: ["First commit"],
           pr: { number: 1, url: "https://github.com/org/repo/pull/1", state: "MERGED" },
         },
         {
@@ -110,6 +118,7 @@ describe("cli/commands/view", () => {
           title: "Second commit",
           commitIds: ["def67890"],
           commits: ["def67890678901234567890123456789012345678"],
+          subjects: ["Second commit"],
           pr: { number: 2, url: "https://github.com/org/repo/pull/2", state: "OPEN" },
         },
       ];
@@ -119,7 +128,7 @@ describe("cli/commands/view", () => {
       expect(output).toContain("PRs: 1/2 opened");
     });
 
-    test("shows '(no commit ID yet)' for single commit without ID", async () => {
+    test("shows '(no ID)' for single commit without ID", async () => {
       const units: EnrichedPRUnit[] = [
         {
           type: "single",
@@ -127,12 +136,13 @@ describe("cli/commands/view", () => {
           title: "Add feature",
           commitIds: [], // Empty means no real commit ID
           commits: ["abc12345678901234567890123456789012345678"],
+          subjects: ["Add feature"],
         },
       ];
 
       const output = await formatStackView(units, "main", 1);
 
-      expect(output).toContain("(no commit ID yet)");
+      expect(output).toContain("(no ID)");
       expect(output).not.toContain("abc12345");
     });
 
@@ -144,16 +154,17 @@ describe("cli/commands/view", () => {
           title: "Add feature",
           commitIds: ["abc12345"],
           commits: ["abc12345678901234567890123456789012345678"],
+          subjects: ["Add feature"],
         },
       ];
 
       const output = await formatStackView(units, "main", 1);
 
       expect(output).toContain("abc12345");
-      expect(output).not.toContain("(no commit ID yet)");
+      expect(output).not.toContain("(no ID)");
     });
 
-    test("shows '(no commit ID yet)' for group commits without IDs", async () => {
+    test("shows '(no ID)' for group commits without IDs", async () => {
       const units: EnrichedPRUnit[] = [
         {
           type: "group",
@@ -161,14 +172,16 @@ describe("cli/commands/view", () => {
           title: "Feature group",
           commitIds: [], // No commit IDs yet
           commits: ["abc123", "def456"],
+          subjects: ["First commit", "Second commit"],
         },
       ];
 
       const output = await formatStackView(units, "main", 2);
 
-      // Should show (no commit ID yet) for the group header and each commit
-      const matches = output.match(/\(no commit ID yet\)/g);
-      expect(matches?.length).toBe(3); // Once for group, twice for commits
+      // Should show (no commit ID yet) for the group header and (no ID) for each commit
+      expect(output).toContain("(no commit ID yet)"); // group header
+      const noIdMatches = output.match(/\(no ID\)/g);
+      expect(noIdMatches?.length).toBe(2); // twice for commits
     });
 
     test("shows mixed commit IDs in group", async () => {
@@ -179,13 +192,14 @@ describe("cli/commands/view", () => {
           title: "Feature group",
           commitIds: ["abc12345"], // Only first commit has ID
           commits: ["abc123", "def456"],
+          subjects: ["First commit", "Second commit"],
         },
       ];
 
       const output = await formatStackView(units, "main", 2);
 
       expect(output).toContain("abc12345");
-      expect(output).toContain("(no commit ID yet)");
+      expect(output).toContain("(no ID)");
     });
 
     test("origin/main appears only once after header", async () => {
@@ -196,6 +210,7 @@ describe("cli/commands/view", () => {
           title: "Add feature",
           commitIds: ["abc12345"],
           commits: ["abc12345678901234567890123456789012345678"],
+          subjects: ["Add feature"],
         },
       ];
 
