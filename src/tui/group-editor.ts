@@ -12,6 +12,7 @@ import {
   moveCursor,
   toggleMoveMode,
   cycleGroup,
+  quickSwap,
   hasOrderChanged,
   hasGroupAssignments,
   getGroupedCommits,
@@ -234,30 +235,52 @@ async function runEventLoop(
         }
 
         case "up":
-          state = moveCursor(state, "up");
-          // Check for conflicts after reordering commits
-          if (state.moveMode !== null && mergeBase) {
-            state = await checkOrderConflicts(state, mergeBase);
+          if (key.shift) {
+            // Shift+Up: quick swap (move commit up without entering move mode)
+            state = quickSwap(state, "up");
+            if (mergeBase) {
+              state = await checkOrderConflicts(state, mergeBase);
+            }
+          } else {
+            state = moveCursor(state, "up");
+            // Check for conflicts after reordering commits
+            if (state.moveMode !== null && mergeBase) {
+              state = await checkOrderConflicts(state, mergeBase);
+            }
           }
           redraw();
           break;
 
         case "down":
-          state = moveCursor(state, "down");
-          if (state.moveMode !== null && mergeBase) {
-            state = await checkOrderConflicts(state, mergeBase);
+          if (key.shift) {
+            // Shift+Down: quick swap (move commit down without entering move mode)
+            state = quickSwap(state, "down");
+            if (mergeBase) {
+              state = await checkOrderConflicts(state, mergeBase);
+            }
+          } else {
+            state = moveCursor(state, "down");
+            if (state.moveMode !== null && mergeBase) {
+              state = await checkOrderConflicts(state, mergeBase);
+            }
           }
           redraw();
           break;
 
         case "left":
-          state = cycleGroup(state, "left");
-          redraw();
+          // Ignore Shift+Left (reserved for future use)
+          if (!key.shift) {
+            state = cycleGroup(state, "left");
+            redraw();
+          }
           break;
 
         case "right":
-          state = cycleGroup(state, "right");
-          redraw();
+          // Ignore Shift+Right (reserved for future use)
+          if (!key.shift) {
+            state = cycleGroup(state, "right");
+            redraw();
+          }
           break;
 
         case "space":

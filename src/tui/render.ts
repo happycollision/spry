@@ -176,13 +176,13 @@ function renderHelpLine(state: TUIState, validation: GroupValidationResult): str
 
   if (!validation.valid) {
     return (
-      colors.dim("↑↓ navigate │ Space move mode │ ←→ group │ ") +
+      colors.dim("↑↓ navigate │ ⇧↑↓ move │ Space move mode │ ←→ group │ ") +
       colors.red("Enter disabled") +
       colors.dim(" │ Esc cancel")
     );
   }
 
-  return colors.dim("↑↓ navigate │ Space move mode │ ←→ group │ Enter confirm │ Esc cancel");
+  return colors.dim("↑↓ navigate │ ⇧↑↓ move │ Space move mode │ ←→ group │ Enter │ Esc");
 }
 
 /**

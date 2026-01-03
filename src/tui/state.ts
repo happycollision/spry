@@ -136,6 +136,50 @@ export function toggleMoveMode(state: TUIState): TUIState {
 }
 
 /**
+ * Quick swap: swap the commit at cursor with an adjacent commit.
+ * This is used for Alt+arrow temporary move mode - it doesn't require
+ * entering move mode first.
+ */
+export function quickSwap(state: TUIState, direction: "up" | "down"): TUIState {
+  if (state.commits.length === 0) {
+    return state;
+  }
+
+  const currentIdx = state.cursor;
+  const targetIdx = direction === "up" ? currentIdx - 1 : currentIdx + 1;
+
+  // Check bounds
+  if (targetIdx < 0 || targetIdx >= state.commits.length) {
+    return state;
+  }
+
+  // Swap commits
+  const newCommits = [...state.commits];
+  const currentCommit = newCommits[currentIdx];
+  const targetCommit = newCommits[targetIdx];
+  if (currentCommit && targetCommit) {
+    newCommits[currentIdx] = targetCommit;
+    newCommits[targetIdx] = currentCommit;
+  }
+
+  // Swap group assignments
+  const newGroups = new Map(state.groups);
+  const groupA = newGroups.get(currentIdx);
+  const groupB = newGroups.get(targetIdx);
+  newGroups.set(currentIdx, groupB ?? null);
+  newGroups.set(targetIdx, groupA ?? null);
+
+  // Update state - cursor follows the commit
+  return {
+    ...state,
+    commits: newCommits,
+    cursor: targetIdx,
+    groups: newGroups,
+    dirty: true,
+  };
+}
+
+/**
  * Swap the commit in move mode with an adjacent commit.
  */
 function swapCommit(state: TUIState, direction: "up" | "down"): TUIState {

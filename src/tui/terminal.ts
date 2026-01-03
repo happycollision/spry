@@ -241,6 +241,25 @@ export function parseKeypress(data: Buffer): Keypress {
             return key;
         }
       }
+
+      // Alt/Option+arrow keys (ESC [ 1 ; 3 X)
+      if (bytes.length >= 6 && bytes[2] === 0x31 && bytes[3] === 0x3b && bytes[4] === 0x33) {
+        key.meta = true;
+        switch (bytes[5]) {
+          case 0x41:
+            key.name = "up";
+            return key;
+          case 0x42:
+            key.name = "down";
+            return key;
+          case 0x43:
+            key.name = "right";
+            return key;
+          case 0x44:
+            key.name = "left";
+            return key;
+        }
+      }
     }
 
     // Meta+key (ESC followed by character)
