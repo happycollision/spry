@@ -14,6 +14,9 @@ bd.sock
 # Local version tracking (prevents upgrade notification spam after git ops)
 .local_version
 
+# Last touched issue tracker (local state)
+last-touched
+
 # Legacy database files
 db.sqlite
 bd.db
