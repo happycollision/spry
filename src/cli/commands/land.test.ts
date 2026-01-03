@@ -45,11 +45,5 @@ describe("cli/commands/land", () => {
     expect(result.stderr).toContain("Unclosed group");
   });
 
-  // TODO: Add tests for actual landing once VCR-style testing is implemented
-  // See: taspr-xtq (VCR-style testing for GitHub API calls)
-  //
-  // Tests needed:
-  // - Land ready PR → success, branch deleted
-  // - Land non-ready PR (not fast-forwardable) → error with reason
-  // - PR not found → appropriate error message
+  // GitHub integration tests for landing are in tests/integration/land.test.ts
 });

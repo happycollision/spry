@@ -3,7 +3,15 @@ import { $ } from "bun";
 export interface TasprConfig {
   branchPrefix: string;
   defaultBranch: string;
+  tempCommitPrefixes: string[];
 }
+
+/**
+ * Default prefixes that indicate temporary commits.
+ * These commits won't automatically get PRs during sync --open.
+ * Comparison is case-insensitive.
+ */
+export const DEFAULT_TEMP_COMMIT_PREFIXES = ["WIP", "fixup!", "amend!", "squash!"];
 
 let cachedConfig: TasprConfig | null = null;
 
@@ -20,9 +28,10 @@ export async function getTasprConfig(): Promise<TasprConfig> {
     return cachedConfig;
   }
 
-  const [prefixResult, defaultBranchResult] = await Promise.all([
+  const [prefixResult, defaultBranchResult, tempPrefixesResult] = await Promise.all([
     $`git config --get taspr.branchPrefix`.nothrow(),
     $`git config --get taspr.defaultBranch`.nothrow(),
+    $`git config --get taspr.tempCommitPrefixes`.nothrow(),
   ]);
 
   const branchPrefix =
@@ -35,7 +44,25 @@ export async function getTasprConfig(): Promise<TasprConfig> {
     defaultBranch = await detectDefaultBranch();
   }
 
-  cachedConfig = { branchPrefix, defaultBranch };
+  // Parse tempCommitPrefixes from comma-separated string, or use defaults
+  // Set to empty string to disable: git config taspr.tempCommitPrefixes ""
+  let tempCommitPrefixes: string[];
+  if (tempPrefixesResult.exitCode === 0) {
+    const value = tempPrefixesResult.stdout.toString().trim();
+    // Empty string means explicitly disabled
+    if (value === "") {
+      tempCommitPrefixes = [];
+    } else {
+      tempCommitPrefixes = value
+        .split(",")
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0);
+    }
+  } else {
+    tempCommitPrefixes = DEFAULT_TEMP_COMMIT_PREFIXES;
+  }
+
+  cachedConfig = { branchPrefix, defaultBranch, tempCommitPrefixes };
   return cachedConfig;
 }
 
@@ -81,4 +108,18 @@ export function clearConfigCache(): void {
 export async function getDefaultBranchRef(): Promise<string> {
   const config = await getTasprConfig();
   return `origin/${config.defaultBranch}`;
+}
+
+/**
+ * Check if a commit title indicates a temporary commit that shouldn't get a PR.
+ * Matches against configured prefixes (case-insensitive).
+ *
+ * Default prefixes: WIP, fixup!, amend!, squash!
+ *
+ * @param title - The commit title to check
+ * @param prefixes - Prefixes to check against (from config)
+ */
+export function isTempCommit(title: string, prefixes: string[]): boolean {
+  const lowerTitle = title.toLowerCase();
+  return prefixes.some((prefix) => lowerTitle.startsWith(prefix.toLowerCase()));
 }

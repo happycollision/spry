@@ -67,6 +67,67 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
   const repos = repoManager({ github: true });
 
   test(
+    "skips PR creation for WIP commits",
+    async () => {
+      const repo = await repos.clone({ testName: "wip-skip" });
+      await repo.branch("feature/wip-test");
+      await repo.commit({ message: "WIP: work in progress" });
+
+      const result = await runSync(repo.path, { open: true });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Skipped PR for 1 temporary commit");
+      expect(result.stdout).toContain("WIP: work in progress");
+
+      // Verify NO PR was created (search by uniqueId to isolate from other tests)
+      const prs = await repo.findPRs(repo.uniqueId);
+      expect(prs.length).toBe(0);
+    },
+    { timeout: 60000 },
+  );
+
+  test(
+    "skips PR creation for fixup! commits",
+    async () => {
+      const repo = await repos.clone({ testName: "fixup-skip" });
+      await repo.branch("feature/fixup-test");
+      await repo.commit({ message: "fixup! original commit" });
+
+      const result = await runSync(repo.path, { open: true });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Skipped PR for 1 temporary commit");
+      expect(result.stdout).toContain("fixup! original commit");
+
+      // Verify NO PR was created
+      const prs = await repo.findPRs(repo.uniqueId);
+      expect(prs.length).toBe(0);
+    },
+    { timeout: 60000 },
+  );
+
+  test(
+    "creates PRs for non-temp commits while skipping temp commits in same stack",
+    async () => {
+      const repo = await repos.clone({ testName: "mixed-stack" });
+      await repo.branch("feature/mixed-test");
+      await repo.commit({ message: "Add feature A" }); // should get PR
+      await repo.commit({ message: "WIP: still working on B" }); // should be skipped
+
+      const result = await runSync(repo.path, { open: true });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Created 1 PR");
+      expect(result.stdout).toContain("Skipped PR for 1 temporary commit");
+
+      // Verify only 1 PR was created (for the non-WIP commit)
+      const prs = await repo.findPRs(repo.uniqueId);
+      expect(prs.length).toBe(1);
+    },
+    { timeout: 60000 },
+  );
+
+  test(
     "creates PR for a single commit stack",
     async () => {
       const repo = await repos.clone({ testName: "single-pr" });

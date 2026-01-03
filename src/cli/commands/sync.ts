@@ -10,6 +10,7 @@ import {
   ConfigurationError,
 } from "../../github/api.ts";
 import { getBranchNameConfig, getBranchName, pushBranch } from "../../github/branches.ts";
+import { getTasprConfig, isTempCommit } from "../../git/config.ts";
 import {
   findPRByBranch,
   createPR,
@@ -163,11 +164,15 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       return;
     }
 
+    // Get temp commit prefixes for skipping PR creation
+    const tasprConfig = await getTasprConfig();
+
     // Push branches and track PR status
     let baseBranch = defaultBranch;
     const created: PRInfo[] = [];
     const updated: PRInfo[] = [];
     const skippedNoPR: string[] = [];
+    const skippedTemp: string[] = [];
     let pushedCount = 0;
 
     for (const unit of activeUnits) {
@@ -196,13 +201,19 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
           updated.push(existingPR);
         }
       } else if (options.open) {
-        // Create new PR (--open is specified and no PR exists)
-        const pr = await createPR({
-          title: unit.title,
-          head: headBranch,
-          base: baseBranch,
-        });
-        created.push({ ...pr, state: "OPEN", title: unit.title });
+        // Check if this is a temp commit (WIP, fixup!, etc.)
+        if (isTempCommit(unit.title, tasprConfig.tempCommitPrefixes)) {
+          // Skip PR creation for temp commits, but branch was already pushed for stacking
+          skippedTemp.push(unit.title);
+        } else {
+          // Create new PR (--open is specified and no PR exists)
+          const pr = await createPR({
+            title: unit.title,
+            head: headBranch,
+            base: baseBranch,
+          });
+          created.push({ ...pr, state: "OPEN", title: unit.title });
+        }
       } else if (status.needsCreate) {
         // No PR and --open not specified - don't push, just track
         skippedNoPR.push(unit.title);
@@ -232,6 +243,14 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
 
     if (skippedNoPR.length > 0) {
       console.log(`✓ ${skippedNoPR.length} commit(s) ready (use --open to create PRs)`);
+    }
+
+    if (skippedTemp.length > 0) {
+      console.log(`⚠ Skipped PR for ${skippedTemp.length} temporary commit(s):`);
+      for (const title of skippedTemp) {
+        console.log(`  ${title}`);
+      }
+      console.log(`  See: TEMP_COMMITS_DOC_URL`);
     }
 
     if (summary.upToDate > 0 && pushedCount === 0 && skippedNoPR.length === 0) {

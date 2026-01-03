@@ -175,6 +175,5 @@ describe("cli/commands/sync", () => {
     expect(remoteBranches).toBe("");
   });
 
-  // TODO: Add tests for --open flag once VCR-style testing is implemented
-  // See: taspr-xtq (VCR-style testing for GitHub API calls)
+  // GitHub integration tests for --open flag are in tests/integration/sync.test.ts
 });
