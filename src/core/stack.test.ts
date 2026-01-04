@@ -31,30 +31,9 @@ describe("core/stack", () => {
       const units = detectPRUnits(commits);
 
       expect(units).toHaveLength(3);
-      expect(units[0]).toEqual({
-        type: "single",
-        id: "a1b2c3d4",
-        title: "Add user model",
-        commitIds: ["a1b2c3d4"],
-        commits: ["aaa111"],
-        subjects: ["Add user model"],
-      });
-      expect(units[1]).toEqual({
-        type: "single",
-        id: "b2c3d4e5",
-        title: "Add auth endpoints",
-        commitIds: ["b2c3d4e5"],
-        commits: ["bbb222"],
-        subjects: ["Add auth endpoints"],
-      });
-      expect(units[2]).toEqual({
-        type: "single",
-        id: "c3d4e5f6",
-        title: "Add UI components",
-        commitIds: ["c3d4e5f6"],
-        commits: ["ccc333"],
-        subjects: ["Add UI components"],
-      });
+      expect(units[0]).toMatchObject({ type: "single", id: "a1b2c3d4", commits: ["aaa111"] });
+      expect(units[1]).toMatchObject({ type: "single", id: "b2c3d4e5", commits: ["bbb222"] });
+      expect(units[2]).toMatchObject({ type: "single", id: "c3d4e5f6", commits: ["ccc333"] });
     });
 
     test("creates a group PRUnit for contiguous commits with same Taspr-Group", () => {
@@ -62,30 +41,24 @@ describe("core/stack", () => {
         makeCommit("aaa111", "Start auth feature", {
           "Taspr-Commit-Id": "a1b2c3d4",
           "Taspr-Group": "f7e8d9c0",
-          "Taspr-Group-Title": "Authentication Feature",
         }),
         makeCommit("bbb222", "Add login endpoint", {
           "Taspr-Commit-Id": "b2c3d4e5",
           "Taspr-Group": "f7e8d9c0",
-          "Taspr-Group-Title": "Authentication Feature",
         }),
         makeCommit("ccc333", "Add 2FA support", {
           "Taspr-Commit-Id": "c3d4e5f6",
           "Taspr-Group": "f7e8d9c0",
-          "Taspr-Group-Title": "Authentication Feature",
         }),
       ];
 
       const units = detectPRUnits(commits);
 
       expect(units).toHaveLength(1);
-      expect(units[0]).toEqual({
+      expect(units[0]).toMatchObject({
         type: "group",
         id: "f7e8d9c0",
-        title: "Authentication Feature",
-        commitIds: ["a1b2c3d4", "b2c3d4e5", "c3d4e5f6"],
         commits: ["aaa111", "bbb222", "ccc333"],
-        subjects: ["Start auth feature", "Add login endpoint", "Add 2FA support"],
       });
     });
 
@@ -95,12 +68,10 @@ describe("core/stack", () => {
         makeCommit("bbb222", "Start auth", {
           "Taspr-Commit-Id": "b2c3d4e5",
           "Taspr-Group": "f7e8d9c0",
-          "Taspr-Group-Title": "Auth Feature",
         }),
         makeCommit("ccc333", "End auth", {
           "Taspr-Commit-Id": "c3d4e5f6",
           "Taspr-Group": "f7e8d9c0",
-          "Taspr-Group-Title": "Auth Feature",
         }),
         makeCommit("ddd444", "Add dashboard", { "Taspr-Commit-Id": "d4e5f6a7" }),
       ];
@@ -108,13 +79,13 @@ describe("core/stack", () => {
       const units = detectPRUnits(commits);
 
       expect(units).toHaveLength(3);
-      expect(units[0]?.type).toBe("single");
-      expect(units[0]?.id).toBe("a1b2c3d4");
-      expect(units[1]?.type).toBe("group");
-      expect(units[1]?.id).toBe("f7e8d9c0");
-      expect(units[1]?.commits).toEqual(["bbb222", "ccc333"]);
-      expect(units[2]?.type).toBe("single");
-      expect(units[2]?.id).toBe("d4e5f6a7");
+      expect(units[0]).toMatchObject({ type: "single", id: "a1b2c3d4" });
+      expect(units[1]).toMatchObject({
+        type: "group",
+        id: "f7e8d9c0",
+        commits: ["bbb222", "ccc333"],
+      });
+      expect(units[2]).toMatchObject({ type: "single", id: "d4e5f6a7" });
     });
 
     test("handles multiple consecutive groups", () => {
@@ -122,51 +93,26 @@ describe("core/stack", () => {
         makeCommit("aaa111", "Group 1 commit 1", {
           "Taspr-Commit-Id": "a1",
           "Taspr-Group": "g1",
-          "Taspr-Group-Title": "Group One",
         }),
         makeCommit("bbb222", "Group 1 commit 2", {
           "Taspr-Commit-Id": "b2",
           "Taspr-Group": "g1",
-          "Taspr-Group-Title": "Group One",
         }),
         makeCommit("ccc333", "Group 2 commit 1", {
           "Taspr-Commit-Id": "c3",
           "Taspr-Group": "g2",
-          "Taspr-Group-Title": "Group Two",
         }),
         makeCommit("ddd444", "Group 2 commit 2", {
           "Taspr-Commit-Id": "d4",
           "Taspr-Group": "g2",
-          "Taspr-Group-Title": "Group Two",
         }),
       ];
 
       const units = detectPRUnits(commits);
 
       expect(units).toHaveLength(2);
-      expect(units[0]?.id).toBe("g1");
-      expect(units[0]?.title).toBe("Group One");
-      expect(units[1]?.id).toBe("g2");
-      expect(units[1]?.title).toBe("Group Two");
-    });
-
-    test("uses commit subject as title when group title missing", () => {
-      const commits = [
-        makeCommit("aaa111", "My commit subject", {
-          "Taspr-Commit-Id": "a1",
-          "Taspr-Group": "g1",
-          // No Taspr-Group-Title
-        }),
-        makeCommit("bbb222", "Another commit", {
-          "Taspr-Commit-Id": "b2",
-          "Taspr-Group": "g1",
-        }),
-      ];
-
-      const units = detectPRUnits(commits);
-
-      expect(units).toHaveLength(1);
-      expect(units[0]?.title).toBe("My commit subject");
+      expect(units[0]).toMatchObject({ type: "group", id: "g1", commits: ["aaa111", "bbb222"] });
+      expect(units[1]).toMatchObject({ type: "group", id: "g2", commits: ["ccc333", "ddd444"] });
     });
 
     test("handles commits without Taspr-Commit-Id", () => {
@@ -178,11 +124,9 @@ describe("core/stack", () => {
       const units = detectPRUnits(commits);
 
       expect(units).toHaveLength(2);
-      // Uses hash prefix as fallback ID
-      expect(units[0]?.id).toBe("aaa111".slice(0, 8));
-      expect(units[0]?.commitIds).toEqual([]);
-      expect(units[1]?.id).toBe("b2c3d4e5");
-      expect(units[1]?.commitIds).toEqual(["b2c3d4e5"]);
+      // Uses hash prefix as fallback ID, commitIds is empty when no Taspr-Commit-Id
+      expect(units[0]).toMatchObject({ id: "aaa111".slice(0, 8), commitIds: [] });
+      expect(units[1]).toMatchObject({ id: "b2c3d4e5", commitIds: ["b2c3d4e5"] });
     });
 
     test("preserves commit order (oldest first)", () => {
@@ -202,16 +146,13 @@ describe("core/stack", () => {
         makeCommit("aaa111", "Single-commit group", {
           "Taspr-Commit-Id": "a1",
           "Taspr-Group": "g1",
-          "Taspr-Group-Title": "Solo Group",
         }),
       ];
 
       const units = detectPRUnits(commits);
 
       expect(units).toHaveLength(1);
-      expect(units[0]?.type).toBe("group");
-      expect(units[0]?.id).toBe("g1");
-      expect(units[0]?.commits).toEqual(["aaa111"]);
+      expect(units[0]).toMatchObject({ type: "group", id: "g1", commits: ["aaa111"] });
     });
 
     test("handles single-commit group followed by multi-commit group", () => {
@@ -219,32 +160,22 @@ describe("core/stack", () => {
         makeCommit("aaa111", "Single-commit group", {
           "Taspr-Commit-Id": "a1",
           "Taspr-Group": "g1",
-          "Taspr-Group-Title": "Group A",
         }),
         makeCommit("bbb222", "Multi-commit group start", {
           "Taspr-Commit-Id": "b2",
           "Taspr-Group": "g2",
-          "Taspr-Group-Title": "Group B",
         }),
         makeCommit("ccc333", "Multi-commit group end", {
           "Taspr-Commit-Id": "c3",
           "Taspr-Group": "g2",
-          "Taspr-Group-Title": "Group B",
         }),
       ];
 
       const units = detectPRUnits(commits);
 
       expect(units).toHaveLength(2);
-      expect(units[0]?.type).toBe("group");
-      expect(units[0]?.id).toBe("g1");
-      expect(units[0]?.title).toBe("Group A");
-      expect(units[0]?.commits).toEqual(["aaa111"]);
-
-      expect(units[1]?.type).toBe("group");
-      expect(units[1]?.id).toBe("g2");
-      expect(units[1]?.title).toBe("Group B");
-      expect(units[1]?.commits).toEqual(["bbb222", "ccc333"]);
+      expect(units[0]).toMatchObject({ type: "group", id: "g1", commits: ["aaa111"] });
+      expect(units[1]).toMatchObject({ type: "group", id: "g2", commits: ["bbb222", "ccc333"] });
     });
   });
 
@@ -268,21 +199,19 @@ describe("core/stack", () => {
         makeCommit("aaa111", "Group commit 1", {
           "Taspr-Commit-Id": "a1",
           "Taspr-Group": "g1",
-          "Taspr-Group-Title": "My Group",
         }),
         makeCommit("bbb222", "Group commit 2", {
           "Taspr-Commit-Id": "b2",
           "Taspr-Group": "g1",
-          "Taspr-Group-Title": "My Group",
         }),
       ];
 
       const result = parseStack(commits);
 
-      expect(result.ok).toBe(true);
+      expect(result).toMatchObject({ ok: true });
       if (result.ok) {
         expect(result.units).toHaveLength(1);
-        expect(result.units[0]?.type).toBe("group");
+        expect(result.units[0]).toMatchObject({ type: "group" });
       }
     });
 
@@ -291,22 +220,18 @@ describe("core/stack", () => {
         makeCommit("aaa111", "Group 1 commit 1", {
           "Taspr-Commit-Id": "a1",
           "Taspr-Group": "g1",
-          "Taspr-Group-Title": "Group One",
         }),
         makeCommit("bbb222", "Group 1 commit 2", {
           "Taspr-Commit-Id": "b2",
           "Taspr-Group": "g1",
-          "Taspr-Group-Title": "Group One",
         }),
         makeCommit("ccc333", "Group 2 commit 1", {
           "Taspr-Commit-Id": "c3",
           "Taspr-Group": "g2",
-          "Taspr-Group-Title": "Group Two",
         }),
         makeCommit("ddd444", "Group 2 commit 2", {
           "Taspr-Commit-Id": "d4",
           "Taspr-Group": "g2",
-          "Taspr-Group-Title": "Group Two",
         }),
       ];
 
@@ -323,22 +248,22 @@ describe("core/stack", () => {
         makeCommit("aaa111", "Group commit 1", {
           "Taspr-Commit-Id": "a1",
           "Taspr-Group": "g1",
-          "Taspr-Group-Title": "Split Group",
         }),
         makeCommit("bbb222", "Interrupting single commit", { "Taspr-Commit-Id": "b2" }),
         makeCommit("ccc333", "Group commit 2", {
           "Taspr-Commit-Id": "c3",
           "Taspr-Group": "g1",
-          "Taspr-Group-Title": "Split Group",
         }),
       ];
 
       const result = parseStack(commits);
 
-      expect(result.ok).toBe(false);
+      expect(result).toMatchObject({
+        ok: false,
+        error: "split-group",
+        group: { id: "g1" },
+      });
       if (!result.ok && result.error === "split-group") {
-        expect(result.group.id).toBe("g1");
-        expect(result.group.title).toBe("Split Group");
         expect(result.group.commits).toContain("aaa111");
         expect(result.group.commits).toContain("ccc333");
         expect(result.interruptingCommits).toContain("bbb222");
@@ -354,54 +279,93 @@ describe("core/stack", () => {
       }
     });
 
-    test("returns inconsistent-group-title error when titles differ", () => {
-      const commits = [
-        makeCommit("aaa111", "Group commit 1", {
-          "Taspr-Commit-Id": "a1",
-          "Taspr-Group": "g1",
-          "Taspr-Group-Title": "Title A",
-        }),
-        makeCommit("bbb222", "Group commit 2", {
-          "Taspr-Commit-Id": "b2",
-          "Taspr-Group": "g1",
-          "Taspr-Group-Title": "Title B", // Different title!
-        }),
-      ];
-
-      const result = parseStack(commits);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok && result.error === "inconsistent-group-title") {
-        expect(result.groupId).toBe("g1");
-        expect(result.titles.get("aaa111")).toBe("Title A");
-        expect(result.titles.get("bbb222")).toBe("Title B");
-      }
-    });
-
     test("handles split group with multiple interrupting commits", () => {
       const commits = [
         makeCommit("aaa111", "Group commit 1", {
           "Taspr-Commit-Id": "a1",
           "Taspr-Group": "g1",
-          "Taspr-Group-Title": "Split Group",
         }),
         makeCommit("bbb222", "Interrupting commit 1", { "Taspr-Commit-Id": "b2" }),
         makeCommit("ccc333", "Interrupting commit 2", { "Taspr-Commit-Id": "c3" }),
         makeCommit("ddd444", "Group commit 2", {
           "Taspr-Commit-Id": "d4",
           "Taspr-Group": "g1",
-          "Taspr-Group-Title": "Split Group",
         }),
       ];
 
       const result = parseStack(commits);
 
-      expect(result.ok).toBe(false);
+      expect(result).toMatchObject({ ok: false, error: "split-group" });
       if (!result.ok && result.error === "split-group") {
         expect(result.interruptingCommits).toHaveLength(2);
         expect(result.interruptingCommits).toContain("bbb222");
         expect(result.interruptingCommits).toContain("ccc333");
       }
+    });
+  });
+
+  describe("title resolution", () => {
+    test("uses title from ref storage when provided", () => {
+      const commits = [
+        makeCommit("aaa111", "First commit subject", {
+          "Taspr-Commit-Id": "a1",
+          "Taspr-Group": "g1",
+        }),
+        makeCommit("bbb222", "Second commit subject", {
+          "Taspr-Commit-Id": "b2",
+          "Taspr-Group": "g1",
+        }),
+      ];
+
+      const titles = { g1: "Custom Group Title" };
+      const units = detectPRUnits(commits, titles);
+
+      expect(units[0]?.title).toBe("Custom Group Title");
+    });
+
+    test("falls back to first commit subject when title not in ref storage", () => {
+      const commits = [
+        makeCommit("aaa111", "First commit subject", {
+          "Taspr-Commit-Id": "a1",
+          "Taspr-Group": "g1",
+        }),
+        makeCommit("bbb222", "Second commit subject", {
+          "Taspr-Commit-Id": "b2",
+          "Taspr-Group": "g1",
+        }),
+      ];
+
+      const units = detectPRUnits(commits, {});
+
+      expect(units[0]?.title).toBe("First commit subject");
+    });
+
+    test("resolves titles independently for multiple groups", () => {
+      const commits = [
+        makeCommit("aaa111", "Group 1 first commit", {
+          "Taspr-Commit-Id": "a1",
+          "Taspr-Group": "g1",
+        }),
+        makeCommit("bbb222", "Group 2 first commit", {
+          "Taspr-Commit-Id": "b2",
+          "Taspr-Group": "g2",
+        }),
+      ];
+
+      // Only g1 has a title in ref storage
+      const titles = { g1: "Stored Title" };
+      const units = detectPRUnits(commits, titles);
+
+      expect(units[0]?.title).toBe("Stored Title");
+      expect(units[1]?.title).toBe("Group 2 first commit"); // Falls back to subject
+    });
+
+    test("single commits use their subject as title", () => {
+      const commits = [makeCommit("aaa111", "My single commit", { "Taspr-Commit-Id": "a1" })];
+
+      const units = detectPRUnits(commits);
+
+      expect(units[0]?.title).toBe("My single commit");
     });
   });
 });

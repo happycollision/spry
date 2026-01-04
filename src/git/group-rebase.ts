@@ -5,6 +5,13 @@ import { unlink, chmod, writeFile } from "node:fs/promises";
 import type { GitOptions } from "./commands.ts";
 import { getMergeBase, getStackCommitsWithTrailers } from "./commands.ts";
 import { generateCommitId } from "../core/id.ts";
+import {
+  setGroupTitle,
+  deleteGroupTitle,
+  deleteGroupTitles,
+  readGroupTitles,
+  writeGroupTitles,
+} from "./group-titles.ts";
 
 /**
  * Run an interactive rebase with a custom sequence editor script.
@@ -204,6 +211,9 @@ export async function applyGroupSpec(
   // Key is commit hash, value is trailers to add
   const trailerMap = new Map<string, Record<string, string>>();
 
+  // Track group titles to save to ref storage
+  const groupTitlesToSave: Array<{ id: string; name: string }> = [];
+
   for (const group of resolvedGroups) {
     if (group.commits.length === 0) {
       continue;
@@ -212,18 +222,21 @@ export async function applyGroupSpec(
     // Use existing ID if provided (for repair operations), otherwise generate new
     const groupId = group.id ?? generateCommitId();
 
-    // Add Taspr-Group and Taspr-Group-Title to ALL commits in the group
+    // Track title to save to ref storage
+    groupTitlesToSave.push({ id: groupId, name: group.name });
+
+    // Add Taspr-Group trailer to ALL commits in the group (no longer adding title trailer)
     for (const commitHash of group.commits) {
       const existing = trailerMap.get(commitHash) ?? {};
       trailerMap.set(commitHash, {
         ...existing,
         "Taspr-Group": groupId,
-        "Taspr-Group-Title": group.name,
       });
     }
   }
 
   // Check which commits currently have group trailers (to remove them)
+  // Also check for legacy Taspr-Group-Title trailers that need cleanup
   const commitsWithGroupTrailers = new Set<string>();
   for (const commit of commits) {
     if (commit.trailers["Taspr-Group"] || commit.trailers["Taspr-Group-Title"]) {
@@ -274,7 +287,18 @@ export async function applyGroupSpec(
     }
   }
 
-  return runInteractiveRebase(createRebaseScript(todoLines), mergeBase, options);
+  const result = await runInteractiveRebase(createRebaseScript(todoLines), mergeBase, options);
+
+  // Save group titles to ref storage if rebase succeeded
+  if (result.success && groupTitlesToSave.length > 0) {
+    const existingTitles = await readGroupTitles(options);
+    for (const { id, name } of groupTitlesToSave) {
+      existingTitles[id] = name;
+    }
+    await writeGroupTitles(existingTitles, options);
+  }
+
+  return result;
 }
 
 /**
@@ -350,22 +374,21 @@ export async function dissolveGroup(
 
     // Check if this commit belongs to the group we're dissolving
     if (commit.trailers["Taspr-Group"] === groupId) {
-      // Remove Taspr-Group and Taspr-Group-Title trailers for this group
-      const trailersToRemove: string[] = [`Taspr-Group: ${groupId}`];
-      const title = commit.trailers["Taspr-Group-Title"];
-      if (title) {
-        trailersToRemove.push(`Taspr-Group-Title: ${title}`);
-      }
-
-      // Use grep -v with exact patterns to remove only the specific trailers
-      const grepPatterns = trailersToRemove.map((t) => `-e "^${t}$"`).join(" ");
+      // Remove Taspr-Group trailer (and legacy Taspr-Group-Title if present)
       todoLines.push(
-        `exec NEW_MSG=$(git log -1 --format=%B | grep -v ${grepPatterns}) && git commit --amend --no-edit -m "$NEW_MSG"`,
+        `exec NEW_MSG=$(git log -1 --format=%B | grep -v -e "^Taspr-Group: ${groupId}$" -e "^Taspr-Group-Title:") && git commit --amend --no-edit -m "$NEW_MSG"`,
       );
     }
   }
 
-  return runInteractiveRebase(createRebaseScript(todoLines), mergeBase, options);
+  const result = await runInteractiveRebase(createRebaseScript(todoLines), mergeBase, options);
+
+  // Delete group title from ref storage if rebase succeeded
+  if (result.success) {
+    await deleteGroupTitle(groupId, options);
+  }
+
+  return result;
 }
 
 /**
@@ -382,7 +405,7 @@ export async function abortRebase(options: GitOptions = {}): Promise<void> {
 
 /**
  * Add group trailers to a commit (used for fixing split groups).
- * Adds both Taspr-Group and Taspr-Group-Title.
+ * Adds Taspr-Group trailer and saves title to ref storage.
  */
 export async function addGroupTrailers(
   commitHash: string,
@@ -399,24 +422,31 @@ export async function addGroupTrailers(
 
   const mergeBase = await getMergeBase(options);
 
-  // Build todo with exec command to add the trailers
+  // Build todo with exec command to add the trailer
   const todoLines: string[] = [];
   for (const commit of commits) {
     todoLines.push(`pick ${commit.hash}`);
 
     if (commit.hash === targetCommit.hash) {
-      // Add Taspr-Group and Taspr-Group-Title trailers
-      const cmd = `NEW_MSG=$(git log -1 --format=%B | git interpret-trailers --trailer "Taspr-Group: ${groupId}" --trailer "Taspr-Group-Title: ${groupTitle}") && git commit --amend --no-edit -m "$NEW_MSG"`;
+      // Add Taspr-Group trailer only (title goes to ref storage)
+      const cmd = `NEW_MSG=$(git log -1 --format=%B | git interpret-trailers --trailer "Taspr-Group: ${groupId}") && git commit --amend --no-edit -m "$NEW_MSG"`;
       todoLines.push(`exec ${cmd}`);
     }
   }
 
-  return runInteractiveRebase(createRebaseScript(todoLines), mergeBase, options);
+  const result = await runInteractiveRebase(createRebaseScript(todoLines), mergeBase, options);
+
+  // Save title to ref storage if rebase succeeded
+  if (result.success) {
+    await setGroupTitle(groupId, groupTitle, options);
+  }
+
+  return result;
 }
 
 /**
  * Remove group trailers from a specific commit.
- * Removes both Taspr-Group and Taspr-Group-Title.
+ * Removes Taspr-Group and any legacy Taspr-Group-Title.
  */
 export async function removeGroupTrailers(
   commitHash: string,
@@ -438,15 +468,9 @@ export async function removeGroupTrailers(
     todoLines.push(`pick ${commit.hash}`);
 
     if (commit.hash === targetCommit.hash) {
-      // Remove Taspr-Group and Taspr-Group-Title for this group
-      const trailersToRemove: string[] = [`Taspr-Group: ${groupId}`];
-      const title = commit.trailers["Taspr-Group-Title"];
-      if (title) {
-        trailersToRemove.push(`Taspr-Group-Title: ${title}`);
-      }
-      const grepPatterns = trailersToRemove.map((t) => `-e "^${t}$"`).join(" ");
+      // Remove Taspr-Group and any legacy Taspr-Group-Title trailers
       todoLines.push(
-        `exec NEW_MSG=$(git log -1 --format=%B | grep -v ${grepPatterns}) && git commit --amend --no-edit -m "$NEW_MSG"`,
+        `exec NEW_MSG=$(git log -1 --format=%B | grep -v -e "^Taspr-Group: ${groupId}$" -e "^Taspr-Group-Title:") && git commit --amend --no-edit -m "$NEW_MSG"`,
       );
     }
   }
@@ -455,37 +479,15 @@ export async function removeGroupTrailers(
 }
 
 /**
- * Update group title on a specific commit.
- * Used to fix inconsistent group titles.
+ * Update group title in ref storage.
+ * No longer modifies commit trailers - titles are stored in refs.
  */
-export async function updateGroupTitle(
-  commitHash: string,
-  oldTitle: string,
+export async function updateGroupTitleInRef(
+  groupId: string,
   newTitle: string,
   options: GitOptions = {},
-): Promise<ReorderResult> {
-  const commits = await getStackCommitsWithTrailers(options);
-
-  const targetCommit = commits.find((c) => c.hash === commitHash || c.hash.startsWith(commitHash));
-  if (!targetCommit) {
-    return { success: false, error: `Commit ${commitHash} not found in stack` };
-  }
-
-  const mergeBase = await getMergeBase(options);
-
-  // Build todo with exec command to update the title
-  const todoLines: string[] = [];
-  for (const commit of commits) {
-    todoLines.push(`pick ${commit.hash}`);
-
-    if (commit.hash === targetCommit.hash) {
-      // Remove old title and add new one
-      const cmd = `NEW_MSG=$(git log -1 --format=%B | grep -v -e "^Taspr-Group-Title: ${oldTitle}$" | git interpret-trailers --trailer "Taspr-Group-Title: ${newTitle}") && git commit --amend --no-edit -m "$NEW_MSG"`;
-      todoLines.push(`exec ${cmd}`);
-    }
-  }
-
-  return runInteractiveRebase(createRebaseScript(todoLines), mergeBase, options);
+): Promise<void> {
+  await setGroupTitle(groupId, newTitle, options);
 }
 
 /**
@@ -498,16 +500,20 @@ export async function mergeSplitGroup(
 ): Promise<ReorderResult> {
   const commits = await getStackCommitsWithTrailers(options);
 
+  // Get title from ref storage
+  const titles = await readGroupTitles(options);
+  const groupTitle = titles[groupId];
+
   // Find all commits in the group and their positions
   const groupCommitHashes: string[] = [];
   const nonGroupCommitHashes: string[] = [];
-  let groupTitle = "";
+  let firstCommitSubject = "";
 
   for (const commit of commits) {
     if (commit.trailers["Taspr-Group"] === groupId) {
       groupCommitHashes.push(commit.hash);
-      if (!groupTitle && commit.trailers["Taspr-Group-Title"]) {
-        groupTitle = commit.trailers["Taspr-Group-Title"];
+      if (!firstCommitSubject) {
+        firstCommitSubject = commit.subject;
       }
     } else {
       nonGroupCommitHashes.push(commit.hash);
@@ -524,10 +530,17 @@ export async function mergeSplitGroup(
 
   // Use applyGroupSpec with the new order and preserve the original group ID
   // Group ID preservation is critical - it determines the branch name and PR association
+  // Use title from ref storage, fall back to first commit subject
   return applyGroupSpec(
     {
       order: newOrder,
-      groups: [{ commits: groupCommitHashes, name: groupTitle || "Unnamed Group", id: groupId }],
+      groups: [
+        {
+          commits: groupCommitHashes,
+          name: groupTitle || firstCommitSubject || "Unnamed Group",
+          id: groupId,
+        },
+      ],
     },
     options,
   );
@@ -536,20 +549,32 @@ export async function mergeSplitGroup(
 /**
  * Remove all group trailers from all commits in the stack.
  * Used by --fix to repair invalid group configurations.
+ * Also clears all group titles from ref storage.
  */
 export async function removeAllGroupTrailers(options: GitOptions = {}): Promise<ReorderResult> {
   const commits = await getStackCommitsWithTrailers(options);
 
   if (commits.length === 0) {
+    // Still clear titles from ref storage
+    await writeGroupTitles({}, options);
     return { success: true };
   }
 
-  // Find commits that have any group trailers
+  // Find commits that have any group trailers and collect group IDs to delete
   const commitsWithGroupTrailers = commits.filter(
     (c) => c.trailers["Taspr-Group"] || c.trailers["Taspr-Group-Title"],
   );
+  const groupIdsToDelete = new Set<string>();
+  for (const commit of commitsWithGroupTrailers) {
+    const groupId = commit.trailers["Taspr-Group"];
+    if (groupId) {
+      groupIdsToDelete.add(groupId);
+    }
+  }
 
   if (commitsWithGroupTrailers.length === 0) {
+    // Still clear titles from ref storage
+    await writeGroupTitles({}, options);
     return { success: true };
   }
 
@@ -570,5 +595,12 @@ export async function removeAllGroupTrailers(options: GitOptions = {}): Promise<
     }
   }
 
-  return runInteractiveRebase(createRebaseScript(todoLines), mergeBase, options);
+  const result = await runInteractiveRebase(createRebaseScript(todoLines), mergeBase, options);
+
+  // Clear group titles from ref storage if rebase succeeded
+  if (result.success) {
+    await deleteGroupTitles([...groupIdsToDelete], options);
+  }
+
+  return result;
 }

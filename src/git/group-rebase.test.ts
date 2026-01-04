@@ -1,10 +1,18 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { createLocalRepo, type LocalRepo } from "../scenario/core.ts";
 import { generateUniqueId } from "../../tests/helpers/unique-id.ts";
-import { applyGroupSpec, parseGroupSpec, dissolveGroup } from "./group-rebase.ts";
+import {
+  applyGroupSpec,
+  parseGroupSpec,
+  dissolveGroup,
+  addGroupTrailers,
+  removeGroupTrailers,
+  mergeSplitGroup,
+} from "./group-rebase.ts";
 import { getStackCommitsWithTrailers } from "./commands.ts";
 import { parseStack } from "../core/stack.ts";
 import { scenarios } from "../scenario/definitions.ts";
+import { readGroupTitles } from "./group-titles.ts";
 
 describe("group-rebase", () => {
   let repo: LocalRepo;
@@ -64,13 +72,17 @@ describe("group-rebase", () => {
 
       expect(result.success).toBe(true);
 
-      // Verify trailers were added - now all commits have Taspr-Group and Taspr-Group-Title
+      // Verify Taspr-Group trailer was added
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
       expect(commits).toHaveLength(1);
 
       const commit = commits[0]!;
-      expect(commit.trailers["Taspr-Group"]).toBeDefined();
-      expect(commit.trailers["Taspr-Group-Title"]).toBe("Single Commit Group");
+      const groupId = commit.trailers["Taspr-Group"];
+      expect(groupId).toBeDefined();
+
+      // Title is stored in ref storage
+      const titles = await readGroupTitles({ cwd: repo.path });
+      expect(titles[groupId!]).toBe("Single Commit Group");
     });
 
     test("creates a multi-commit group", async () => {
@@ -90,18 +102,21 @@ describe("group-rebase", () => {
 
       expect(result.success).toBe(true);
 
-      // Verify trailers were added - ALL commits now have both trailers
+      // Verify Taspr-Group trailer was added to all commits
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
       expect(commits).toHaveLength(3);
 
       const groupId = commits[0]!.trailers["Taspr-Group"];
       expect(groupId).toBeDefined();
 
-      // All commits should have the same group ID and title
+      // All commits should have the same group ID
       for (const commit of commits) {
         expect(commit.trailers["Taspr-Group"]).toBe(groupId);
-        expect(commit.trailers["Taspr-Group-Title"]).toBe("Multi Commit Group");
       }
+
+      // Title is stored in ref storage
+      const titles = await readGroupTitles({ cwd: repo.path });
+      expect(titles[groupId!]).toBe("Multi Commit Group");
     });
 
     test("supports short hash references", async () => {
@@ -121,7 +136,12 @@ describe("group-rebase", () => {
       expect(result.success).toBe(true);
 
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      expect(commits[0]!.trailers["Taspr-Group-Title"]).toBe("Short Hash Group");
+      const groupId = commits[0]!.trailers["Taspr-Group"];
+      expect(groupId).toBeDefined();
+
+      // Title is stored in ref storage
+      const titles = await readGroupTitles({ cwd: repo.path });
+      expect(titles[groupId!]).toBe("Short Hash Group");
     });
 
     test("supports Taspr-Commit-Id references", async () => {
@@ -142,7 +162,12 @@ describe("group-rebase", () => {
       expect(result.success).toBe(true);
 
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      expect(commits[0]!.trailers["Taspr-Group-Title"]).toBe("ID Reference Group");
+      const groupId = commits[0]!.trailers["Taspr-Group"];
+      expect(groupId).toBeDefined();
+
+      // Title is stored in ref storage, not in commit trailers
+      const titles = await readGroupTitles({ cwd: repo.path });
+      expect(titles[groupId!]).toBe("ID Reference Group");
     });
 
     test("reorders commits when order is specified", async () => {
@@ -200,9 +225,11 @@ describe("group-rebase", () => {
       // Verify group (Third and First have same Taspr-Group)
       const groupId = commits[0]!.trailers["Taspr-Group"];
       expect(groupId).toBeDefined();
-      expect(commits[0]!.trailers["Taspr-Group-Title"]).toBe("Reordered Group");
       expect(commits[1]!.trailers["Taspr-Group"]).toBe(groupId);
-      expect(commits[1]!.trailers["Taspr-Group-Title"]).toBe("Reordered Group");
+
+      // Title is stored in ref storage
+      const titles = await readGroupTitles({ cwd: repo.path });
+      expect(titles[groupId!]).toBe("Reordered Group");
 
       // Second should not be in the group
       expect(commits[2]!.trailers["Taspr-Group"]).toBeUndefined();
@@ -236,7 +263,8 @@ describe("group-rebase", () => {
 
       // parseStack should validate successfully
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      const result = parseStack(commits);
+      const titles = await readGroupTitles({ cwd: repo.path });
+      const result = parseStack(commits, titles);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -296,9 +324,12 @@ describe("group-rebase", () => {
       expect(commits).toHaveLength(2);
       const newHash1 = commits[0]!.hash;
       const newHash2 = commits[1]!.hash;
+      const originalGroupId = commits[0]!.trailers["Taspr-Group"];
+      expect(originalGroupId).toBeDefined();
 
-      // Verify first group was applied
-      expect(commits[0]!.trailers["Taspr-Group-Title"]).toBe("Original Group");
+      // Verify first group was applied (title in ref storage)
+      let titles = await readGroupTitles({ cwd: repo.path });
+      expect(titles[originalGroupId!]).toBe("Original Group");
 
       // Apply different group to same commits
       const result2 = await applyGroupSpec(
@@ -313,14 +344,19 @@ describe("group-rebase", () => {
       commits = await getStackCommitsWithTrailers({ cwd: repo.path });
       expect(commits).toHaveLength(2);
 
-      // Should only have the new group title, not both
-      expect(commits[0]!.trailers["Taspr-Group-Title"]).toBe("New Group");
+      // New group should have a new ID
+      const newGroupId = commits[0]!.trailers["Taspr-Group"];
+      expect(newGroupId).toBeDefined();
+
+      // Should only have the new group title in ref storage
+      titles = await readGroupTitles({ cwd: repo.path });
+      expect(titles[newGroupId!]).toBe("New Group");
 
       // Check the commit message doesn't have duplicate trailers
       const { $ } = await import("bun");
       const message = await $`git -C ${repo.path} log -1 --format=%B ${commits[0]!.hash}`.text();
-      const titleMatches = message.match(/Taspr-Group-Title:/g);
-      expect(titleMatches).toHaveLength(1); // Only one title trailer
+      const groupMatches = message.match(/Taspr-Group:/g);
+      expect(groupMatches).toHaveLength(1); // Only one group trailer
     });
 
     test("removes group trailers when no new groups specified", async () => {
@@ -336,7 +372,12 @@ describe("group-rebase", () => {
       );
 
       let commits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      expect(commits[0]!.trailers["Taspr-Group-Title"]).toBe("Temporary Group");
+      const groupId = commits[0]!.trailers["Taspr-Group"];
+      expect(groupId).toBeDefined();
+
+      // Verify title in ref storage
+      let titles = await readGroupTitles({ cwd: repo.path });
+      expect(titles[groupId!]).toBe("Temporary Group");
 
       // Apply empty spec (should remove group trailers)
       await applyGroupSpec(
@@ -348,7 +389,6 @@ describe("group-rebase", () => {
 
       // Verify trailers were removed
       commits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      expect(commits[0]!.trailers["Taspr-Group-Title"]).toBeUndefined();
       expect(commits[0]!.trailers["Taspr-Group"]).toBeUndefined();
     });
   });
@@ -461,6 +501,95 @@ describe("group-rebase", () => {
       // Second commit (group-b) should still have its trailers
       expect(commits[1]!.trailers["Taspr-Group"]).toBe("group-b");
       expect(commits[1]!.trailers["Taspr-Group-Title"]).toBe("Group B");
+    });
+  });
+
+  describe("addGroupTrailers", () => {
+    test("adds Taspr-Group trailer and saves title to ref storage", async () => {
+      await scenarios.multiCommitStack.setup(repo);
+
+      // Get commits
+      const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
+      const firstCommit = commits[0];
+      expect(firstCommit).toBeDefined();
+
+      // Add group trailers to the first commit
+      const result = await addGroupTrailers(
+        firstCommit!.hash,
+        "test-group-id",
+        "Test Group Title",
+        { cwd: repo.path },
+      );
+      expect(result.success).toBe(true);
+
+      // Verify the Taspr-Group trailer was added
+      const { $ } = await import("bun");
+      const afterTrailers = await $`git -C ${repo.path} log --format=%s%n%b--- HEAD~3..HEAD`.text();
+      expect(afterTrailers).toContain("Taspr-Group: test-group-id");
+
+      // Verify title was saved to ref storage
+      const titles = await readGroupTitles({ cwd: repo.path });
+      expect(titles["test-group-id"]).toBe("Test Group Title");
+    });
+  });
+
+  describe("removeGroupTrailers", () => {
+    test("removes Taspr-Group trailer from a commit", async () => {
+      await scenarios.withGroups.setup(repo);
+
+      // Get commits and find one with group trailers
+      const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
+      const groupCommit = commits.find((c) => c.trailers["Taspr-Group"]);
+      expect(groupCommit).toBeDefined();
+      const groupId = groupCommit!.trailers["Taspr-Group"];
+      expect(groupId).toBeDefined();
+
+      // Remove the group trailers
+      const result = await removeGroupTrailers(groupCommit!.hash, groupId!, { cwd: repo.path });
+      expect(result.success).toBe(true);
+
+      // Verify group trailers were removed from that commit
+      const newCommits = await getStackCommitsWithTrailers({ cwd: repo.path });
+      const updatedCommit = newCommits.find(
+        (c) => c.subject === groupCommit!.subject && !c.trailers["Taspr-Group"],
+      );
+      expect(updatedCommit).toBeDefined();
+      // Commit IDs should still be there
+      expect(updatedCommit!.trailers["Taspr-Commit-Id"]).toBeDefined();
+    });
+  });
+
+  describe("mergeSplitGroup", () => {
+    test("reorders commits to merge a split group", async () => {
+      await scenarios.splitGroup.setup(repo);
+
+      // Verify the stack is initially invalid (split group)
+      const commitsBefore = await getStackCommitsWithTrailers({ cwd: repo.path });
+      const validationBefore = parseStack(commitsBefore);
+      expect(validationBefore).toMatchObject({ ok: false, error: "split-group" });
+
+      // Merge the split group
+      const result = await mergeSplitGroup("group-split", { cwd: repo.path });
+      expect(result.success).toBe(true);
+
+      // Verify title was saved to ref storage (falls back to first commit subject)
+      const titlesAfter = await readGroupTitles({ cwd: repo.path });
+      expect(titlesAfter["group-split"]).toContain("First grouped commit");
+
+      // Verify the stack is now valid
+      const commitsAfter = await getStackCommitsWithTrailers({ cwd: repo.path });
+      const validationAfter = parseStack(commitsAfter, titlesAfter);
+      expect(validationAfter.ok).toBe(true);
+
+      // Verify the group commits are now contiguous and ID is preserved
+      if (validationAfter.ok) {
+        const groupUnit = validationAfter.units.find(
+          (u) => u.type === "group" && u.id === "group-split",
+        );
+        expect(groupUnit).toMatchObject({ type: "group", id: "group-split" });
+        expect(groupUnit!.title).toContain("First grouped commit");
+        expect(groupUnit!.commits).toHaveLength(2);
+      }
     });
   });
 });

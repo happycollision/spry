@@ -5,16 +5,15 @@ import {
   parseGroupSpec,
   removeAllGroupTrailers,
   mergeSplitGroup,
-  updateGroupTitle,
 } from "../../git/group-rebase.ts";
 import { getStackCommitsWithTrailers } from "../../git/commands.ts";
-import { parseStack, type CommitWithTrailers } from "../../core/stack.ts";
+import { parseStack } from "../../core/stack.ts";
 import { formatValidationError } from "../output.ts";
 import { multiSelect } from "../../tui/multi-select.ts";
 import { repairSelect } from "../../tui/repair-select.ts";
 import { isTTY } from "../../tui/terminal.ts";
 import type { PRUnit, StackParseResult } from "../../types.ts";
-import * as readline from "node:readline";
+import { readGroupTitles } from "../../git/group-titles.ts";
 
 export interface GroupCommandOptions {
   apply?: string;
@@ -200,8 +199,11 @@ async function fixCommand(mode?: string): Promise<void> {
     return;
   }
 
+  // Read group titles from ref storage
+  const groupTitles = await readGroupTitles();
+
   // Check for validation errors
-  const validation = parseStack(commits);
+  const validation = parseStack(commits, groupTitles);
 
   if (validation.ok) {
     console.log("✓ No invalid groups found. Stack is valid.");
@@ -210,118 +212,47 @@ async function fixCommand(mode?: string): Promise<void> {
 
   // Non-interactive dissolve mode
   if (mode === "dissolve" || !isTTY()) {
-    await dissolveErrorGroup(commits, validation);
+    await dissolveErrorGroup(validation);
     return;
   }
 
-  // Interactive repair mode
-  switch (validation.error) {
-    case "split-group":
-      await repairSplitGroup(commits, validation);
-      break;
-    case "inconsistent-group-title":
-      await repairInconsistentTitles(commits, validation);
-      break;
-  }
+  // Interactive repair mode - only split-group errors remain
+  await repairSplitGroup(validation);
 }
 
 /**
  * Non-interactive dissolve: remove only the problematic group trailers.
  */
 async function dissolveErrorGroup(
-  commits: CommitWithTrailers[],
   validation: Exclude<StackParseResult, { ok: true }>,
 ): Promise<void> {
   // Show what's wrong
   console.log(formatValidationError(validation));
   console.log("");
 
-  // Dissolve only the group(s) with errors
-  switch (validation.error) {
-    case "split-group": {
-      // Remove group trailers from all commits in the split group
-      console.log(`Dissolving group "${validation.group.title}"...`);
-      const result = await dissolveGroup(validation.group.id);
-      if (!result.success) {
-        console.error(`✗ Error: ${result.error}`);
-        process.exit(1);
-      }
-      console.log(`✓ Group "${validation.group.title}" dissolved.`);
-      break;
-    }
-
-    case "inconsistent-group-title": {
-      // Use the most common title
-      const titleCounts = new Map<string, number>();
-      for (const title of validation.titles.values()) {
-        titleCounts.set(title, (titleCounts.get(title) || 0) + 1);
-      }
-      let mostCommonTitle = "";
-      let maxCount = 0;
-      for (const [title, count] of titleCounts) {
-        if (count > maxCount) {
-          mostCommonTitle = title;
-          maxCount = count;
-        }
-      }
-
-      console.log(`Normalizing group titles to "${mostCommonTitle}"...`);
-
-      // Update all commits with different titles
-      for (const [hash, title] of validation.titles) {
-        if (title !== mostCommonTitle) {
-          const commit = commits.find((c) => c.hash === hash);
-          if (commit) {
-            const result = await updateGroupTitle(hash, title, mostCommonTitle);
-            if (!result.success) {
-              console.error(`✗ Error: ${result.error}`);
-              process.exit(1);
-            }
-          }
-        }
-      }
-      console.log("✓ Group titles normalized.");
-      break;
-    }
+  // Only split-group errors remain after removing inconsistent-group-title
+  console.log(`Dissolving group "${validation.group.title}"...`);
+  const result = await dissolveGroup(validation.group.id);
+  if (!result.success) {
+    console.error(`✗ Error: ${result.error}`);
+    process.exit(1);
   }
+  console.log(`✓ Group "${validation.group.title}" dissolved.`);
 }
 
 /**
  * Format error summary for repair UI.
  */
 function formatErrorSummary(validation: Exclude<StackParseResult, { ok: true }>): string {
-  switch (validation.error) {
-    case "split-group": {
-      const commitList = validation.group.commits.map((h) => h.slice(0, 8)).join(", ");
-      return `✗ Split group: "${validation.group.title}" (${validation.group.id.slice(0, 8)})\n  Commits [${commitList}] are not contiguous.\n  ${validation.interruptingCommits.length} commit(s) appear between group members.`;
-    }
-    case "inconsistent-group-title": {
-      const titles = [...new Set(validation.titles.values())];
-      return `✗ Inconsistent group titles for ${validation.groupId.slice(0, 8)}:\n  Found ${titles.length} different titles: ${titles.map((t) => `"${t}"`).join(", ")}`;
-    }
-  }
+  const commitList = validation.group.commits.map((h) => h.slice(0, 8)).join(", ");
+  return `✗ Split group: "${validation.group.title}" (${validation.group.id.slice(0, 8)})\n  Commits [${commitList}] are not contiguous.\n  ${validation.interruptingCommits.length} commit(s) appear between group members.`;
 }
-
-type SplitGroupValidation = {
-  ok: false;
-  error: "split-group";
-  group: { id: string; title: string; commits: string[] };
-  interruptingCommits: string[];
-};
-
-type InconsistentGroupTitleValidation = {
-  ok: false;
-  error: "inconsistent-group-title";
-  groupId: string;
-  titles: Map<string, string>;
-};
 
 /**
  * Repair a split group interactively.
  */
 async function repairSplitGroup(
-  _commits: CommitWithTrailers[],
-  validation: SplitGroupValidation,
+  validation: Exclude<StackParseResult, { ok: true }>,
 ): Promise<void> {
   const errorSummary = formatErrorSummary(validation);
 
@@ -379,144 +310,6 @@ async function repairSplitGroup(
       }
 
       console.log(`✓ Group "${validation.group.title}" dissolved.`);
-      break;
-    }
-
-    case "dissolve-all": {
-      console.log("Removing all group trailers...");
-      const dissolveResult = await removeAllGroupTrailers();
-
-      if (!dissolveResult.success) {
-        console.error(`✗ Error: ${dissolveResult.error}`);
-        process.exit(1);
-      }
-
-      console.log("✓ All group trailers removed.");
-      break;
-    }
-  }
-}
-
-/**
- * Prompt for group title using readline.
- */
-async function promptGroupTitle(defaultTitle: string, titles: string[]): Promise<string> {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-
-    console.log("\nExisting titles:");
-    titles.forEach((t, i) => console.log(`  ${i + 1}. "${t}"`));
-    console.log("");
-
-    rl.question(`Enter title (or number to select) [${defaultTitle}]: `, (answer) => {
-      rl.close();
-      const trimmed = answer.trim();
-      if (!trimmed) {
-        resolve(defaultTitle);
-        return;
-      }
-      // Check if it's a number selecting an existing title
-      const num = parseInt(trimmed, 10);
-      if (!isNaN(num) && num >= 1 && num <= titles.length) {
-        resolve(titles[num - 1] || defaultTitle);
-        return;
-      }
-      resolve(trimmed);
-    });
-  });
-}
-
-/**
- * Repair inconsistent group titles interactively.
- */
-async function repairInconsistentTitles(
-  commits: CommitWithTrailers[],
-  validation: InconsistentGroupTitleValidation,
-): Promise<void> {
-  const errorSummary = formatErrorSummary(validation);
-
-  type RepairAction = "normalize" | "dissolve-group" | "dissolve-all";
-
-  const options: Array<{ label: string; value: RepairAction; description: string }> = [
-    {
-      label: "Normalize titles",
-      value: "normalize",
-      description: "Choose one title to apply to all commits in the group",
-    },
-    {
-      label: "Dissolve this group",
-      value: "dissolve-group",
-      description: "Remove group trailers from all commits with this group ID",
-    },
-    {
-      label: "Dissolve all groups",
-      value: "dissolve-all",
-      description: "Remove ALL group trailers from the stack",
-    },
-  ];
-
-  const result = await repairSelect(options, "Select repair action:", errorSummary);
-
-  if (result.cancelled || !result.selected) {
-    console.log("Repair cancelled.");
-    return;
-  }
-
-  switch (result.selected) {
-    case "normalize": {
-      // Get unique titles
-      const uniqueTitles = [...new Set(validation.titles.values())];
-
-      // Find the most common title as default
-      const titleCounts = new Map<string, number>();
-      for (const title of validation.titles.values()) {
-        titleCounts.set(title, (titleCounts.get(title) || 0) + 1);
-      }
-      let mostCommonTitle = uniqueTitles[0] || "";
-      let maxCount = 0;
-      for (const [title, count] of titleCounts) {
-        if (count > maxCount) {
-          mostCommonTitle = title;
-          maxCount = count;
-        }
-      }
-
-      // Prompt user for the title to use
-      const chosenTitle = await promptGroupTitle(mostCommonTitle, uniqueTitles);
-
-      console.log(`Normalizing all titles to "${chosenTitle}"...`);
-
-      // Update all commits with different titles
-      for (const [hash, title] of validation.titles) {
-        if (title !== chosenTitle) {
-          const commit = commits.find((c) => c.hash === hash);
-          if (commit) {
-            const updateResult = await updateGroupTitle(hash, title, chosenTitle);
-            if (!updateResult.success) {
-              console.error(`✗ Error updating ${hash.slice(0, 8)}: ${updateResult.error}`);
-              process.exit(1);
-            }
-          }
-        }
-      }
-
-      console.log("✓ Group titles normalized.");
-      break;
-    }
-
-    case "dissolve-group": {
-      console.log(`Dissolving group ${validation.groupId.slice(0, 8)}...`);
-      const dissolveResult = await dissolveGroup(validation.groupId);
-
-      if (!dissolveResult.success) {
-        console.error(`✗ Error: ${dissolveResult.error}`);
-        process.exit(1);
-      }
-
-      console.log("✓ Group dissolved.");
       break;
     }
 

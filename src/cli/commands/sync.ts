@@ -22,6 +22,12 @@ import {
 import { asserted } from "../../utils/assert.ts";
 import { getAllSyncStatuses, getSyncSummary, hasChanges } from "../../git/remote.ts";
 import type { PRUnit } from "../../types.ts";
+import {
+  readGroupTitles,
+  fetchGroupTitles,
+  pushGroupTitles,
+  purgeOrphanedTitles,
+} from "../../git/group-titles.ts";
 
 export interface SyncOptions {
   open?: boolean;
@@ -98,6 +104,9 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
     // Check for uncommitted changes
     await requireCleanWorkingTree();
 
+    // Fetch group titles from remote at start of sync
+    await fetchGroupTitles();
+
     // Get commits and check which need IDs
     let commits = await getStackCommitsWithTrailers();
 
@@ -120,14 +129,21 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       console.log("✓ All commits have Taspr-Commit-Id");
     }
 
+    // Read group titles from ref storage
+    const groupTitles = await readGroupTitles();
+
     // Parse and validate the stack
-    const stackResult = parseStack(commits);
+    const stackResult = parseStack(commits, groupTitles);
     if (!stackResult.ok) {
       console.error(formatValidationError(stackResult));
       process.exit(1);
     }
 
     const units = stackResult.units;
+
+    // Purge orphaned titles (groups that no longer exist)
+    const currentGroupIds = units.filter((u) => u.type === "group").map((u) => u.id);
+    await purgeOrphanedTitles(currentGroupIds);
     if (units.length === 0) {
       console.log("✓ No changes to sync");
       return;
@@ -256,6 +272,9 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
     if (summary.upToDate > 0 && pushedCount === 0 && skippedNoPR.length === 0) {
       console.log(`✓ ${summary.upToDate} branch(es) already up to date`);
     }
+
+    // Push group titles to remote at end of sync
+    await pushGroupTitles();
   } catch (error) {
     if (error instanceof DirtyWorkingTreeError) {
       console.error("✗ Error: Cannot sync with uncommitted changes");

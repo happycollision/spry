@@ -1,5 +1,6 @@
 import type { CommitInfo, PRUnit, StackParseResult } from "../types.ts";
 import type { CommitTrailers } from "../git/trailers.ts";
+import type { GroupTitles } from "../git/group-titles.ts";
 
 /**
  * Represents a commit with parsed trailers for stack detection.
@@ -14,15 +15,17 @@ export interface CommitWithTrailers extends Omit<CommitInfo, "trailers"> {
  *
  * Singles: commits without Taspr-Group trailer
  * Groups: contiguous commits with the same Taspr-Group trailer
+ *
+ * @param commits - Commits with parsed trailers
+ * @param titles - Optional group titles from ref storage (falls back to first commit subject)
  */
-export function detectPRUnits(commits: CommitWithTrailers[]): PRUnit[] {
+export function detectPRUnits(commits: CommitWithTrailers[], titles: GroupTitles = {}): PRUnit[] {
   const units: PRUnit[] = [];
   let currentGroup: PRUnit | null = null;
 
   for (const commit of commits) {
     const commitId = commit.trailers["Taspr-Commit-Id"];
     const groupId = commit.trailers["Taspr-Group"];
-    const groupTitle = commit.trailers["Taspr-Group-Title"];
 
     if (groupId) {
       // This commit belongs to a group
@@ -38,10 +41,12 @@ export function detectPRUnits(commits: CommitWithTrailers[]): PRUnit[] {
         if (currentGroup) {
           units.push(currentGroup);
         }
+        // Use title from ref storage, fall back to first commit subject
+        const title: string = titles[groupId] ?? commit.subject;
         currentGroup = {
           type: "group",
           id: groupId,
-          title: groupTitle || commit.subject,
+          title,
           commitIds: commitId ? [commitId] : [],
           commits: [commit.hash],
           subjects: [commit.subject],
@@ -76,12 +81,16 @@ export function detectPRUnits(commits: CommitWithTrailers[]): PRUnit[] {
  * Parse stack with validation for group integrity.
  * Returns a result type that includes validation errors for:
  * - Split groups (non-contiguous commits with same Taspr-Group)
- * - Inconsistent group titles (different Taspr-Group-Title for same group)
+ *
+ * @param commits - Commits with parsed trailers
+ * @param titles - Optional group titles from ref storage (falls back to first commit subject)
  */
-export function parseStack(commits: CommitWithTrailers[]): StackParseResult {
-  // Track group positions and titles for validation
+export function parseStack(
+  commits: CommitWithTrailers[],
+  titles: GroupTitles = {},
+): StackParseResult {
+  // Track group positions for validation
   const groupPositions = new Map<string, number[]>();
-  const groupTitles = new Map<string, Map<string, string>>(); // groupId -> (hash -> title)
   const groupCommits = new Map<string, string[]>(); // groupId -> commit hashes
 
   for (let i = 0; i < commits.length; i++) {
@@ -89,7 +98,6 @@ export function parseStack(commits: CommitWithTrailers[]): StackParseResult {
     if (!commit) continue;
 
     const groupId = commit.trailers["Taspr-Group"];
-    const groupTitle = commit.trailers["Taspr-Group-Title"];
 
     if (groupId) {
       // Track position
@@ -101,13 +109,6 @@ export function parseStack(commits: CommitWithTrailers[]): StackParseResult {
       const hashes = groupCommits.get(groupId) || [];
       hashes.push(commit.hash);
       groupCommits.set(groupId, hashes);
-
-      // Track title if present
-      if (groupTitle) {
-        const titles = groupTitles.get(groupId) || new Map();
-        titles.set(commit.hash, groupTitle);
-        groupTitles.set(groupId, titles);
-      }
     }
   }
 
@@ -129,15 +130,17 @@ export function parseStack(commits: CommitWithTrailers[]): StackParseResult {
           }
         }
 
-        const titles = groupTitles.get(groupId);
-        const firstTitle = titles?.values().next().value || "Unknown";
+        // Get title from ref storage, fall back to first commit subject
+        const firstCommitHash = groupCommits.get(groupId)?.[0];
+        const firstCommit = commits.find((c) => c.hash === firstCommitHash);
+        const groupTitle: string = titles[groupId] ?? firstCommit?.subject ?? "Unknown";
 
         return {
           ok: false,
           error: "split-group",
           group: {
             id: groupId,
-            title: firstTitle,
+            title: groupTitle,
             commits: groupCommits.get(groupId) || [],
           },
           interruptingCommits,
@@ -146,21 +149,6 @@ export function parseStack(commits: CommitWithTrailers[]): StackParseResult {
     }
   }
 
-  // Check for inconsistent group titles
-  for (const [groupId, titles] of groupTitles) {
-    if (titles.size <= 1) continue;
-
-    const uniqueTitles = new Set(titles.values());
-    if (uniqueTitles.size > 1) {
-      return {
-        ok: false,
-        error: "inconsistent-group-title",
-        groupId,
-        titles,
-      };
-    }
-  }
-
   // Validation passed, return PRUnits
-  return { ok: true, units: detectPRUnits(commits) };
+  return { ok: true, units: detectPRUnits(commits, titles) };
 }

@@ -44,11 +44,4 @@ export type StackParseResult =
       group: GroupInfo;
       /** Commits that appear between the split parts */
       interruptingCommits: string[];
-    }
-  | {
-      ok: false;
-      error: "inconsistent-group-title";
-      groupId: string;
-      /** Map of commit hash to its title */
-      titles: Map<string, string>;
     };

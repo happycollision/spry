@@ -4,6 +4,7 @@ import { parseStack } from "../core/stack.ts";
 import { formatValidationError } from "../cli/output.ts";
 import { applyGroupSpec, type GroupAssignment, type GroupSpec } from "../git/group-rebase.ts";
 import { predictConflict, clearFileCache } from "../git/conflict-predict.ts";
+import { readGroupTitles } from "../git/group-titles.ts";
 
 import {
   type TUIState,
@@ -53,41 +54,39 @@ export interface GroupEditorResult {
  */
 interface CommitDisplayResult {
   commits: CommitDisplay[];
-  /** Map of group letter to existing group name (from Taspr-Group-Title) */
+  /** Map of group letter to existing group name (from ref storage) */
   existingGroupNames: Map<string, string>;
 }
 
 /**
  * Convert stack commits to display format.
+ * @param commits - Commits with parsed trailers
+ * @param groupTitles - Group titles from ref storage
  */
 function toCommitDisplays(
   commits: Awaited<ReturnType<typeof getStackCommitsWithTrailers>>,
+  groupTitles: Record<string, string>,
 ): CommitDisplayResult {
   // Track group assignments from trailers
   let groupIndex = 0;
   const groupLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-  // First pass: identify unique groups and their titles
+  // First pass: identify unique groups
   const groupMap = new Map<string, string>(); // groupId -> letter
-  const groupTitles = new Map<string, string>(); // groupId -> title
   for (const commit of commits) {
     const groupId = commit.trailers["Taspr-Group"];
-    const title = commit.trailers["Taspr-Group-Title"];
     if (groupId && !groupMap.has(groupId)) {
       const letter = groupLetters[groupIndex++ % 26];
       if (letter) {
         groupMap.set(groupId, letter);
       }
-      if (title) {
-        groupTitles.set(groupId, title);
-      }
     }
   }
 
-  // Build map of letter -> existing name
+  // Build map of letter -> existing name from ref storage
   const existingGroupNames = new Map<string, string>();
   for (const [groupId, letter] of groupMap) {
-    const title = groupTitles.get(groupId);
+    const title = groupTitles[groupId];
     if (title) {
       existingGroupNames.set(letter, title);
     }
@@ -352,15 +351,18 @@ export async function runGroupEditor(): Promise<GroupEditorResult> {
     return { changed: false };
   }
 
+  // Read group titles from ref storage
+  const groupTitles = await readGroupTitles();
+
   // Validate existing stack
-  const validation = parseStack(commits);
+  const validation = parseStack(commits, groupTitles);
   if (!validation.ok) {
     console.log(formatValidationError(validation));
     return { changed: false, error: "Stack validation failed" };
   }
 
   // Convert to display format
-  const { commits: displayCommits, existingGroupNames } = toCommitDisplays(commits);
+  const { commits: displayCommits, existingGroupNames } = toCommitDisplays(commits, groupTitles);
 
   // Create initial state
   const initialState = createInitialState(displayCommits);

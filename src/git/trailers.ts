@@ -5,8 +5,6 @@ export interface CommitTrailers {
   "Taspr-Commit-Id"?: string;
   /** Group ID - present on ALL commits in a group */
   "Taspr-Group"?: string;
-  /** Group title - present on ALL commits in a group */
-  "Taspr-Group-Title"?: string;
   [key: string]: string | undefined;
 }
 

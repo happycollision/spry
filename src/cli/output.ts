@@ -178,22 +178,6 @@ export function formatValidationError(result: Exclude<StackParseResult, { ok: tr
       lines.push("  To fix, run `taspr group --fix` to merge or dissolve the group.");
       break;
     }
-
-    case "inconsistent-group-title": {
-      const uniqueTitles = [...new Set(result.titles.values())];
-      lines.push(`✗ Error: Inconsistent group titles detected`);
-      lines.push("");
-      lines.push(
-        `  Group ${result.groupId.slice(0, 8)} has different titles on different commits:`,
-      );
-      for (const title of uniqueTitles) {
-        lines.push(`    - "${title}"`);
-      }
-      lines.push("");
-      lines.push("  All commits in a group should have the same Taspr-Group-Title.");
-      lines.push("  To fix, run `taspr group --fix` to normalize the titles.");
-      break;
-    }
   }
 
   return lines.join("\n");

@@ -57,33 +57,6 @@ describe("taspr group --fix", () => {
     expect(afterTrailers).toContain("Taspr-Commit-Id"); // Should preserve commit IDs
   });
 
-  test("fixes inconsistent group titles by normalizing in non-TTY mode", async () => {
-    const repo = await repos.create();
-    await scenarios.inconsistentGroupTitle.setup(repo);
-
-    // Verify initial state has inconsistent titles
-    const beforeTrailers = await getCommitTrailers(repo.path, 2);
-    expect(beforeTrailers).toContain("Taspr-Group-Title: Title A");
-    expect(beforeTrailers).toContain("Taspr-Group-Title: Title B");
-
-    // In non-TTY mode, --fix normalizes to the most common title
-    const result = await runGroupFix(repo.path);
-
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("Inconsistent group titles");
-    expect(result.stdout).toContain("normalized");
-
-    // Verify titles are now consistent (one of them should be used for both)
-    const afterTrailers = await getCommitTrailers(repo.path, 2);
-    // Either Title A or Title B should be used consistently
-    const titleACount = (afterTrailers.match(/Taspr-Group-Title: Title A/g) || []).length;
-    const titleBCount = (afterTrailers.match(/Taspr-Group-Title: Title B/g) || []).length;
-    // One title should appear twice, the other zero times
-    expect(titleACount + titleBCount).toBe(2); // Both commits should have titles
-    expect(titleACount === 2 || titleBCount === 2).toBe(true);
-    expect(afterTrailers).toContain("Taspr-Commit-Id"); // Should preserve commit IDs
-  });
-
   test("handles empty stack gracefully", async () => {
     const repo = await repos.create();
     await scenarios.emptyStack.setup(repo);
