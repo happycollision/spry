@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: ubuntu-latest
+            target: linux-aarch64
+          - os: macos-latest
+            target: darwin-x64
+          - os: macos-latest
+            target: darwin-aarch64
+          - os: windows-latest
+            target: windows-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build binary
+        shell: bash
+        run: |
+          # Parse target
+          IFS='-' read -r os arch <<< "${{ matrix.target }}"
+
+          # Determine Bun target format
+          case "${{ matrix.target }}" in
+            linux-x64)      BUN_TARGET="bun-linux-x64" ;;
+            linux-aarch64)  BUN_TARGET="bun-linux-arm64" ;;
+            darwin-x64)     BUN_TARGET="bun-darwin-x64" ;;
+            darwin-aarch64) BUN_TARGET="bun-darwin-arm64" ;;
+            windows-x64)    BUN_TARGET="bun-windows-x64" ;;
+          esac
+
+          # Build with cross-compilation target
+          if [ "$os" = "windows" ]; then
+            bun build src/cli/index.ts --compile --target=$BUN_TARGET --outfile dist/taspr-${{ matrix.target }}.exe
+          else
+            bun build src/cli/index.ts --compile --target=$BUN_TARGET --outfile dist/taspr-${{ matrix.target }}
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: taspr-${{ matrix.target }}
+          path: dist/taspr-${{ matrix.target }}*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f -name 'taspr-*' -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
