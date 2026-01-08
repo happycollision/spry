@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # taspr installation script
 # Usage: curl -fsSL https://raw.githubusercontent.com/happycollision/taspr/main/install.sh | bash
+#        curl -fsSL ... | bash -s -- v0.1.0-alpha.1   # specific version
+#        curl -fsSL ... | bash -s -- --prerelease     # latest prerelease
 
 set -euo pipefail
 
@@ -8,6 +10,25 @@ set -euo pipefail
 REPO="happycollision/taspr"
 INSTALL_DIR="${TASPR_INSTALL_DIR:-$HOME/.taspr}"
 BIN_DIR="${TASPR_BIN_DIR:-$INSTALL_DIR/bin}"
+
+# Parse arguments
+REQUESTED_VERSION=""
+INCLUDE_PRERELEASE=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --prerelease|-p)
+            INCLUDE_PRERELEASE=true
+            shift
+            ;;
+        v*)
+            REQUESTED_VERSION="$1"
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
 
 # Colors for output
 RED='\033[0;31m'
@@ -56,8 +77,8 @@ detect_arch() {
     esac
 }
 
-# Get the latest release version from GitHub
-get_latest_version() {
+# Get the latest stable release version from GitHub
+get_latest_stable_version() {
     local version
     if command -v curl &> /dev/null; then
         version=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
@@ -66,6 +87,27 @@ get_latest_version() {
     else
         error "Neither curl nor wget found. Please install one of them."
     fi
+
+    if [ -z "$version" ]; then
+        error "No stable release found. Use --prerelease flag or specify a version like 'v0.1.0-alpha.1'"
+    fi
+
+    echo "$version"
+}
+
+# Get the latest release version from GitHub (including prereleases)
+get_latest_prerelease_version() {
+    local version response
+    if command -v curl &> /dev/null; then
+        response=$(curl -fsSL "https://api.github.com/repos/$REPO/releases")
+    elif command -v wget &> /dev/null; then
+        response=$(wget -qO- "https://api.github.com/repos/$REPO/releases")
+    else
+        error "Neither curl nor wget found. Please install one of them."
+    fi
+
+    # Get the first (most recent) release tag
+    version=$(echo "$response" | grep '"tag_name"' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
 
     if [ -z "$version" ]; then
         error "Could not determine latest version. Check https://github.com/$REPO/releases"
@@ -97,13 +139,20 @@ install_taspr() {
     arch=$(detect_arch)
     info "Detected: $os-$arch"
 
-    # Get version (use TASPR_VERSION env var if set, otherwise get latest)
-    if [ -n "${TASPR_VERSION:-}" ]; then
+    # Get version: CLI arg > env var > latest stable (or prerelease with flag)
+    if [ -n "$REQUESTED_VERSION" ]; then
+        version="$REQUESTED_VERSION"
+        info "Using specified version: $version"
+    elif [ -n "${TASPR_VERSION:-}" ]; then
         version="$TASPR_VERSION"
         info "Using specified version: $version"
+    elif [ "$INCLUDE_PRERELEASE" = true ]; then
+        info "Fetching latest version (including prereleases)..."
+        version=$(get_latest_prerelease_version)
+        info "Latest version: $version"
     else
-        info "Fetching latest version..."
-        version=$(get_latest_version)
+        info "Fetching latest stable version..."
+        version=$(get_latest_stable_version)
         info "Latest version: $version"
     fi
 

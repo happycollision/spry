@@ -24,14 +24,17 @@ Taspr automates the stacked PR workflow:
 curl -fsSL https://raw.githubusercontent.com/happycollision/taspr/main/install.sh | bash
 ```
 
-This downloads the latest release binary and installs it to `~/.taspr/bin`. You can customize the install location:
+This downloads the latest stable release and installs it to `~/.taspr/bin`.
 
 ```bash
+# Install a specific version
+curl -fsSL https://raw.githubusercontent.com/happycollision/taspr/main/install.sh | bash -s -- v0.1.0
+
+# Install the latest prerelease
+curl -fsSL https://raw.githubusercontent.com/happycollision/taspr/main/install.sh | bash -s -- --prerelease
+
 # Custom install directory
 TASPR_INSTALL_DIR=/opt/taspr curl -fsSL https://raw.githubusercontent.com/happycollision/taspr/main/install.sh | bash
-
-# Install a specific version
-TASPR_VERSION=v0.1.0 curl -fsSL https://raw.githubusercontent.com/happycollision/taspr/main/install.sh | bash
 ```
 
 ### Build from Source
