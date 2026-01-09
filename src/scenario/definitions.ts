@@ -44,6 +44,7 @@
  */
 
 import { $ } from "bun";
+import { join } from "node:path";
 import type { LocalRepo } from "./core.ts";
 
 export interface ScenarioDefinition {
@@ -383,6 +384,64 @@ export const scenarios = {
         message: "Update dependencies",
         trailers: { "Taspr-Commit-Id": "mix00007" },
       });
+    },
+  },
+  /**
+   * Scenario that creates a file mid-stack, then removes and ignores it, then
+   * recreates it as untracked. Traditional git rebase --exec fails with
+   * "untracked working tree files would be overwritten" but plumbing rebase succeeds.
+   *
+   * This is a regression test for the plumbing-based git operations.
+   *
+   * The sequence:
+   * - Commit 1: anything (no tracked.json)
+   * - Commit 2: add tracked.json file
+   * - Commit 3: anything
+   * - Commit 4: rm tracked.json from tracking and add to .gitignore
+   * - Commit 5: anything (also recreate tracked.json as untracked)
+   * - Commit 6: anything
+   *
+   * The key: tracked.json is CREATED in commit 2, which is mid-stack.
+   * When rebase tries to replay commit 2, it fails because tracked.json
+   * already exists as an untracked file in the working directory.
+   */
+  untrackedAfterIgnored: {
+    name: "untracked-after-ignored",
+    description: "File added mid-stack then ignored (traditional rebase fails, plumbing succeeds)",
+    setup: async (repo: LocalRepo) => {
+      await repo.branch("feature");
+
+      // Commit 1: anything
+      await Bun.write(join(repo.path, "file1.txt"), "content 1\n");
+      await $`git -C ${repo.path} add .`.quiet();
+      await $`git -C ${repo.path} commit -m "commit 1"`.quiet();
+
+      // Commit 2: add tracked.json (the key file)
+      await Bun.write(join(repo.path, "tracked.json"), '{"tracked": true}\n');
+      await $`git -C ${repo.path} add .`.quiet();
+      await $`git -C ${repo.path} commit -m "commit 2 - add tracked.json"`.quiet();
+
+      // Commit 3: anything
+      await Bun.write(join(repo.path, "file3.txt"), "content 3\n");
+      await $`git -C ${repo.path} add .`.quiet();
+      await $`git -C ${repo.path} commit -m "commit 3"`.quiet();
+
+      // Commit 4: remove tracked.json from tracking and ignore it
+      await $`git -C ${repo.path} rm --cached tracked.json`.quiet();
+      await Bun.write(join(repo.path, ".gitignore"), "tracked.json\n");
+      await $`git -C ${repo.path} add .gitignore`.quiet();
+      await $`git -C ${repo.path} commit -m "commit 4 - remove and ignore tracked.json"`.quiet();
+
+      // Commit 5: anything, but also re-create tracked.json (untracked now)
+      await Bun.write(join(repo.path, "file5.txt"), "content 5\n");
+      await Bun.write(join(repo.path, "tracked.json"), '{"untracked": true, "local": "data"}\n');
+      await $`git -C ${repo.path} add .`.quiet();
+      await $`git -C ${repo.path} commit -m "commit 5"`.quiet();
+
+      // Commit 6: anything
+      await Bun.write(join(repo.path, "file6.txt"), "content 6\n");
+      await $`git -C ${repo.path} add .`.quiet();
+      await $`git -C ${repo.path} commit -m "commit 6"`.quiet();
     },
   },
 } satisfies Record<string, ScenarioDefinition>;

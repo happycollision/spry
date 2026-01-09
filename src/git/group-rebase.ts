@@ -1,10 +1,7 @@
-import { $ } from "bun";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { unlink, chmod, writeFile } from "node:fs/promises";
 import type { GitOptions } from "./commands.ts";
-import { getMergeBase, getStackCommitsWithTrailers } from "./commands.ts";
+import { getMergeBase, getStackCommitsWithTrailers, getCurrentBranch } from "./commands.ts";
 import { generateCommitId } from "../core/id.ts";
+import { asserted } from "../utils/assert.ts";
 import {
   setGroupTitle,
   deleteGroupTitle,
@@ -12,80 +9,13 @@ import {
   readGroupTitles,
   writeGroupTitles,
 } from "./group-titles.ts";
-
-/**
- * Run an interactive rebase with a custom sequence editor script.
- * Uses --no-autosquash to prevent fixup!/amend! commits from being auto-reordered.
- *
- * @param script - Shell script content for GIT_SEQUENCE_EDITOR
- * @param mergeBase - The merge base to rebase onto
- * @param options - Git options (cwd)
- * @returns Result with success status and optional error/conflict info
- */
-async function runInteractiveRebase(
-  script: string,
-  mergeBase: string,
-  options: GitOptions = {},
-): Promise<ReorderResult> {
-  const { cwd } = options;
-  const scriptPath = join(tmpdir(), `taspr-rebase-${Date.now()}.sh`);
-
-  try {
-    await writeFile(scriptPath, script);
-    await chmod(scriptPath, "755");
-
-    // Use --no-autosquash to prevent fixup!/amend! commits from being auto-reordered
-    // Use --no-verify to skip pre-commit and commit-msg hooks during rebase
-    const result = cwd
-      ? await $`GIT_SEQUENCE_EDITOR=${scriptPath} git -C ${cwd} rebase -i --no-autosquash --no-verify ${mergeBase}`
-          .quiet()
-          .nothrow()
-      : await $`GIT_SEQUENCE_EDITOR=${scriptPath} git rebase -i --no-autosquash --no-verify ${mergeBase}`
-          .quiet()
-          .nothrow();
-
-    if (result.exitCode !== 0) {
-      // Check for conflict
-      const statusResult = cwd
-        ? await $`git -C ${cwd} status --porcelain`.text()
-        : await $`git status --porcelain`.text();
-
-      const conflictMatch = statusResult.match(/^(?:UU|AA|DD|AU|UA|DU|UD) (.+)$/m);
-
-      if (conflictMatch?.[1]) {
-        return {
-          success: false,
-          error: "Rebase conflict",
-          conflictFile: conflictMatch[1],
-        };
-      }
-
-      return { success: false, error: result.stderr.toString() };
-    }
-
-    return { success: true };
-  } finally {
-    try {
-      await unlink(scriptPath);
-    } catch {
-      // Ignore cleanup errors
-    }
-  }
-}
-
-/**
- * Create a rebase sequence editor script from todo lines.
- */
-function createRebaseScript(todoLines: string[]): string {
-  return `#!/bin/bash
-set -e
-TODO_FILE="$1"
-
-cat > "$TODO_FILE" << 'TODOEOF'
-${todoLines.join("\n")}
-TODOEOF
-`;
-}
+import {
+  getCommitMessage,
+  rewriteCommitChain,
+  finalizeRewrite,
+  rebasePlumbing,
+} from "./plumbing.ts";
+import { addTrailers } from "./trailers.ts";
 
 export interface GroupAssignment {
   /** Commit hashes in this group (oldest first) */
@@ -121,8 +51,19 @@ function arraysEqual(a: string[], b: string[]): boolean {
 }
 
 /**
+ * Remove group trailers (Taspr-Group and legacy Taspr-Group-Title) from a message.
+ */
+function stripGroupTrailers(message: string): string {
+  return message
+    .split("\n")
+    .filter((line) => !line.startsWith("Taspr-Group:") && !line.startsWith("Taspr-Group-Title:"))
+    .join("\n")
+    .replace(/\n+$/, ""); // Trim trailing newlines
+}
+
+/**
  * Apply a group specification to the current stack.
- * This is the main entry point for both interactive and non-interactive modes.
+ * Uses git plumbing when possible.
  *
  * The spec contains:
  * - order: Optional new order of commits (by hash or Taspr-Commit-Id)
@@ -146,12 +87,10 @@ export async function applyGroupSpec(
 
   // Build ID to hash mapping for resolving references
   const idToHash = new Map<string, string>();
-  const hashToId = new Map<string, string>();
   for (const commit of commits) {
     const id = commit.trailers["Taspr-Commit-Id"];
     if (id) {
       idToHash.set(id, commit.hash);
-      hashToId.set(commit.hash, id);
     }
     // Also allow short hash references
     idToHash.set(commit.hash.slice(0, 7), commit.hash);
@@ -227,7 +166,7 @@ export async function applyGroupSpec(
     // Track title to save to ref storage
     groupTitlesToSave.push({ id: groupId, name: group.name });
 
-    // Add Taspr-Group trailer to ALL commits in the group (no longer adding title trailer)
+    // Add Taspr-Group trailer to ALL commits in the group
     for (const commitHash of group.commits) {
       const existing = trailerMap.get(commitHash) ?? {};
       trailerMap.set(commitHash, {
@@ -238,7 +177,6 @@ export async function applyGroupSpec(
   }
 
   // Check which commits currently have group trailers (to remove them)
-  // Also check for legacy Taspr-Group-Title trailers that need cleanup
   const commitsWithGroupTrailers = new Set<string>();
   for (const commit of commits) {
     if (commit.trailers["Taspr-Group"] || commit.trailers["Taspr-Group-Title"]) {
@@ -255,44 +193,97 @@ export async function applyGroupSpec(
     return { success: true };
   }
 
-  // Get merge base
-  const mergeBase = await getMergeBase(options);
+  // Get current branch and tip for finalization
+  const branch = await getCurrentBranch(options);
+  const oldTip = asserted(currentHashes.at(-1));
 
-  // Build the new todo content
-  const todoLines: string[] = [];
-  for (const hash of newOrder) {
-    todoLines.push(`pick ${hash}`);
+  let finalTip: string;
 
-    const needsRemoval = commitsWithGroupTrailers.has(hash);
-    const newTrailers = trailerMap.get(hash);
+  if (needsReorder) {
+    // Need to reorder - use plumbing rebase
+    const mergeBase = await getMergeBase(options);
 
-    if (needsRemoval || newTrailers) {
-      // Build the exec command
-      // First, remove existing group trailers (grep -v)
-      // Then, add new trailers if any
-      let cmd = "NEW_MSG=$(git log -1 --format=%B";
+    const rebaseResult = await rebasePlumbing(mergeBase, newOrder, options);
 
-      // Always strip existing group trailers first (Taspr-Group: and Taspr-Group-Title:)
-      cmd += ' | grep -v -e "^Taspr-Group:" -e "^Taspr-Group-Title:"';
+    if (!rebaseResult.ok) {
+      // Conflict during reorder - return error
+      return {
+        success: false,
+        error: "Conflict during reorder",
+        conflictFile: rebaseResult.conflictInfo,
+      };
+    }
 
-      // Then add new trailers if specified
+    // Now we have a new commit chain in the new order
+    // Build a mapping from original hashes to new hashes
+    const hashMapping = rebaseResult.mapping;
+
+    // Build rewrites for message changes on the new commits
+    const rewrites = new Map<string, string>();
+    for (const originalHash of newOrder) {
+      const newHash = asserted(hashMapping.get(originalHash));
+      const originalMessage = await getCommitMessage(newHash, options);
+
+      // Strip existing group trailers if this commit had them
+      let baseMessage = commitsWithGroupTrailers.has(originalHash)
+        ? stripGroupTrailers(originalMessage)
+        : originalMessage;
+
+      // Add new trailers if specified
+      const newTrailers = trailerMap.get(originalHash);
       if (newTrailers) {
-        const trailerArgs = Object.entries(newTrailers)
-          .map(([k, v]) => `--trailer "${k}: ${v}"`)
-          .join(" ");
-        cmd += ` | git interpret-trailers ${trailerArgs}`;
+        baseMessage = await addTrailers(baseMessage, newTrailers);
       }
 
-      cmd += ') && git commit --amend --no-edit --no-verify -m "$NEW_MSG"';
-
-      todoLines.push(`exec ${cmd}`);
+      // Only add to rewrites if message needs to change
+      const needsChange = commitsWithGroupTrailers.has(originalHash) || newTrailers !== undefined;
+      if (needsChange && baseMessage !== originalMessage) {
+        rewrites.set(newHash, baseMessage);
+      }
     }
+
+    // If we have message changes, apply them to the reordered chain
+    if (rewrites.size > 0) {
+      const newHashes = newOrder.map((h) => asserted(hashMapping.get(h)));
+      const chainResult = await rewriteCommitChain(newHashes, rewrites, options);
+      finalTip = chainResult.newTip;
+    } else {
+      finalTip = rebaseResult.newTip;
+    }
+  } else {
+    // No reorder needed - just message changes
+    const rewrites = new Map<string, string>();
+
+    for (const commit of commits) {
+      const needsRemovalFlag = commitsWithGroupTrailers.has(commit.hash);
+      const newTrailers = trailerMap.get(commit.hash);
+
+      if (needsRemovalFlag || newTrailers) {
+        let message = await getCommitMessage(commit.hash, options);
+
+        // Strip existing group trailers
+        if (needsRemovalFlag) {
+          message = stripGroupTrailers(message);
+        }
+
+        // Add new trailers
+        if (newTrailers) {
+          message = await addTrailers(message, newTrailers);
+        }
+
+        rewrites.set(commit.hash, message);
+      }
+    }
+
+    const chainResult = await rewriteCommitChain(currentHashes, rewrites, options);
+    finalTip = chainResult.newTip;
   }
 
-  const result = await runInteractiveRebase(createRebaseScript(todoLines), mergeBase, options);
+  // Finalize: update branch ref
+  await finalizeRewrite(branch, oldTip, finalTip, options);
 
-  // Save group titles to ref storage if rebase succeeded
-  if (result.success && groupTitlesToSave.length > 0) {
+  // Save group titles to ref storage if operation succeeded
+  if (groupTitlesToSave.length > 0) {
     const existingTitles = await readGroupTitles(options);
     for (const { id, name } of groupTitlesToSave) {
       existingTitles[id] = name;
@@ -300,7 +291,7 @@ export async function applyGroupSpec(
     await writeGroupTitles(existingTitles, options);
   }
 
-  return result;
+  return { success: true };
 }
 
 /**
@@ -368,6 +359,7 @@ export interface DissolveOptions extends GitOptions {
 
 /**
  * Dissolve a specific group by removing its trailers.
+ * Uses git plumbing (no working directory modifications for message-only changes).
  *
  * When a group is dissolved:
  * - If `assignGroupIdToCommit` is specified, that commit gets the group ID as its
@@ -390,64 +382,70 @@ export async function dissolveGroup(
     return { success: false, error: `Group ${groupId} not found` };
   }
 
-  const mergeBase = await getMergeBase(gitOptions);
+  // Build rewrites map
+  const rewrites = new Map<string, string>();
 
-  // Build todo with exec commands to remove group trailers
-  const todoLines: string[] = [];
   for (const commit of commits) {
-    todoLines.push(`pick ${commit.hash}`);
-
     // Check if this commit belongs to the group we're dissolving
     if (commit.trailers["Taspr-Group"] === groupId) {
       const commitId = commit.trailers["Taspr-Commit-Id"];
+      let message = await getCommitMessage(commit.hash, gitOptions);
+
+      // Remove group trailers
+      message = message
+        .split("\n")
+        .filter(
+          (line) => line !== `Taspr-Group: ${groupId}` && !line.startsWith("Taspr-Group-Title:"),
+        )
+        .join("\n")
+        .replace(/\n+$/, "");
 
       if (assignGroupIdToCommit && commit.hash === assignGroupIdToCommit) {
         // This commit is being assigned the group ID (inheriting the PR)
-        // Remove group trailers AND set commit ID to group ID
-        todoLines.push(
-          `exec NEW_MSG=$(git log -1 --format=%B | grep -v -e "^Taspr-Group: ${groupId}$" -e "^Taspr-Group-Title:" -e "^Taspr-Commit-Id:" | git interpret-trailers --trailer "Taspr-Commit-Id: ${groupId}") && git commit --amend --no-edit --no-verify -m "$NEW_MSG"`,
-        );
+        // Remove existing Taspr-Commit-Id and add new one with group ID
+        message = message
+          .split("\n")
+          .filter((line) => !line.startsWith("Taspr-Commit-Id:"))
+          .join("\n")
+          .replace(/\n+$/, "");
+        message = await addTrailers(message, { "Taspr-Commit-Id": groupId });
       } else if (assignGroupIdToCommit && commitId === groupId) {
         // This commit originally donated its ID to the group, but a DIFFERENT
         // commit is being assigned the group ID. Generate a new ID to avoid conflicts.
         const newId = generateCommitId();
-        todoLines.push(
-          `exec NEW_MSG=$(git log -1 --format=%B | grep -v -e "^Taspr-Group: ${groupId}$" -e "^Taspr-Group-Title:" -e "^Taspr-Commit-Id:" | git interpret-trailers --trailer "Taspr-Commit-Id: ${newId}") && git commit --amend --no-edit --no-verify -m "$NEW_MSG"`,
-        );
-      } else {
-        // Just remove Taspr-Group trailer (and legacy Taspr-Group-Title if present)
-        // Keep existing Taspr-Commit-Id
-        todoLines.push(
-          `exec NEW_MSG=$(git log -1 --format=%B | grep -v -e "^Taspr-Group: ${groupId}$" -e "^Taspr-Group-Title:") && git commit --amend --no-edit --no-verify -m "$NEW_MSG"`,
-        );
+        message = message
+          .split("\n")
+          .filter((line) => !line.startsWith("Taspr-Commit-Id:"))
+          .join("\n")
+          .replace(/\n+$/, "");
+        message = await addTrailers(message, { "Taspr-Commit-Id": newId });
       }
+      // else: Just remove group trailers, keep existing Taspr-Commit-Id
+
+      rewrites.set(commit.hash, message);
     }
   }
 
-  const result = await runInteractiveRebase(createRebaseScript(todoLines), mergeBase, gitOptions);
+  // Get current branch and tip for finalization
+  const branch = await getCurrentBranch(gitOptions);
+  const allHashes = commits.map((c) => c.hash);
+  const oldTip = asserted(allHashes.at(-1));
 
-  // Delete group title from ref storage if rebase succeeded
-  if (result.success) {
-    await deleteGroupTitle(groupId, gitOptions);
-  }
+  // Rewrite the commit chain
+  const result = await rewriteCommitChain(allHashes, rewrites, gitOptions);
 
-  return result;
-}
+  // Finalize
+  await finalizeRewrite(branch, oldTip, result.newTip, gitOptions);
 
-/**
- * Abort an in-progress rebase.
- */
-export async function abortRebase(options: GitOptions = {}): Promise<void> {
-  const { cwd } = options;
-  if (cwd) {
-    await $`git -C ${cwd} rebase --abort`.quiet().nothrow();
-  } else {
-    await $`git rebase --abort`.quiet().nothrow();
-  }
+  // Delete group title from ref storage
+  await deleteGroupTitle(groupId, gitOptions);
+
+  return { success: true };
 }
 
 /**
  * Add group trailers to a commit (used for fixing split groups).
+ * Uses git plumbing (no working directory modifications).
  * Adds Taspr-Group trailer and saves title to ref storage.
  */
 export async function addGroupTrailers(
@@ -463,32 +461,32 @@ export async function addGroupTrailers(
     return { success: false, error: `Commit ${commitHash} not found in stack` };
   }
 
-  const mergeBase = await getMergeBase(options);
+  // Build rewrites map - only the target commit needs changes
+  const rewrites = new Map<string, string>();
+  let message = await getCommitMessage(targetCommit.hash, options);
+  message = await addTrailers(message, { "Taspr-Group": groupId });
+  rewrites.set(targetCommit.hash, message);
 
-  // Build todo with exec command to add the trailer
-  const todoLines: string[] = [];
-  for (const commit of commits) {
-    todoLines.push(`pick ${commit.hash}`);
+  // Get current branch and tip for finalization
+  const branch = await getCurrentBranch(options);
+  const allHashes = commits.map((c) => c.hash);
+  const oldTip = asserted(allHashes.at(-1));
 
-    if (commit.hash === targetCommit.hash) {
-      // Add Taspr-Group trailer only (title goes to ref storage)
-      const cmd = `NEW_MSG=$(git log -1 --format=%B | git interpret-trailers --trailer "Taspr-Group: ${groupId}") && git commit --amend --no-edit --no-verify -m "$NEW_MSG"`;
-      todoLines.push(`exec ${cmd}`);
-    }
-  }
+  // Rewrite the commit chain
+  const result = await rewriteCommitChain(allHashes, rewrites, options);
 
-  const result = await runInteractiveRebase(createRebaseScript(todoLines), mergeBase, options);
+  // Finalize
+  await finalizeRewrite(branch, oldTip, result.newTip, options);
 
-  // Save title to ref storage if rebase succeeded
-  if (result.success) {
-    await setGroupTitle(groupId, groupTitle, options);
-  }
+  // Save title to ref storage
+  await setGroupTitle(groupId, groupTitle, options);
 
-  return result;
+  return { success: true };
 }
 
 /**
  * Remove group trailers from a specific commit.
+ * Uses git plumbing (no working directory modifications).
  * Removes Taspr-Group and any legacy Taspr-Group-Title.
  */
 export async function removeGroupTrailers(
@@ -503,22 +501,31 @@ export async function removeGroupTrailers(
     return { success: false, error: `Commit ${commitHash} not found in stack` };
   }
 
-  const mergeBase = await getMergeBase(options);
+  // Build rewrites map - only the target commit needs changes
+  const rewrites = new Map<string, string>();
+  let message = await getCommitMessage(targetCommit.hash, options);
 
-  // Build todo with exec command to remove the trailers
-  const todoLines: string[] = [];
-  for (const commit of commits) {
-    todoLines.push(`pick ${commit.hash}`);
+  // Remove group trailers
+  message = message
+    .split("\n")
+    .filter((line) => line !== `Taspr-Group: ${groupId}` && !line.startsWith("Taspr-Group-Title:"))
+    .join("\n")
+    .replace(/\n+$/, "");
 
-    if (commit.hash === targetCommit.hash) {
-      // Remove Taspr-Group and any legacy Taspr-Group-Title trailers
-      todoLines.push(
-        `exec NEW_MSG=$(git log -1 --format=%B | grep -v -e "^Taspr-Group: ${groupId}$" -e "^Taspr-Group-Title:") && git commit --amend --no-edit --no-verify -m "$NEW_MSG"`,
-      );
-    }
-  }
+  rewrites.set(targetCommit.hash, message);
 
-  return runInteractiveRebase(createRebaseScript(todoLines), mergeBase, options);
+  // Get current branch and tip for finalization
+  const branch = await getCurrentBranch(options);
+  const allHashes = commits.map((c) => c.hash);
+  const oldTip = asserted(allHashes.at(-1));
+
+  // Rewrite the commit chain
+  const result = await rewriteCommitChain(allHashes, rewrites, options);
+
+  // Finalize
+  await finalizeRewrite(branch, oldTip, result.newTip, options);
+
+  return { success: true };
 }
 
 /**
@@ -591,6 +598,7 @@ export async function mergeSplitGroup(
 
 /**
  * Remove all group trailers from all commits in the stack.
+ * Uses git plumbing (no working directory modifications).
  * Used by --fix to repair invalid group configurations.
  * Also clears all group titles from ref storage.
  */
@@ -621,29 +629,41 @@ export async function removeAllGroupTrailers(options: GitOptions = {}): Promise<
     return { success: true };
   }
 
-  const mergeBase = await getMergeBase(options);
+  // Build rewrites map
+  const rewrites = new Map<string, string>();
 
-  // Build todo with exec commands to remove all group trailers
-  const todoLines: string[] = [];
   for (const commit of commits) {
-    todoLines.push(`pick ${commit.hash}`);
-
     const hasGroupTrailers = commit.trailers["Taspr-Group"] || commit.trailers["Taspr-Group-Title"];
 
     if (hasGroupTrailers) {
-      // Remove Taspr-Group and Taspr-Group-Title trailers
-      todoLines.push(
-        `exec NEW_MSG=$(git log -1 --format=%B | grep -v -e "^Taspr-Group:" -e "^Taspr-Group-Title:") && git commit --amend --allow-empty --no-edit --no-verify -m "$NEW_MSG"`,
-      );
+      let message = await getCommitMessage(commit.hash, options);
+
+      // Remove all group trailers
+      message = message
+        .split("\n")
+        .filter(
+          (line) => !line.startsWith("Taspr-Group:") && !line.startsWith("Taspr-Group-Title:"),
+        )
+        .join("\n")
+        .replace(/\n+$/, "");
+
+      rewrites.set(commit.hash, message);
     }
   }
 
-  const result = await runInteractiveRebase(createRebaseScript(todoLines), mergeBase, options);
+  // Get current branch and tip for finalization
+  const branch = await getCurrentBranch(options);
+  const allHashes = commits.map((c) => c.hash);
+  const oldTip = asserted(allHashes.at(-1));
 
-  // Clear group titles from ref storage if rebase succeeded
-  if (result.success) {
-    await deleteGroupTitles([...groupIdsToDelete], options);
-  }
+  // Rewrite the commit chain
+  const result = await rewriteCommitChain(allHashes, rewrites, options);
 
-  return result;
+  // Finalize
+  await finalizeRewrite(branch, oldTip, result.newTip, options);
+
+  // Clear group titles from ref storage
+  await deleteGroupTitles([...groupIdsToDelete], options);
+
+  return { success: true };
 }

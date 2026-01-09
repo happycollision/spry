@@ -1,10 +1,18 @@
 import { $ } from "bun";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { unlink, chmod, writeFile } from "node:fs/promises";
 import type { GitOptions } from "./commands.ts";
-import { getMergeBase, getStackCommits, getStackCommitsWithTrailers } from "./commands.ts";
+import { getStackCommits, getStackCommitsWithTrailers, getCurrentBranch } from "./commands.ts";
 import { getDefaultBranchRef } from "./config.ts";
+import { generateCommitId } from "../core/id.ts";
+import { addTrailers } from "./trailers.ts";
+import { asserted } from "../utils/assert.ts";
+import {
+  getCommitMessage,
+  rewriteCommitChain,
+  finalizeRewrite,
+  rebasePlumbing,
+  getFullSha,
+} from "./plumbing.ts";
 
 export interface InjectIdsResult {
   /** Number of commits that were modified */
@@ -14,35 +22,12 @@ export interface InjectIdsResult {
 }
 
 /**
- * Create a shell script that adds Taspr-Commit-Id to commits that don't have one.
- * This script is used with `git rebase --exec`.
- */
-function createIdInjectionScript(): string {
-  return `#!/bin/bash
-set -e
-
-# Check if commit already has Taspr-Commit-Id
-if git log -1 --format=%B | grep -q "^Taspr-Commit-Id:"; then
-  exit 0
-fi
-
-# Generate new ID and add trailer
-# Use --no-verify to skip pre-commit and commit-msg hooks
-NEW_ID=$(openssl rand -hex 4)
-NEW_MSG=$(git log -1 --format=%B | git interpret-trailers --trailer "Taspr-Commit-Id: $NEW_ID")
-git commit --amend --no-edit --no-verify -m "$NEW_MSG"
-`;
-}
-
-/**
  * Inject Taspr-Commit-Id trailers into commits that don't have them.
- * Uses git rebase with --exec to add IDs non-interactively.
+ * Uses git plumbing commands (no working directory modifications).
  *
  * @returns Information about the operation
  */
 export async function injectMissingIds(options: GitOptions = {}): Promise<InjectIdsResult> {
-  const { cwd } = options;
-
   // Get commits with trailers parsed
   const commits = await getStackCommitsWithTrailers(options);
 
@@ -53,42 +38,29 @@ export async function injectMissingIds(options: GitOptions = {}): Promise<Inject
     return { modifiedCount: 0, rebasePerformed: false };
   }
 
-  // Get merge base for rebase
-  const mergeBase = await getMergeBase(options);
-
-  // Create temporary script
-  const scriptPath = join(tmpdir(), `taspr-inject-id-${Date.now()}.sh`);
-  const script = createIdInjectionScript();
-
-  try {
-    await writeFile(scriptPath, script);
-    await chmod(scriptPath, "755");
-
-    // Run rebase with --exec
-    // GIT_SEQUENCE_EDITOR=true prevents the editor from opening
-    // Use --no-autosquash to prevent fixup!/amend! commits from being auto-reordered
-    // Use --no-verify to skip pre-commit and commit-msg hooks during rebase
-    const result = cwd
-      ? await $`GIT_SEQUENCE_EDITOR=true git -C ${cwd} rebase -i --no-autosquash --no-verify --exec ${scriptPath} ${mergeBase}`
-          .quiet()
-          .nothrow()
-      : await $`GIT_SEQUENCE_EDITOR=true git rebase -i --no-autosquash --no-verify --exec ${scriptPath} ${mergeBase}`
-          .quiet()
-          .nothrow();
-
-    if (result.exitCode !== 0) {
-      throw new Error(`Rebase failed: ${result.stderr.toString()}`);
-    }
-
-    return { modifiedCount: needsId.length, rebasePerformed: true };
-  } finally {
-    // Clean up script
-    try {
-      await unlink(scriptPath);
-    } catch {
-      // Ignore cleanup errors
-    }
+  // Build the rewrites map: original hash -> new message with ID
+  const rewrites = new Map<string, string>();
+  for (const commit of needsId) {
+    const newId = generateCommitId();
+    const originalMessage = await getCommitMessage(commit.hash, options);
+    const newMessage = await addTrailers(originalMessage, { "Taspr-Commit-Id": newId });
+    rewrites.set(commit.hash, newMessage);
   }
+
+  // Get all commit hashes in order for the chain rewrite
+  const allHashes = commits.map((c) => c.hash);
+
+  // Get current branch and tip for finalization
+  const branch = await getCurrentBranch(options);
+  const oldTip = asserted(allHashes.at(-1));
+
+  // Rewrite the commit chain using plumbing
+  const result = await rewriteCommitChain(allHashes, rewrites, options);
+
+  // Finalize: update branch ref and reset if needed (won't reset for message-only changes)
+  await finalizeRewrite(branch, oldTip, result.newTip, options);
+
+  return { modifiedCount: needsId.length, rebasePerformed: true };
 }
 
 /**
@@ -123,7 +95,8 @@ export interface RebaseResult {
 
 /**
  * Rebase the current stack onto the latest origin/main.
- * This preserves commit messages (including Taspr trailers).
+ * Uses git plumbing when possible, falling back to traditional
+ * rebase on conflict for user conflict resolution.
  *
  * @returns Result indicating success or conflict details
  */
@@ -135,16 +108,38 @@ export async function rebaseOntoMain(options: GitOptions = {}): Promise<RebaseRe
   const commits = await getStackCommits(options);
   const commitCount = commits.length;
 
-  // Attempt rebase
+  if (commitCount === 0) {
+    return { success: true, commitCount: 0 };
+  }
+
+  // Get the target to rebase onto
+  const onto = await getFullSha(defaultBranchRef, options);
+
+  // Get commit hashes in order
+  const commitHashes = commits.map((c) => c.hash);
+
+  // Try plumbing rebase first
+  const result = await rebasePlumbing(onto, commitHashes, options);
+
+  if (result.ok) {
+    // Success! Finalize the rewrite
+    const branch = await getCurrentBranch(options);
+    const oldTip = asserted(commitHashes.at(-1));
+    await finalizeRewrite(branch, oldTip, result.newTip, options);
+    return { success: true, commitCount };
+  }
+
+  // Plumbing rebase detected a conflict
+  // Fall back to traditional rebase so user can resolve conflicts interactively
   // Use --no-autosquash to prevent fixup!/amend! commits from being auto-reordered
   // Use --no-verify to skip pre-commit and commit-msg hooks during rebase
-  const result = cwd
+  const traditionalResult = cwd
     ? await $`git -C ${cwd} rebase --no-autosquash --no-verify ${defaultBranchRef}`
         .quiet()
         .nothrow()
     : await $`git rebase --no-autosquash --no-verify ${defaultBranchRef}`.quiet().nothrow();
 
-  if (result.exitCode === 0) {
+  if (traditionalResult.exitCode === 0) {
     return { success: true, commitCount };
   }
 
@@ -165,7 +160,7 @@ export async function rebaseOntoMain(options: GitOptions = {}): Promise<RebaseRe
   }
 
   // Unknown failure - throw with stderr
-  throw new Error(`Rebase failed: ${result.stderr.toString()}`);
+  throw new Error(`Rebase failed: ${traditionalResult.stderr.toString()}`);
 }
 
 export interface ConflictInfo {
