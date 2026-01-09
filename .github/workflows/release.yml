@@ -88,17 +88,7 @@ jobs:
       - name: Extract release notes from changelog
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
-
-          # Extract content between this version and the next version header
-          awk -v ver="$VERSION" '
-            BEGIN { found=0; printing=0 }
-            /^## \[/ {
-              if (printing) exit
-              if ($0 ~ "\\[" ver "\\]") { found=1; printing=1; next }
-            }
-            printing { print }
-          ' CHANGELOG.md > release_notes.md
-
+          ./scripts/generate-release-notes.sh "$VERSION" > release_notes.md
           echo "Release notes for $VERSION:"
           cat release_notes.md
 
