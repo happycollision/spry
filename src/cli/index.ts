@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import { viewCommand } from "./commands/view.ts";
 import { syncCommand } from "./commands/sync.ts";
 import { landCommand } from "./commands/land.ts";
@@ -14,7 +14,12 @@ program
   .command("view")
   .description("View the current stack of commits")
   .option("--all", "Show all PRs authored by the current user")
-  .option("--mock", "Use mock PR data for testing display")
+  .addOption(
+    (() => {
+      const opt = new Option("--mock", "Use mock PR data for testing display");
+      return process.env.NODE_ENV === "development" ? opt : opt.hideHelp();
+    })(),
+  )
   .action((options) => viewCommand(options));
 
 program
