@@ -122,18 +122,7 @@ For more information, read the Bun API docs in `node_modules/bun-types/docs/**.m
 
 ## Changelog
 
-Before releasing, update `CHANGELOG.md`:
-
-1. Move items from `[Unreleased]` to a new version section
-2. Add the release date: `## [X.Y.Z] - YYYY-MM-DD`
-3. Categorize changes using these sections:
-   - **Added**: New user-facing features
-   - **Changed**: Changes to existing functionality
-   - **Fixed**: Bug fixes
-   - **Removed**: Removed features
-   - **Internal**: Developer-only changes (tooling, tests, CI) - not shown prominently to users
-
-The release script will fail if no changelog entry exists for the version.
+You should edit the changelog after each change that affects runtime, BEFORE YOU COMMIT. It will automatically get bumped when the release script is run.
 
 ## Releasing
 
