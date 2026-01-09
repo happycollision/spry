@@ -10,7 +10,7 @@ import packageJson from "../../package.json";
 const program = new Command();
 
 program
-  .name("taspr")
+  .name("spry")
   .description("CLI tool for managing stacked PRs on GitHub")
   .version(packageJson.version);
 

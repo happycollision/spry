@@ -1,6 +1,6 @@
 import { $ } from "bun";
 
-export interface TasprConfig {
+export interface SpryConfig {
   branchPrefix: string;
   defaultBranch: string;
   tempCommitPrefixes: string[];
@@ -13,29 +13,28 @@ export interface TasprConfig {
  */
 export const DEFAULT_TEMP_COMMIT_PREFIXES = ["WIP", "fixup!", "amend!", "squash!"];
 
-let cachedConfig: TasprConfig | null = null;
+let cachedConfig: SpryConfig | null = null;
 
 /**
- * Get taspr configuration from git config.
+ * Get spry configuration from git config.
  * Result is memoized for the lifetime of the process.
  *
  * Configuration options:
- * - taspr.branchPrefix: Custom prefix for branch names (default: "taspr")
- * - taspr.defaultBranch: Default branch to stack on (default: auto-detect from origin)
+ * - spry.branchPrefix: Custom prefix for branch names (default: "spry")
+ * - spry.defaultBranch: Default branch to stack on (default: auto-detect from origin)
  */
-export async function getTasprConfig(): Promise<TasprConfig> {
+export async function getSpryConfig(): Promise<SpryConfig> {
   if (cachedConfig) {
     return cachedConfig;
   }
 
   const [prefixResult, defaultBranchResult, tempPrefixesResult] = await Promise.all([
-    $`git config --get taspr.branchPrefix`.nothrow(),
-    $`git config --get taspr.defaultBranch`.nothrow(),
-    $`git config --get taspr.tempCommitPrefixes`.nothrow(),
+    $`git config --get spry.branchPrefix`.nothrow(),
+    $`git config --get spry.defaultBranch`.nothrow(),
+    $`git config --get spry.tempCommitPrefixes`.nothrow(),
   ]);
 
-  const branchPrefix =
-    prefixResult.exitCode === 0 ? prefixResult.stdout.toString().trim() : "taspr";
+  const branchPrefix = prefixResult.exitCode === 0 ? prefixResult.stdout.toString().trim() : "spry";
 
   let defaultBranch: string;
   if (defaultBranchResult.exitCode === 0) {
@@ -45,7 +44,7 @@ export async function getTasprConfig(): Promise<TasprConfig> {
   }
 
   // Parse tempCommitPrefixes from comma-separated string, or use defaults
-  // Set to empty string to disable: git config taspr.tempCommitPrefixes ""
+  // Set to empty string to disable: git config spry.tempCommitPrefixes ""
   let tempCommitPrefixes: string[];
   if (tempPrefixesResult.exitCode === 0) {
     const value = tempPrefixesResult.stdout.toString().trim();
@@ -90,7 +89,7 @@ export async function detectDefaultBranch(): Promise<string> {
   }
 
   throw new Error(
-    "Could not detect default branch. Set it with: git config taspr.defaultBranch <branch>",
+    "Could not detect default branch. Set it with: git config spry.defaultBranch <branch>",
   );
 }
 
@@ -106,7 +105,7 @@ export function clearConfigCache(): void {
  * @example "origin/main" or "origin/master"
  */
 export async function getDefaultBranchRef(): Promise<string> {
-  const config = await getTasprConfig();
+  const config = await getSpryConfig();
   return `origin/${config.defaultBranch}`;
 }
 

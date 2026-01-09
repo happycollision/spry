@@ -341,10 +341,10 @@ export function getTerminalSize(): { rows: number; cols: number } {
 
 /**
  * Check if stdin is a TTY.
- * Respects TASPR_NO_TTY=1 environment variable to force non-interactive mode.
+ * Respects SPRY_NO_TTY=1 environment variable to force non-interactive mode.
  */
 export function isTTY(): boolean {
-  if (process.env.TASPR_NO_TTY === "1") {
+  if (process.env.SPRY_NO_TTY === "1") {
     return false;
   }
   return !!process.stdin.isTTY;

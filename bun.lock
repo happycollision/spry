@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "taspr",
+      "name": "spry",
       "dependencies": {
         "commander": "^12.1.0",
       },

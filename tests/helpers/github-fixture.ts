@@ -1,11 +1,11 @@
 import { $ } from "bun";
 import { ensureGhInstalled, DependencyError } from "../../src/github/api.ts";
 
-// Safety marker - must match the one in setup-taspr-check.ts
-const SAFETY_MARKER = "<!-- taspr-test-repo:v1 -->";
+// Safety marker - must match the one in setup-spry-check.ts
+const SAFETY_MARKER = "<!-- spry-test-repo:v1 -->";
 
 // Configurable via environment variables (same as setup script)
-const DEFAULT_REPO_NAME = "taspr-check";
+const DEFAULT_REPO_NAME = "spry-check";
 
 export interface BranchProtectionOptions {
   requireStatusChecks?: boolean;
@@ -91,8 +91,8 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
 
   // Get owner from env or authenticated user
   let owner: string;
-  if (process.env.TASPR_TEST_REPO_OWNER) {
-    owner = process.env.TASPR_TEST_REPO_OWNER;
+  if (process.env.SPRY_TEST_REPO_OWNER) {
+    owner = process.env.SPRY_TEST_REPO_OWNER;
   } else {
     const ownerResult = await $`gh api user --jq .login`.nothrow();
     if (ownerResult.exitCode !== 0) {
@@ -103,24 +103,24 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     owner = ownerResult.stdout.toString().trim();
   }
 
-  const repo = process.env.TASPR_TEST_REPO_NAME || DEFAULT_REPO_NAME;
+  const repo = process.env.SPRY_TEST_REPO_NAME || DEFAULT_REPO_NAME;
   const fullRepoName = `${owner}/${repo}`;
 
   // Verify repo exists
   const repoCheck = await $`gh repo view ${fullRepoName} --json name`.nothrow();
   if (repoCheck.exitCode !== 0) {
     throw new DependencyError(
-      `Test repository ${fullRepoName} not found.\n` + `Run: bun run scripts/setup-taspr-check.ts`,
+      `Test repository ${fullRepoName} not found.\n` + `Run: bun run scripts/setup-spry-check.ts`,
     );
   }
 
-  // Safety check: verify this is actually a taspr test repo
+  // Safety check: verify this is actually a spry test repo
   const isTestRepo = await verifyTestRepo(owner, repo);
   if (!isTestRepo) {
     throw new DependencyError(
-      `Repository ${fullRepoName} exists but does not appear to be a taspr test repo.\n` +
+      `Repository ${fullRepoName} exists but does not appear to be a spry test repo.\n` +
         `The README is missing the safety marker.\n` +
-        `Run: bun run scripts/setup-taspr-check.ts`,
+        `Run: bun run scripts/setup-spry-check.ts`,
     );
   }
 

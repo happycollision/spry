@@ -1,5 +1,5 @@
 /**
- * Composable test primitives for taspr integration tests.
+ * Composable test primitives for spry integration tests.
  *
  * Provides `repoManager()` for local-only repos (bare origin) and
  * `repoManager({ github: true })` for GitHub integration tests.

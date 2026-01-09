@@ -1,5 +1,5 @@
 import { getStackCommitsWithTrailers, getMergeBase } from "../git/commands.ts";
-import { getTasprConfig } from "../git/config.ts";
+import { getSpryConfig } from "../git/config.ts";
 import { parseStack } from "../core/stack.ts";
 import { formatValidationError } from "../cli/output.ts";
 import { applyGroupSpec, type GroupAssignment, type GroupSpec } from "../git/group-rebase.ts";
@@ -78,7 +78,7 @@ function toCommitDisplays(
   // First pass: identify unique groups
   const groupMap = new Map<string, string>(); // groupId -> letter
   for (const commit of commits) {
-    const groupId = commit.trailers["Taspr-Group"];
+    const groupId = commit.trailers["Spry-Group"];
     if (groupId && !groupMap.has(groupId)) {
       const letter = groupLetters[groupIndex++ % 26];
       if (letter) {
@@ -96,16 +96,16 @@ function toCommitDisplays(
     }
   }
 
-  // Second pass: assign letters based on Taspr-Group trailer
+  // Second pass: assign letters based on Spry-Group trailer
   const displayCommits = commits.map((commit) => {
-    const groupId = commit.trailers["Taspr-Group"];
+    const groupId = commit.trailers["Spry-Group"];
     const letter = groupId ? groupMap.get(groupId) : null;
 
     const display: CommitDisplay = {
       hash: commit.hash,
       shortHash: commit.hash.slice(0, 8),
       subject: commit.subject,
-      commitId: commit.trailers["Taspr-Commit-Id"],
+      commitId: commit.trailers["Spry-Commit-Id"],
       originalGroup: letter ?? undefined,
     };
 
@@ -422,7 +422,7 @@ export async function runGroupEditor(): Promise<GroupEditorResult> {
   }
 
   // Get config
-  const config = await getTasprConfig();
+  const config = await getSpryConfig();
   const defaultBranch = `origin/${config.defaultBranch}`;
 
   // Get commits
@@ -558,7 +558,7 @@ export async function runGroupEditor(): Promise<GroupEditorResult> {
       console.log("    3. git rebase --continue");
       console.log("");
       console.log("  Note: If resolving requires removing commits at the start or end of a");
-      console.log("  group, the group trailers may become invalid. Run 'taspr group' again");
+      console.log("  group, the group trailers may become invalid. Run 'sp group' again");
       console.log("  after the rebase completes to fix any group issues.");
     }
     return { changed: false, error: result.error };
@@ -573,7 +573,7 @@ export async function runGroupEditor(): Promise<GroupEditorResult> {
       try {
         await closePR(
           pr.pr.number,
-          "This PR has been superseded by a group PR created via `taspr group`.",
+          "This PR has been superseded by a group PR created via `sp group`.",
         );
         console.log(`    - Closed PR #${pr.pr.number}: "${pr.pr.title}"`);
       } catch (error) {

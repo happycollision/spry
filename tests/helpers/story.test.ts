@@ -13,7 +13,7 @@ describe("Story API", () => {
     story.begin("test");
     story.narrate("Some text");
     story.log({
-      command: "taspr sync",
+      command: "sp sync",
       stdout: "output",
       stderr: "",
       exitCode: 0,
@@ -29,7 +29,7 @@ describe("Story API", () => {
 
   test("sanitizes test IDs from output", async () => {
     // Enable story logging for this test
-    process.env.TASPR_STORY_TEST_LOGGING = "1";
+    process.env.SPRY_STORY_TEST_LOGGING = "1";
 
     const testId = "happy-penguin-x3f";
     const story = createStory("sanitize.test.ts");
@@ -37,7 +37,7 @@ describe("Story API", () => {
     story.begin("test with IDs", testId);
     story.narrate("Testing ID sanitization.");
     story.log({
-      command: "taspr sync",
+      command: "sp sync",
       stdout: `Stack: feature-${testId} (3 commits)
   ○ First commit [${testId}]
   ○ Second commit [${testId}]`,
@@ -58,17 +58,17 @@ describe("Story API", () => {
     expect(content).not.toContain(`[${testId}]`);
 
     // Clean up env var
-    delete process.env.TASPR_STORY_TEST_LOGGING;
+    delete process.env.SPRY_STORY_TEST_LOGGING;
   });
 
   test("strips ANSI codes in .md output", async () => {
-    process.env.TASPR_STORY_TEST_LOGGING = "1";
+    process.env.SPRY_STORY_TEST_LOGGING = "1";
 
     const story = createStory("ansi.test.ts");
 
     story.begin("test with colors");
     story.log({
-      command: "taspr view",
+      command: "sp view",
       stdout: "\x1b[32m✓\x1b[0m Success",
       stderr: "",
       exitCode: 0,
@@ -87,6 +87,6 @@ describe("Story API", () => {
     const ansiContent = await Bun.file(join(testLogsDir, "ansi/test-with-colors-01.ansi")).text();
     expect(ansiContent).toBe("\x1b[32m✓\x1b[0m Success");
 
-    delete process.env.TASPR_STORY_TEST_LOGGING;
+    delete process.env.SPRY_STORY_TEST_LOGGING;
   });
 });

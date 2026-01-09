@@ -9,34 +9,34 @@ export const SKIP_GITHUB_TESTS = !process.env.GITHUB_INTEGRATION_TESTS;
 // Skip CI-dependent tests unless explicitly enabled
 export const SKIP_CI_TESTS = !process.env.GITHUB_CI_TESTS;
 
-/** Standard result from running a taspr command */
-export interface TasprResult {
+/** Standard result from running a sp (spry) command */
+export interface SpryResult {
   stdout: string;
   stderr: string;
   exitCode: number;
 }
 
 /** Extended result that includes the command that was executed */
-export interface CommandResult extends TasprResult {
-  /** The exact CLI invocation that was executed (e.g., "taspr sync --open") */
+export interface CommandResult extends SpryResult {
+  /** The exact CLI invocation that was executed (e.g., "sp sync --open") */
   command: string;
 }
 
-// Helper to run taspr commands in a directory
-export async function runTaspr(
+// Helper to run sp (spry) commands in a directory
+export async function runSpry(
   cwd: string,
   command: string,
   args: string[] = [],
 ): Promise<CommandResult> {
-  // Set TASPR_NO_TTY=1 to force non-interactive mode regardless of TTY status
+  // Set SPRY_NO_TTY=1 to force non-interactive mode regardless of TTY status
   const result =
-    await $`TASPR_NO_TTY=1 bun run ${join(import.meta.dir, "../../src/cli/index.ts")} ${command} ${args}`
+    await $`SPRY_NO_TTY=1 bun run ${join(import.meta.dir, "../../src/cli/index.ts")} ${command} ${args}`
       .cwd(cwd)
       .nothrow()
       .quiet();
 
   // Build the command string for logging/debugging
-  const commandStr = args.length > 0 ? `taspr ${command} ${args.join(" ")}` : `taspr ${command}`;
+  const commandStr = args.length > 0 ? `sp ${command} ${args.join(" ")}` : `sp ${command}`;
 
   return {
     command: commandStr,
@@ -46,25 +46,25 @@ export async function runTaspr(
   };
 }
 
-// Helper to run taspr sync in a directory
+// Helper to run sp sync in a directory
 export async function runSync(
   cwd: string,
   options: { open?: boolean } = {},
 ): Promise<CommandResult> {
   const args = options.open ? ["--open"] : [];
-  return runTaspr(cwd, "sync", args);
+  return runSpry(cwd, "sync", args);
 }
 
-// Helper to run taspr land in a directory
+// Helper to run sp land in a directory
 export async function runLand(
   cwd: string,
   options: { all?: boolean } = {},
 ): Promise<CommandResult> {
   const args = options.all ? ["--all"] : [];
-  return runTaspr(cwd, "land", args);
+  return runSpry(cwd, "land", args);
 }
 
-// Helper to run taspr clean in a directory
+// Helper to run sp clean in a directory
 export async function runClean(
   cwd: string,
   options: { dryRun?: boolean; force?: boolean } = {},
@@ -72,16 +72,16 @@ export async function runClean(
   const args: string[] = [];
   if (options.dryRun) args.push("--dry-run");
   if (options.force) args.push("--force");
-  return runTaspr(cwd, "clean", args);
+  return runSpry(cwd, "clean", args);
 }
 
-// Helper to run taspr view in a directory
+// Helper to run sp view in a directory
 export async function runView(
   cwd: string,
   options: { all?: boolean } = {},
 ): Promise<CommandResult> {
   const args = options.all ? ["--all"] : [];
-  return runTaspr(cwd, "view", args);
+  return runSpry(cwd, "view", args);
 }
 
 /**

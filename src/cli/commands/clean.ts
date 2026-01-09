@@ -22,10 +22,10 @@ interface OrphanedBranch {
 }
 
 /**
- * List all remote branches matching our taspr pattern.
+ * List all remote branches matching our spry pattern.
  * Pattern: <prefix>/<username>/*
  */
-async function listTasprBranches(
+async function listSpryBranches(
   branchConfig: Awaited<ReturnType<typeof getBranchNameConfig>>,
 ): Promise<string[]> {
   const result =
@@ -57,7 +57,7 @@ async function isCommitMerged(commitSha: string, defaultBranch: string): Promise
 }
 
 /**
- * Check if a Taspr-Commit-Id exists in the default branch.
+ * Check if a Spry-Commit-Id exists in the default branch.
  * This handles the case where a commit was modified (e.g., squash merge, amended)
  * but the trailer was preserved.
  */
@@ -65,7 +65,7 @@ async function isCommitIdInDefaultBranch(
   commitId: string,
   defaultBranch: string,
 ): Promise<boolean> {
-  const pattern = `Taspr-Commit-Id: ${commitId}`;
+  const pattern = `Spry-Commit-Id: ${commitId}`;
   const result = await $`git log --grep=${pattern} --oneline origin/${defaultBranch} -1`
     .quiet()
     .nothrow();
@@ -73,7 +73,7 @@ async function isCommitIdInDefaultBranch(
 }
 
 /**
- * Extract the commit ID from a taspr branch name.
+ * Extract the commit ID from a spry branch name.
  * Branch format: <prefix>/<username>/<commit-id>
  */
 function extractCommitIdFromBranch(branchName: string): string | null {
@@ -93,10 +93,10 @@ async function getBranchHeadSha(branchName: string): Promise<string | null> {
 }
 
 /**
- * Find orphaned taspr branches that have been merged to the default branch.
+ * Find orphaned spry branches that have been merged to the default branch.
  * Detects both:
  * 1. Branches whose exact commit SHA is reachable from main (fast-forward merge)
- * 2. Branches whose Taspr-Commit-Id trailer exists in main (squash/amended merge)
+ * 2. Branches whose Spry-Commit-Id trailer exists in main (squash/amended merge)
  */
 async function findOrphanedBranches(
   branchConfig: Awaited<ReturnType<typeof getBranchNameConfig>>,
@@ -105,7 +105,7 @@ async function findOrphanedBranches(
   // Fetch latest from origin first
   await $`git fetch origin`.quiet().nothrow();
 
-  const branches = await listTasprBranches(branchConfig);
+  const branches = await listSpryBranches(branchConfig);
   const orphaned: OrphanedBranch[] = [];
 
   for (const branch of branches) {

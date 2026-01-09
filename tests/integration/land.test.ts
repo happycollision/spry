@@ -17,14 +17,14 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
     async () => {
       story.begin("lands a single PR and deletes the branch", repos.uniqueId);
       story.narrate(
-        "When you run `taspr land` on a branch with an approved PR, it merges to main and cleans up the remote branch.",
+        "When you run `sp land` on a branch with an approved PR, it merges to main and cleans up the remote branch.",
       );
 
       const repo = await repos.clone({ testName: "land" });
       await repo.branch("feature/land-test");
       await repo.commit();
 
-      // Run taspr sync --open to create the PR
+      // Run sp sync --open to create the PR
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
       expect(syncResult.stdout).toContain("Created");
@@ -34,7 +34,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
       // Wait for CI to pass before landing
       await repo.github.waitForCI(pr.number, { timeout: 180000 });
 
-      // Run taspr land
+      // Run sp land
       const landResult = await runLand(repo.path);
       story.log(landResult);
       story.end();
@@ -70,7 +70,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
       await repo.commit();
       await repo.commit();
 
-      // Run taspr sync --open to create PRs for all commits
+      // Run sp sync --open to create PRs for all commits
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
@@ -89,7 +89,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
         repo.github.waitForCI(thirdPr.number, { timeout: 180000 }),
       ]);
 
-      // Step 1: Run taspr land (lands just the first PR)
+      // Step 1: Run sp land (lands just the first PR)
       const landResult1 = await runLand(repo.path);
       expect(landResult1.exitCode).toBe(0);
       expect(landResult1.stdout).toContain(`✓ Merged PR #${firstPr.number} to main`);
@@ -115,7 +115,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
         await $`gh pr view ${thirdPr.number} --repo ${repo.github.owner}/${repo.github.repo} --json state`.text();
       expect(JSON.parse(thirdStatus).state).toBe("OPEN");
 
-      // Step 2: Run taspr land --all (should land remaining PRs)
+      // Step 2: Run sp land --all (should land remaining PRs)
       const landResult2 = await runLand(repo.path, { all: true });
       expect(landResult2.exitCode).toBe(0);
       expect(landResult2.stdout).toContain("✓ Merged 2 PR(s)");
@@ -143,7 +143,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
       await repo.branch("feature/land-conflict-test");
       await repo.commit();
 
-      // Run taspr sync --open to create the PR
+      // Run sp sync --open to create the PR
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
@@ -182,7 +182,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
     async () => {
       story.begin("reports no open PRs when stack has no PRs", repos.uniqueId);
       story.narrate(
-        "If you try to land a stack that has no open PRs, taspr tells you there's nothing to land.",
+        "If you try to land a stack that has no open PRs, sp tells you there's nothing to land.",
       );
 
       const repo = await repos.clone({ testName: "no-pr" });
@@ -211,7 +211,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
       await repo.branch("feature/ci-fail-land-test");
       await repo.commit({ message: "[FAIL_CI] trigger CI failure" });
 
-      // Run taspr sync --open to create the PR
+      // Run sp sync --open to create the PR
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
@@ -243,7 +243,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
       await repo.commit();
       await repo.commit();
 
-      // Run taspr sync --open to create PRs for all commits
+      // Run sp sync --open to create PRs for all commits
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
@@ -256,7 +256,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
         stackPrs.map((pr) => repo.github.waitForCI(pr.number, { timeout: 180000 })),
       );
 
-      // Run taspr land --all
+      // Run sp land --all
       const landResult = await runLand(repo.path, { all: true });
 
       expect(landResult.exitCode).toBe(0);
@@ -286,7 +286,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
       await repo.commit({ message: "[FAIL_CI] second-fails" });
       await repo.commit({ message: "third-passes" });
 
-      // Run taspr sync --open to create PRs for all commits
+      // Run sp sync --open to create PRs for all commits
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
@@ -302,7 +302,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
         repo.github.waitForCI(thirdPr.number, { timeout: 180000 }),
       ]);
 
-      // Run taspr land --all - should merge first, stop at second
+      // Run sp land --all - should merge first, stop at second
       const landResult = await runLand(repo.path, { all: true });
 
       expect(landResult.exitCode).toBe(0);
@@ -335,7 +335,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
       await repo.commit({ message: "first-ready" });
       await repo.commit({ message: "[FAIL_CI] second-not-ready" });
 
-      // Run taspr sync --open
+      // Run sp sync --open
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
@@ -376,7 +376,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
       await repo.branch("feature/not-ready");
       await repo.commit({ message: "[CI_SLOW_TEST] slow commit" });
 
-      // Run taspr sync --open
+      // Run sp sync --open
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 

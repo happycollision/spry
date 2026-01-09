@@ -17,7 +17,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
     async () => {
       story.begin("reports no orphaned branches when none exist", repos.uniqueId);
       story.narrate(
-        "When there are no merged PRs with leftover branches, taspr clean reports nothing to clean up.",
+        "When there are no merged PRs with leftover branches, sp clean reports nothing to clean up.",
       );
 
       const repo = await repos.clone({ testName: "no-orphans" });
@@ -45,7 +45,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
       await repo.branch("feature/clean-dry-run");
       await repo.commit();
 
-      // Run taspr sync --open to create a PR
+      // Run sp sync --open to create a PR
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
@@ -87,14 +87,14 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
     async () => {
       story.begin("deletes orphaned branches from merged PRs", repos.uniqueId);
       story.narrate(
-        "When a PR is merged but the branch wasn't deleted, taspr clean removes the orphaned remote branch.",
+        "When a PR is merged but the branch wasn't deleted, sp clean removes the orphaned remote branch.",
       );
 
       const repo = await repos.clone({ testName: "delete" });
       await repo.branch("feature/clean-delete");
       await repo.commit();
 
-      // Run taspr sync --open to create a PR
+      // Run sp sync --open to create a PR
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
@@ -136,7 +136,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
     async () => {
       story.begin("detects multiple orphaned branches", repos.uniqueId);
       story.narrate(
-        "When multiple PRs are merged with branches left behind, taspr clean detects all of them.",
+        "When multiple PRs are merged with branches left behind, sp clean detects all of them.",
       );
 
       const repo = await repos.clone({ testName: "multi" });
@@ -144,7 +144,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
       await repo.commit();
       await repo.commit();
 
-      // Run taspr sync --open to create PRs
+      // Run sp sync --open to create PRs
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
@@ -192,27 +192,27 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
       );
       story.narrate(
         "When a commit is amended and pushed directly to main (bypassing the PR), " +
-          "taspr clean can still detect the orphaned branch via the Taspr-Commit-Id trailer.",
+          "sp clean can still detect the orphaned branch via the Spry-Commit-Id trailer.",
       );
 
       // This tests the scenario where:
-      // 1. User creates a commit with taspr sync --open (creates branch with Taspr-Commit-Id)
+      // 1. User creates a commit with sp sync --open (creates branch with Spry-Commit-Id)
       // 2. User amends the commit locally (SHA changes, but trailer preserved)
       // 3. User pushes the amended commit directly to main (bypassing the PR)
-      // 4. The PR branch is now behind main (different SHA), but has the same Taspr-Commit-Id
-      // 5. taspr clean should detect the branch as orphaned via commit-id trailer search
+      // 4. The PR branch is now behind main (different SHA), but has the same Spry-Commit-Id
+      // 5. sp clean should detect the branch as orphaned via commit-id trailer search
 
       const repo = await repos.clone({ testName: "amended" });
       await repo.branch("feature/amended-test");
       await repo.commit();
 
-      // Run taspr sync --open to create a PR (this adds the Taspr-Commit-Id trailer)
+      // Run sp sync --open to create a PR (this adds the Spry-Commit-Id trailer)
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
       const pr = await repo.findPR(repo.uniqueId);
 
-      // Get the Taspr-Commit-Id from the current commit
+      // Get the Spry-Commit-Id from the current commit
       const commitIdMatch = pr.headRefName.match(/\/([^/]+)$/);
       const commitId = commitIdMatch?.[1];
       if (!commitId) throw new Error("Could not extract commit ID from branch name");
@@ -231,7 +231,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
       // Amend the commit message (this changes the SHA while preserving the trailer)
       await $`git -C ${repo.path} commit --amend -m "Amended commit [${repo.uniqueId}]
 
-Taspr-Commit-Id: ${commitId}"`.quiet();
+Spry-Commit-Id: ${commitId}"`.quiet();
 
       // Push the amended commit directly to main
       await $`git -C ${repo.path} push origin main`.quiet();
@@ -251,7 +251,7 @@ Taspr-Commit-Id: ${commitId}"`.quiet();
 
       // Run clean with --dry-run - should detect via commit-id trailer
       story.narrate(
-        "The branch SHA differs from main but shares the same Taspr-Commit-Id. With --dry-run:",
+        "The branch SHA differs from main but shares the same Spry-Commit-Id. With --dry-run:",
       );
       const cleanResult = await runClean(repo.path, { dryRun: true });
       story.log(cleanResult);

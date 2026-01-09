@@ -27,38 +27,38 @@ With some description but no trailers at all.`;
     test("parses single trailer", async () => {
       const body = `Add feature
 
-Taspr-Commit-Id: a1b2c3d4`;
+Spry-Commit-Id: a1b2c3d4`;
       const trailers = await parseTrailers(body);
       expect(trailers).toEqual({
-        "Taspr-Commit-Id": "a1b2c3d4",
+        "Spry-Commit-Id": "a1b2c3d4",
       });
     });
 
     test("parses multiple trailers", async () => {
       const body = `Add feature
 
-Taspr-Commit-Id: a1b2c3d4
-Taspr-Group-Start: f7e8d9c0
-Taspr-Group-Title: Authentication feature`;
+Spry-Commit-Id: a1b2c3d4
+Spry-Group-Start: f7e8d9c0
+Spry-Group-Title: Authentication feature`;
       const trailers = await parseTrailers(body);
       expect(trailers).toEqual({
-        "Taspr-Commit-Id": "a1b2c3d4",
-        "Taspr-Group-Start": "f7e8d9c0",
-        "Taspr-Group-Title": "Authentication feature",
+        "Spry-Commit-Id": "a1b2c3d4",
+        "Spry-Group-Start": "f7e8d9c0",
+        "Spry-Group-Title": "Authentication feature",
       });
     });
 
-    test("parses mixed taspr and other trailers", async () => {
+    test("parses mixed spry and other trailers", async () => {
       const body = `Fix bug
 
 Fixes a critical issue with login.
 
-Taspr-Commit-Id: a1b2c3d4
+Spry-Commit-Id: a1b2c3d4
 Co-authored-by: Alice <alice@example.com>
 Reviewed-by: Bob <bob@example.com>`;
       const trailers = await parseTrailers(body);
       expect(trailers).toEqual({
-        "Taspr-Commit-Id": "a1b2c3d4",
+        "Spry-Commit-Id": "a1b2c3d4",
         "Co-authored-by": "Alice <alice@example.com>",
         "Reviewed-by": "Bob <bob@example.com>",
       });
@@ -75,34 +75,34 @@ Config-Value: key:value:with:colons`;
     test("handles trailers with special characters in value", async () => {
       const body = `Update
 
-Taspr-Group-Title: Fix "quoted" strings & <special> chars`;
+Spry-Group-Title: Fix "quoted" strings & <special> chars`;
       const trailers = await parseTrailers(body);
-      expect(trailers["Taspr-Group-Title"]).toBe('Fix "quoted" strings & <special> chars');
+      expect(trailers["Spry-Group-Title"]).toBe('Fix "quoted" strings & <special> chars');
     });
 
     test("uses last value when key appears multiple times", async () => {
       const body = `Commit
 
-Taspr-Commit-Id: first
-Taspr-Commit-Id: second
-Taspr-Commit-Id: third`;
+Spry-Commit-Id: first
+Spry-Commit-Id: second
+Spry-Commit-Id: third`;
       const trailers = await parseTrailers(body);
-      expect(trailers["Taspr-Commit-Id"]).toBe("third");
+      expect(trailers["Spry-Commit-Id"]).toBe("third");
     });
 
-    test("parses all taspr trailer types", async () => {
+    test("parses all spry trailer types", async () => {
       const body = `Group commit
 
-Taspr-Commit-Id: a1b2c3d4
-Taspr-Group-Start: f7e8d9c0
-Taspr-Group-Title: My Feature PR
-Taspr-Group-End: f7e8d9c0`;
+Spry-Commit-Id: a1b2c3d4
+Spry-Group-Start: f7e8d9c0
+Spry-Group-Title: My Feature PR
+Spry-Group-End: f7e8d9c0`;
       const trailers = await parseTrailers(body);
       expect(trailers).toEqual({
-        "Taspr-Commit-Id": "a1b2c3d4",
-        "Taspr-Group-Start": "f7e8d9c0",
-        "Taspr-Group-Title": "My Feature PR",
-        "Taspr-Group-End": "f7e8d9c0",
+        "Spry-Commit-Id": "a1b2c3d4",
+        "Spry-Group-Start": "f7e8d9c0",
+        "Spry-Group-Title": "My Feature PR",
+        "Spry-Group-End": "f7e8d9c0",
       });
     });
   });
@@ -114,14 +114,14 @@ Taspr-Group-End: f7e8d9c0`;
 
       const hash = await repo.commit({
         trailers: {
-          "Taspr-Commit-Id": "a1b2c3d4",
-          "Taspr-Group-Start": "f7e8d9c0",
+          "Spry-Commit-Id": "a1b2c3d4",
+          "Spry-Group-Start": "f7e8d9c0",
         },
       });
 
       const trailers = await getCommitTrailers(hash, { cwd: repo.path });
-      expect(trailers["Taspr-Commit-Id"]).toBe("a1b2c3d4");
-      expect(trailers["Taspr-Group-Start"]).toBe("f7e8d9c0");
+      expect(trailers["Spry-Commit-Id"]).toBe("a1b2c3d4");
+      expect(trailers["Spry-Group-Start"]).toBe("f7e8d9c0");
     });
 
     test("returns empty object for commit without trailers", async () => {
@@ -134,7 +134,7 @@ Taspr-Group-End: f7e8d9c0`;
       expect(trailers).toEqual({});
     });
 
-    test("handles commit with only non-taspr trailers", async () => {
+    test("handles commit with only non-spry trailers", async () => {
       const repo = await repos.create();
       await repo.branch("feature");
 
@@ -148,16 +148,16 @@ Taspr-Group-End: f7e8d9c0`;
       const trailers = await getCommitTrailers(hash, { cwd: repo.path });
       expect(trailers["Co-authored-by"]).toBe("Alice <alice@example.com>");
       expect(trailers["Signed-off-by"]).toBe("Bob <bob@example.com>");
-      expect(trailers["Taspr-Commit-Id"]).toBeUndefined();
+      expect(trailers["Spry-Commit-Id"]).toBeUndefined();
     });
   });
 
   describe("addTrailers", () => {
     test("adds single trailer to message without trailers", async () => {
       const message = "Add feature\n\nSome description.";
-      const result = await addTrailers(message, { "Taspr-Commit-Id": "a1b2c3d4" });
+      const result = await addTrailers(message, { "Spry-Commit-Id": "a1b2c3d4" });
 
-      expect(result).toContain("Taspr-Commit-Id: a1b2c3d4");
+      expect(result).toContain("Spry-Commit-Id: a1b2c3d4");
       expect(result).toContain("Add feature");
       expect(result).toContain("Some description.");
     });
@@ -165,20 +165,20 @@ Taspr-Group-End: f7e8d9c0`;
     test("adds multiple trailers", async () => {
       const message = "Add feature";
       const result = await addTrailers(message, {
-        "Taspr-Commit-Id": "a1b2c3d4",
-        "Taspr-Group-Start": "f7e8d9c0",
+        "Spry-Commit-Id": "a1b2c3d4",
+        "Spry-Group-Start": "f7e8d9c0",
       });
 
-      expect(result).toContain("Taspr-Commit-Id: a1b2c3d4");
-      expect(result).toContain("Taspr-Group-Start: f7e8d9c0");
+      expect(result).toContain("Spry-Commit-Id: a1b2c3d4");
+      expect(result).toContain("Spry-Group-Start: f7e8d9c0");
     });
 
     test("preserves existing trailers", async () => {
       const message = "Add feature\n\nCo-authored-by: Alice <alice@example.com>";
-      const result = await addTrailers(message, { "Taspr-Commit-Id": "a1b2c3d4" });
+      const result = await addTrailers(message, { "Spry-Commit-Id": "a1b2c3d4" });
 
       expect(result).toContain("Co-authored-by: Alice <alice@example.com>");
-      expect(result).toContain("Taspr-Commit-Id: a1b2c3d4");
+      expect(result).toContain("Spry-Commit-Id: a1b2c3d4");
     });
 
     test("returns original message when no trailers provided", async () => {
@@ -190,22 +190,22 @@ Taspr-Group-End: f7e8d9c0`;
 
     test("works with message that has no body", async () => {
       const message = "Add feature";
-      const result = await addTrailers(message, { "Taspr-Commit-Id": "a1b2c3d4" });
+      const result = await addTrailers(message, { "Spry-Commit-Id": "a1b2c3d4" });
 
       expect(result).toContain("Add feature");
-      expect(result).toContain("Taspr-Commit-Id: a1b2c3d4");
+      expect(result).toContain("Spry-Commit-Id: a1b2c3d4");
     });
 
     test("roundtrip: added trailers can be parsed back", async () => {
       const message = "Add feature";
       const withTrailers = await addTrailers(message, {
-        "Taspr-Commit-Id": "a1b2c3d4",
-        "Taspr-Group-Start": "f7e8d9c0",
+        "Spry-Commit-Id": "a1b2c3d4",
+        "Spry-Group-Start": "f7e8d9c0",
       });
 
       const parsed = await parseTrailers(withTrailers);
-      expect(parsed["Taspr-Commit-Id"]).toBe("a1b2c3d4");
-      expect(parsed["Taspr-Group-Start"]).toBe("f7e8d9c0");
+      expect(parsed["Spry-Commit-Id"]).toBe("a1b2c3d4");
+      expect(parsed["Spry-Group-Start"]).toBe("f7e8d9c0");
     });
   });
 });

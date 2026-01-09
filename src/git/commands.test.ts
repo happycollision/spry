@@ -62,7 +62,7 @@ describe("git/commands", () => {
       await repo.branch("feature");
       await repo.commit({
         trailers: {
-          "Taspr-Commit-Id": "a1b2c3d4",
+          "Spry-Commit-Id": "a1b2c3d4",
           "Co-authored-by": "Someone <someone@example.com>",
         },
       });
@@ -71,7 +71,7 @@ describe("git/commands", () => {
 
       expect(commits).toHaveLength(1);
       const [commit] = commits;
-      expect(commit?.body).toContain("Taspr-Commit-Id: a1b2c3d4");
+      expect(commit?.body).toContain("Spry-Commit-Id: a1b2c3d4");
     });
 
     test("handles commits with special characters in subject", async () => {

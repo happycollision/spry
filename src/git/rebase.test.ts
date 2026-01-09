@@ -28,8 +28,8 @@ describe("git/rebase", () => {
       // Verify they don't have IDs
       const beforeCommits = await getStackCommitsWithTrailers({ cwd: repo.path });
       expect(beforeCommits).toHaveLength(2);
-      expect(beforeCommits[0]?.trailers["Taspr-Commit-Id"]).toBeUndefined();
-      expect(beforeCommits[1]?.trailers["Taspr-Commit-Id"]).toBeUndefined();
+      expect(beforeCommits[0]?.trailers["Spry-Commit-Id"]).toBeUndefined();
+      expect(beforeCommits[1]?.trailers["Spry-Commit-Id"]).toBeUndefined();
 
       // Inject IDs
       const result = await injectMissingIds({ cwd: repo.path });
@@ -40,8 +40,8 @@ describe("git/rebase", () => {
       // Verify they now have IDs
       const afterCommits = await getStackCommitsWithTrailers({ cwd: repo.path });
       expect(afterCommits).toHaveLength(2);
-      expect(afterCommits[0]?.trailers["Taspr-Commit-Id"]).toMatch(/^[0-9a-f]{8}$/);
-      expect(afterCommits[1]?.trailers["Taspr-Commit-Id"]).toMatch(/^[0-9a-f]{8}$/);
+      expect(afterCommits[0]?.trailers["Spry-Commit-Id"]).toMatch(/^[0-9a-f]{8}$/);
+      expect(afterCommits[1]?.trailers["Spry-Commit-Id"]).toMatch(/^[0-9a-f]{8}$/);
     });
 
     test("preserves existing IDs", async () => {
@@ -49,7 +49,7 @@ describe("git/rebase", () => {
       await repo.branch("feature");
 
       // Create commits - one with ID, one without
-      await repo.commit({ trailers: { "Taspr-Commit-Id": "existing1" } });
+      await repo.commit({ trailers: { "Spry-Commit-Id": "existing1" } });
       await repo.commit();
 
       const result = await injectMissingIds({ cwd: repo.path });
@@ -58,17 +58,17 @@ describe("git/rebase", () => {
       expect(result.rebasePerformed).toBe(true);
 
       const afterCommits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      expect(afterCommits[0]?.trailers["Taspr-Commit-Id"]).toBe("existing1");
-      expect(afterCommits[1]?.trailers["Taspr-Commit-Id"]).toMatch(/^[0-9a-f]{8}$/);
-      expect(afterCommits[1]?.trailers["Taspr-Commit-Id"]).not.toBe("existing1");
+      expect(afterCommits[0]?.trailers["Spry-Commit-Id"]).toBe("existing1");
+      expect(afterCommits[1]?.trailers["Spry-Commit-Id"]).toMatch(/^[0-9a-f]{8}$/);
+      expect(afterCommits[1]?.trailers["Spry-Commit-Id"]).not.toBe("existing1");
     });
 
     test("no-op when all commits have IDs", async () => {
       const repo = await repos.create();
       await repo.branch("feature");
 
-      await repo.commit({ trailers: { "Taspr-Commit-Id": "id111111" } });
-      await repo.commit({ trailers: { "Taspr-Commit-Id": "id222222" } });
+      await repo.commit({ trailers: { "Spry-Commit-Id": "id111111" } });
+      await repo.commit({ trailers: { "Spry-Commit-Id": "id222222" } });
 
       const result = await injectMissingIds({ cwd: repo.path });
 
@@ -77,8 +77,8 @@ describe("git/rebase", () => {
 
       // Verify IDs unchanged
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      expect(commits[0]?.trailers["Taspr-Commit-Id"]).toBe("id111111");
-      expect(commits[1]?.trailers["Taspr-Commit-Id"]).toBe("id222222");
+      expect(commits[0]?.trailers["Spry-Commit-Id"]).toBe("id111111");
+      expect(commits[1]?.trailers["Spry-Commit-Id"]).toBe("id222222");
     });
 
     test("no-op when stack is empty", async () => {
@@ -95,7 +95,7 @@ describe("git/rebase", () => {
   describe("allCommitsHaveIds", () => {
     test("returns true when all commits have IDs", async () => {
       const repo = await repos.create();
-      await scenarios.withTasprIds.setup(repo);
+      await scenarios.withSpryIds.setup(repo);
 
       const result = await allCommitsHaveIds({ cwd: repo.path });
       expect(result).toBe(true);
@@ -129,7 +129,7 @@ describe("git/rebase", () => {
 
     test("returns 0 when all have IDs", async () => {
       const repo = await repos.create();
-      await scenarios.withTasprIds.setup(repo);
+      await scenarios.withSpryIds.setup(repo);
 
       const count = await countCommitsMissingIds({ cwd: repo.path });
       expect(count).toBe(0);
@@ -140,8 +140,8 @@ describe("git/rebase", () => {
     test("successfully rebases stack onto updated main", async () => {
       const repo = await repos.create();
       await repo.branch("feature");
-      await repo.commit({ trailers: { "Taspr-Commit-Id": "feat0001" } });
-      await repo.commit({ trailers: { "Taspr-Commit-Id": "feat0002" } });
+      await repo.commit({ trailers: { "Spry-Commit-Id": "feat0001" } });
+      await repo.commit({ trailers: { "Spry-Commit-Id": "feat0002" } });
 
       // Update origin/main (simulating other developer's work)
       await repo.updateOriginMain("Update on main");
@@ -155,10 +155,10 @@ describe("git/rebase", () => {
       expect(result.conflictFile).toBeUndefined();
     });
 
-    test("preserves Taspr trailers through rebase", async () => {
+    test("preserves Spry trailers through rebase", async () => {
       const repo = await repos.create();
       await repo.branch("feature");
-      await repo.commit({ trailers: { "Taspr-Commit-Id": "preserve1" } });
+      await repo.commit({ trailers: { "Spry-Commit-Id": "preserve1" } });
 
       // Update origin/main
       await repo.updateOriginMain("Main commit");
@@ -170,7 +170,7 @@ describe("git/rebase", () => {
       // Verify trailer was preserved
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
       expect(commits).toHaveLength(1);
-      expect(commits[0]?.trailers["Taspr-Commit-Id"]).toBe("preserve1");
+      expect(commits[0]?.trailers["Spry-Commit-Id"]).toBe("preserve1");
     });
 
     test("detects conflict and returns conflict file", async () => {
@@ -206,7 +206,7 @@ describe("git/rebase", () => {
     test("no-op when already up to date", async () => {
       const repo = await repos.create();
       await repo.branch("feature");
-      await repo.commit({ trailers: { "Taspr-Commit-Id": "uptodate1" } });
+      await repo.commit({ trailers: { "Spry-Commit-Id": "uptodate1" } });
 
       // No changes to main, just fetch
       await repo.fetch();
@@ -366,9 +366,9 @@ describe("git/rebase", () => {
       expect(afterCommits[2]?.subject).toBe("fixup! Add file1");
 
       // Verify all have IDs now
-      expect(afterCommits[0]?.trailers["Taspr-Commit-Id"]).toMatch(/^[0-9a-f]{8}$/);
-      expect(afterCommits[1]?.trailers["Taspr-Commit-Id"]).toMatch(/^[0-9a-f]{8}$/);
-      expect(afterCommits[2]?.trailers["Taspr-Commit-Id"]).toMatch(/^[0-9a-f]{8}$/);
+      expect(afterCommits[0]?.trailers["Spry-Commit-Id"]).toMatch(/^[0-9a-f]{8}$/);
+      expect(afterCommits[1]?.trailers["Spry-Commit-Id"]).toMatch(/^[0-9a-f]{8}$/);
+      expect(afterCommits[2]?.trailers["Spry-Commit-Id"]).toMatch(/^[0-9a-f]{8}$/);
     });
 
     test("rebaseOntoMain does not reorder fixup! commits", async () => {
@@ -382,15 +382,15 @@ describe("git/rebase", () => {
       // Create commits with fixup! in the middle
       await Bun.write(join(repo.path, "file1.txt"), "content1\n");
       await $`git -C ${repo.path} add .`.quiet();
-      await $`git -C ${repo.path} commit -m "Add file1" --trailer "Taspr-Commit-Id: id000001"`.quiet();
+      await $`git -C ${repo.path} commit -m "Add file1" --trailer "Spry-Commit-Id: id000001"`.quiet();
 
       await Bun.write(join(repo.path, "file1.txt"), "content1 fixed\n");
       await $`git -C ${repo.path} add .`.quiet();
-      await $`git -C ${repo.path} commit -m "fixup! Add file1" --trailer "Taspr-Commit-Id: id000002"`.quiet();
+      await $`git -C ${repo.path} commit -m "fixup! Add file1" --trailer "Spry-Commit-Id: id000002"`.quiet();
 
       await Bun.write(join(repo.path, "file2.txt"), "content2\n");
       await $`git -C ${repo.path} add .`.quiet();
-      await $`git -C ${repo.path} commit -m "Add file2" --trailer "Taspr-Commit-Id: id000003"`.quiet();
+      await $`git -C ${repo.path} commit -m "Add file2" --trailer "Spry-Commit-Id: id000003"`.quiet();
 
       // Update origin/main with non-conflicting change
       await repo.updateOriginMain("Main update", { "main-file.txt": "main content\n" });

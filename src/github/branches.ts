@@ -1,7 +1,7 @@
 import { $ } from "bun";
 import { getGitHubUsername } from "./api.ts";
 import type { GitOptions } from "../git/commands.ts";
-import { getTasprConfig } from "../git/config.ts";
+import { getSpryConfig } from "../git/config.ts";
 
 export interface BranchNameConfig {
   prefix: string;
@@ -19,9 +19,9 @@ export async function getBranchNameConfig(): Promise<BranchNameConfig> {
     return cachedBranchConfig;
   }
 
-  const [tasprConfig, username] = await Promise.all([getTasprConfig(), getGitHubUsername()]);
+  const [spryConfig, username] = await Promise.all([getSpryConfig(), getGitHubUsername()]);
 
-  cachedBranchConfig = { prefix: tasprConfig.branchPrefix, username };
+  cachedBranchConfig = { prefix: spryConfig.branchPrefix, username };
   return cachedBranchConfig;
 }
 
@@ -30,8 +30,8 @@ export async function getBranchNameConfig(): Promise<BranchNameConfig> {
  * Format: <prefix>/<username>/<prId>
  *
  * @example
- * getBranchName("a1b2c3d4", { prefix: "taspr", username: "msims" })
- * // => "taspr/msims/a1b2c3d4"
+ * getBranchName("a1b2c3d4", { prefix: "spry", username: "msims" })
+ * // => "spry/msims/a1b2c3d4"
  */
 export function getBranchName(prId: string, config: BranchNameConfig): string {
   return `${config.prefix}/${config.username}/${prId}`;

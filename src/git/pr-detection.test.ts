@@ -5,7 +5,7 @@ import type { BranchNameConfig } from "../github/branches.ts";
 
 describe("pr-detection", () => {
   const mockBranchConfig: BranchNameConfig = {
-    prefix: "taspr",
+    prefix: "spry",
     username: "testuser",
   };
 
@@ -41,7 +41,7 @@ describe("pr-detection", () => {
 
     test("returns commits that have open PRs", async () => {
       spyOn(prModule, "findPRByBranch").mockImplementation(async (branchName: string) => {
-        if (branchName === "taspr/testuser/id-123") {
+        if (branchName === "spry/testuser/id-123") {
           return {
             number: 42,
             url: "https://github.com/owner/repo/pull/42",
@@ -65,7 +65,7 @@ describe("pr-detection", () => {
         commitId: "id-123",
         subject: "Commit with PR",
         pr: { number: 42, state: "OPEN" },
-        branchName: "taspr/testuser/id-123",
+        branchName: "spry/testuser/id-123",
       });
     });
 

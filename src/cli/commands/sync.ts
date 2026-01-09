@@ -10,7 +10,7 @@ import {
   ConfigurationError,
 } from "../../github/api.ts";
 import { getBranchNameConfig, getBranchName, pushBranch } from "../../github/branches.ts";
-import { getTasprConfig, isTempCommit } from "../../git/config.ts";
+import { getSpryConfig, isTempCommit } from "../../git/config.ts";
 import {
   findPRsByBranches,
   createPR,
@@ -140,18 +140,18 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       return;
     }
 
-    const missingCount = commits.filter((c) => !c.trailers["Taspr-Commit-Id"]).length;
+    const missingCount = commits.filter((c) => !c.trailers["Spry-Commit-Id"]).length;
 
     if (missingCount > 0) {
       // Add IDs via rebase
       console.log(`Adding IDs to ${missingCount} commit(s)...`);
       const result = await injectMissingIds();
-      console.log(`✓ Added Taspr-Commit-Id to ${result.modifiedCount} commit(s)`);
+      console.log(`✓ Added Spry-Commit-Id to ${result.modifiedCount} commit(s)`);
 
       // Re-fetch commits after rebase (hashes changed)
       commits = await getStackCommitsWithTrailers();
     } else {
-      console.log("✓ All commits have Taspr-Commit-Id");
+      console.log("✓ All commits have Spry-Commit-Id");
     }
 
     // Read group titles from ref storage
@@ -215,7 +215,7 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
     }
 
     // Get temp commit prefixes for skipping PR creation
-    const tasprConfig = await getTasprConfig();
+    const spryConfig = await getSpryConfig();
 
     // Validate mutually exclusive options
     const selectorCount = [options.apply, options.upTo, options.interactive].filter(Boolean).length;
@@ -267,7 +267,7 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       for (const unit of activeUnits) {
         const headBranch = getBranchName(unit.id, branchConfig);
         const existingPR = openPRMap.get(headBranch) ?? null;
-        const isTemp = isTempCommit(unit.title, tasprConfig.tempCommitPrefixes);
+        const isTemp = isTempCommit(unit.title, spryConfig.tempCommitPrefixes);
 
         selectOptions.push({
           id: unit.id,
@@ -324,7 +324,7 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
         }
       } else if (options.open) {
         // Check if this is a temp commit (WIP, fixup!, etc.)
-        if (isTempCommit(unit.title, tasprConfig.tempCommitPrefixes)) {
+        if (isTempCommit(unit.title, spryConfig.tempCommitPrefixes)) {
           // Skip PR creation for temp commits, but branch was already pushed for stacking
           skippedTemp.push(unit.title);
         } else if (applyUnitIds && !applyUnitIds.has(unit.id)) {
@@ -376,7 +376,7 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       for (const title of skippedTemp) {
         console.log(`  ${title}`);
       }
-      console.log(`  See: https://github.com/happycollision/taspr#temporary-commits`);
+      console.log(`  See: https://github.com/happycollision/spry-cli#temporary-commits`);
     }
 
     if (skippedByApply.length > 0) {
@@ -403,7 +403,7 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       console.error("");
       console.error("  Please commit or stash your changes first:");
       console.error("    git stash        # Temporarily save changes");
-      console.error("    taspr sync       # Run sync");
+      console.error("    sp sync          # Run sync");
       console.error("    git stash pop    # Restore changes");
       process.exit(1);
     }

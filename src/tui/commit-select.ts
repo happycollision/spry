@@ -26,14 +26,14 @@ export interface CommitSelectResult {
 function formatTrailerHint(trailers: CommitWithTrailers["trailers"]): string {
   const hints: string[] = [];
 
-  if (trailers["Taspr-Group-Start"]) {
-    hints.push(`Group-Start: ${trailers["Taspr-Group-Start"].slice(0, 8)}`);
+  if (trailers["Spry-Group-Start"]) {
+    hints.push(`Group-Start: ${trailers["Spry-Group-Start"].slice(0, 8)}`);
   }
-  if (trailers["Taspr-Group-End"]) {
-    hints.push(`Group-End: ${trailers["Taspr-Group-End"].slice(0, 8)}`);
+  if (trailers["Spry-Group-End"]) {
+    hints.push(`Group-End: ${trailers["Spry-Group-End"].slice(0, 8)}`);
   }
-  if (trailers["Taspr-Group-Title"]) {
-    hints.push(`"${trailers["Taspr-Group-Title"]}"`);
+  if (trailers["Spry-Group-Title"]) {
+    hints.push(`"${trailers["Spry-Group-Title"]}"`);
   }
 
   return hints.length > 0 ? `[${hints.join(", ")}]` : "";

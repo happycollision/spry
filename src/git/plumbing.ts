@@ -410,8 +410,8 @@ export interface ChainRewriteResult {
  * Rewrite a chain of commits with new messages.
  *
  * This is used for operations like:
- * - Adding Taspr-Commit-Id trailers to commits missing them
- * - Adding/removing Taspr-Group trailers
+ * - Adding Spry-Commit-Id trailers to commits missing them
+ * - Adding/removing Spry-Group trailers
  * - Any other message-only modifications
  *
  * The algorithm:

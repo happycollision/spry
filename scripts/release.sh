@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Release script for taspr
+# Release script for Spry
 # Usage: ./scripts/release.sh <version>
 # Example: ./scripts/release.sh 0.1.0-alpha.4
 
@@ -120,4 +120,4 @@ echo ""
 echo "Done! Version $VERSION has been released."
 echo "GitHub Actions will now build and publish the release."
 echo ""
-echo "Monitor the release at: https://github.com/happycollision/taspr/actions"
+echo "Monitor the release at: https://github.com/happycollision/spry/actions"

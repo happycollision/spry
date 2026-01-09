@@ -9,12 +9,12 @@ import {
 import type { PRUnit, CommitInfo } from "../types.ts";
 
 // Helper to create test commits
-function makeCommit(hash: string, subject: string, tasprId?: string): CommitInfo {
+function makeCommit(hash: string, subject: string, spryId?: string): CommitInfo {
   return {
     hash,
     subject,
     body: "",
-    trailers: tasprId ? { "Taspr-Commit-Id": tasprId } : {},
+    trailers: spryId ? { "Spry-Commit-Id": spryId } : {},
   };
 }
 
@@ -54,7 +54,7 @@ describe("resolveIdentifier", () => {
     makeSingleUnit("ghi11111", ["ccc333444555666777888999000aaabbbcccdddeee"]),
   ];
 
-  test("resolves exact Taspr-Commit-Id", () => {
+  test("resolves exact Spry-Commit-Id", () => {
     const result = resolveIdentifier("abc12345", units, commits);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -62,7 +62,7 @@ describe("resolveIdentifier", () => {
     }
   });
 
-  test("resolves Taspr-Commit-Id prefix", () => {
+  test("resolves Spry-Commit-Id prefix", () => {
     const result = resolveIdentifier("abc", units, commits);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -171,7 +171,7 @@ describe("resolveIdentifiers", () => {
   });
 
   test("deduplicates when same unit matched multiple times", () => {
-    // Both the Taspr-Commit-Id and the commit hash resolve to the same unit
+    // Both the Spry-Commit-Id and the commit hash resolve to the same unit
     const result = resolveIdentifiers(["abc12345", "aaa1112"], units, commits);
     expect(result.errors).toHaveLength(0);
     expect(result.unitIds.size).toBe(1);

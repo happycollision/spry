@@ -18,7 +18,7 @@ describe("cli/commands/land", () => {
 
   test("reports when there are commits but no open PRs", async () => {
     const repo = await repos.create();
-    await scenarios.withTasprIds.setup(repo);
+    await scenarios.withSpryIds.setup(repo);
 
     const result = await runLand(repo.path);
 
@@ -30,27 +30,27 @@ describe("cli/commands/land", () => {
     const repo = await repos.create();
     await repo.branch("feature");
 
-    // Create a split group (non-contiguous commits with same Taspr-Group)
+    // Create a split group (non-contiguous commits with same Spry-Group)
     await repo.commit({
       message: "Group commit 1",
       trailers: {
-        "Taspr-Commit-Id": "id111111",
-        "Taspr-Group": "grp1",
-        "Taspr-Group-Title": "My Group",
+        "Spry-Commit-Id": "id111111",
+        "Spry-Group": "grp1",
+        "Spry-Group-Title": "My Group",
       },
     });
     await repo.commit({
       message: "Interrupting commit",
       trailers: {
-        "Taspr-Commit-Id": "id222222",
+        "Spry-Commit-Id": "id222222",
       },
     });
     await repo.commit({
       message: "Group commit 2",
       trailers: {
-        "Taspr-Commit-Id": "id333333",
-        "Taspr-Group": "grp1",
-        "Taspr-Group-Title": "My Group",
+        "Spry-Commit-Id": "id333333",
+        "Spry-Group": "grp1",
+        "Spry-Group-Title": "My Group",
       },
     });
 

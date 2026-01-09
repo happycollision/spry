@@ -10,8 +10,8 @@
  * - `LocalRepo` - Interface for repo operations (commit, branch, fetch, etc.)
  *
  * ## What it creates
- * - A bare "origin" repo in /tmp/taspr-test-origin-*
- * - A working clone in /tmp/taspr-test-*
+ * - A bare "origin" repo in /tmp/spry-test-origin-*
+ * - A working clone in /tmp/spry-test-*
  * - Initial commit on main, pushed to origin
  * - Git config with test user identity
  *
@@ -188,11 +188,11 @@ export async function createLocalRepo(
   }
 
   // Create the "origin" bare repository first
-  const originPath = await mkdtemp(join(tmpdir(), "taspr-test-origin-"));
+  const originPath = await mkdtemp(join(tmpdir(), "spry-test-origin-"));
   await $`git init --bare ${originPath}`.quiet();
 
   // Create the working repository
-  const path = await mkdtemp(join(tmpdir(), "taspr-test-"));
+  const path = await mkdtemp(join(tmpdir(), "spry-test-"));
   await $`git init ${path}`.quiet();
   await $`git -C ${path} config user.email "test@example.com"`.quiet();
   await $`git -C ${path} config user.name "Test User"`.quiet();

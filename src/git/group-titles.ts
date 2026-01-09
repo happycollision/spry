@@ -4,10 +4,10 @@ import type { GitOptions } from "./commands.ts";
 /**
  * Group titles storage in git refs.
  *
- * Titles are stored in refs/taspr/<github-username>/group-titles as a JSON blob.
+ * Titles are stored in refs/spry/<github-username>/group-titles as a JSON blob.
  * This decouples PR titles from commit trailers, allowing:
  * - Titles to be changed without rebasing
- * - Sync across machines via taspr sync
+ * - Sync across machines via sp sync
  * - Per-user namespace to avoid conflicts
  */
 
@@ -40,7 +40,7 @@ export async function getGitHubUsername(): Promise<string> {
  */
 export async function getGroupTitlesRef(): Promise<string> {
   const username = await getGitHubUsername();
-  return `refs/taspr/${username}/group-titles`;
+  return `refs/spry/${username}/group-titles`;
 }
 
 /**

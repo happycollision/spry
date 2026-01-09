@@ -2,7 +2,7 @@ import { test, expect, afterEach, describe, beforeEach } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../../tests/helpers/local-repo.ts";
 import {
-  getTasprConfig,
+  getSpryConfig,
   detectDefaultBranch,
   getDefaultBranchRef,
   isTempCommit,
@@ -21,14 +21,14 @@ afterEach(() => {
 });
 
 describe("git/config", () => {
-  describe("getTasprConfig", () => {
+  describe("getSpryConfig", () => {
     test("returns default values when no config is set", async () => {
       const repo = await repos.create();
       process.chdir(repo.path);
 
-      const config = await getTasprConfig();
+      const config = await getSpryConfig();
 
-      expect(config.branchPrefix).toBe("taspr");
+      expect(config.branchPrefix).toBe("spry");
       expect(config.defaultBranch).toBe("main");
     });
 
@@ -36,9 +36,9 @@ describe("git/config", () => {
       const repo = await repos.create();
       process.chdir(repo.path);
 
-      await $`git config taspr.branchPrefix jaspr`.quiet();
+      await $`git config spry.branchPrefix jaspr`.quiet();
 
-      const config = await getTasprConfig();
+      const config = await getSpryConfig();
 
       expect(config.branchPrefix).toBe("jaspr");
     });
@@ -47,9 +47,9 @@ describe("git/config", () => {
       const repo = await repos.create();
       process.chdir(repo.path);
 
-      await $`git config taspr.defaultBranch develop`.quiet();
+      await $`git config spry.defaultBranch develop`.quiet();
 
-      const config = await getTasprConfig();
+      const config = await getSpryConfig();
 
       expect(config.defaultBranch).toBe("develop");
     });
@@ -58,13 +58,13 @@ describe("git/config", () => {
       const repo = await repos.create();
       process.chdir(repo.path);
 
-      const config1 = await getTasprConfig();
-      await $`git config taspr.branchPrefix changed`.quiet();
-      const config2 = await getTasprConfig();
+      const config1 = await getSpryConfig();
+      await $`git config spry.branchPrefix changed`.quiet();
+      const config2 = await getSpryConfig();
 
       // Should return cached value, not the changed value
       expect(config1).toBe(config2);
-      expect(config2.branchPrefix).toBe("taspr");
+      expect(config2.branchPrefix).toBe("spry");
     });
   });
 
@@ -118,7 +118,7 @@ describe("git/config", () => {
       const repo = await repos.create();
       process.chdir(repo.path);
 
-      await $`git config taspr.defaultBranch develop`.quiet();
+      await $`git config spry.defaultBranch develop`.quiet();
 
       const ref = await getDefaultBranchRef();
 
@@ -131,7 +131,7 @@ describe("git/config", () => {
       const repo = await repos.create();
       process.chdir(repo.path);
 
-      const config = await getTasprConfig();
+      const config = await getSpryConfig();
 
       expect(config.tempCommitPrefixes).toEqual(DEFAULT_TEMP_COMMIT_PREFIXES);
     });
@@ -140,9 +140,9 @@ describe("git/config", () => {
       const repo = await repos.create();
       process.chdir(repo.path);
 
-      await $`git config taspr.tempCommitPrefixes "DRAFT,TODO"`.quiet();
+      await $`git config spry.tempCommitPrefixes "DRAFT,TODO"`.quiet();
 
-      const config = await getTasprConfig();
+      const config = await getSpryConfig();
 
       expect(config.tempCommitPrefixes).toEqual(["DRAFT", "TODO"]);
     });
@@ -152,9 +152,9 @@ describe("git/config", () => {
       process.chdir(repo.path);
 
       // Use Bun.spawn to set empty string (shell template doesn't handle empty args well)
-      Bun.spawnSync(["git", "config", "taspr.tempCommitPrefixes", ""]);
+      Bun.spawnSync(["git", "config", "spry.tempCommitPrefixes", ""]);
 
-      const config = await getTasprConfig();
+      const config = await getSpryConfig();
 
       expect(config.tempCommitPrefixes).toEqual([]);
     });
@@ -163,9 +163,9 @@ describe("git/config", () => {
       const repo = await repos.create();
       process.chdir(repo.path);
 
-      await $`git config taspr.tempCommitPrefixes "WIP , fixup! , amend!"`.quiet();
+      await $`git config spry.tempCommitPrefixes "WIP , fixup! , amend!"`.quiet();
 
-      const config = await getTasprConfig();
+      const config = await getSpryConfig();
 
       expect(config.tempCommitPrefixes).toEqual(["WIP", "fixup!", "amend!"]);
     });

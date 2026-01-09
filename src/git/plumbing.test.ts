@@ -148,14 +148,14 @@ describe("git/plumbing", () => {
       const hash = await repo.commit({
         message: "Test with trailers",
         trailers: {
-          "Taspr-Commit-Id": "abc12345",
+          "Spry-Commit-Id": "abc12345",
         },
       });
 
       const message = await getCommitMessage(hash, { cwd: repo.path });
 
       expect(message).toContain("Test with trailers");
-      expect(message).toContain("Taspr-Commit-Id: abc12345");
+      expect(message).toContain("Spry-Commit-Id: abc12345");
     });
   });
 
@@ -228,14 +228,14 @@ describe("git/plumbing", () => {
 
       const messageWithTrailer = `Test message
 
-Taspr-Commit-Id: test1234`;
+Spry-Commit-Id: test1234`;
 
       const newHash = await createCommit(tree, parents, messageWithTrailer, env, {
         cwd: repo.path,
       });
 
       const message = await getCommitMessage(newHash, { cwd: repo.path });
-      expect(message).toContain("Taspr-Commit-Id: test1234");
+      expect(message).toContain("Spry-Commit-Id: test1234");
     });
 
     test("handles message with special characters", async () => {
@@ -447,7 +447,7 @@ Also supports $variables and \`backticks\``;
 
       const newHash = await rewriteCommitMessage(
         originalHash,
-        "New message\n\nTaspr-Commit-Id: abc123",
+        "New message\n\nSpry-Commit-Id: abc123",
         { cwd: repo.path },
       );
 
@@ -460,7 +460,7 @@ Also supports $variables and \`backticks\``;
       // Message should be changed
       const newMessage = await getCommitMessage(newHash, { cwd: repo.path });
       expect(newMessage).toContain("New message");
-      expect(newMessage).toContain("Taspr-Commit-Id: abc123");
+      expect(newMessage).toContain("Spry-Commit-Id: abc123");
     });
 
     test("preserves author and committer dates", async () => {
@@ -769,7 +769,7 @@ Also supports $variables and \`backticks\``;
       // Get merge base for rebase
       const mergeBase = (await $`git -C ${repo.path} merge-base HEAD origin/main`.text()).trim();
 
-      // Try traditional rebase with --exec (what taspr used to do)
+      // Try traditional rebase with --exec (what spry used to do)
       // This should FAIL because when replaying commit 2, tracked.json already exists
       const result =
         await $`GIT_SEQUENCE_EDITOR=true git -C ${repo.path} rebase -i --exec "echo rewriting" ${mergeBase}`

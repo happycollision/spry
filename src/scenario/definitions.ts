@@ -10,7 +10,7 @@
  * - `singleCommit` - One commit on feature branch (no ID)
  * - `multiCommitStack` - 3 commits stacked on feature branch
  * - `divergedMain` - Feature branch + upstream changes (needs rebase)
- * - `withTasprIds` - 2 commits with Taspr-Commit-Id trailers
+ * - `withSpryIds` - 2 commits with Spry-Commit-Id trailers
  * - `mixedTrailerStack` - Some commits have IDs, some don't
  * - `conflictScenario` - Setup that will conflict on rebase to main
  * - `multipleBranches` - Two independent feature branches
@@ -114,21 +114,21 @@ export const scenarios = {
   },
 
   /**
-   * Commits with Taspr-Commit-Id trailers already set.
+   * Commits with Spry-Commit-Id trailers already set.
    * For testing existing ID handling.
    */
-  withTasprIds: {
-    name: "with-taspr-ids",
-    description: "Stack with Taspr-Commit-Id trailers",
+  withSpryIds: {
+    name: "with-spry-ids",
+    description: "Stack with Spry-Commit-Id trailers",
     setup: async (repo: LocalRepo) => {
       await repo.branch("feature");
       await repo.commit({
         message: "First commit",
-        trailers: { "Taspr-Commit-Id": "abc12345" },
+        trailers: { "Spry-Commit-Id": "abc12345" },
       });
       await repo.commit({
         message: "Second commit",
-        trailers: { "Taspr-Commit-Id": "def67890" },
+        trailers: { "Spry-Commit-Id": "def67890" },
       });
     },
   },
@@ -178,12 +178,12 @@ export const scenarios = {
    */
   mixedTrailerStack: {
     name: "mixed-trailer-stack",
-    description: "Stack with some commits missing Taspr-Commit-Id",
+    description: "Stack with some commits missing Spry-Commit-Id",
     setup: async (repo: LocalRepo) => {
       await repo.branch("feature");
       await repo.commit({
         message: "First commit with ID",
-        trailers: { "Taspr-Commit-Id": "mix00001" },
+        trailers: { "Spry-Commit-Id": "mix00001" },
       });
       await repo.commit({ message: "Second commit without ID" });
       await repo.commit({ message: "Third commit without ID" });
@@ -233,33 +233,33 @@ export const scenarios = {
     description: "Stack with existing group trailers (for dissolve testing)",
     setup: async (repo: LocalRepo) => {
       await repo.branch("feature");
-      // Create a group of 2 commits (both have Taspr-Group and Taspr-Group-Title)
+      // Create a group of 2 commits (both have Spry-Group and Spry-Group-Title)
       await repo.commit({
         message: "First grouped commit",
         trailers: {
-          "Taspr-Commit-Id": "grp00001",
-          "Taspr-Group": "group-abc",
-          "Taspr-Group-Title": "Feature Group",
+          "Spry-Commit-Id": "grp00001",
+          "Spry-Group": "group-abc",
+          "Spry-Group-Title": "Feature Group",
         },
       });
       await repo.commit({
         message: "Second grouped commit",
         trailers: {
-          "Taspr-Commit-Id": "grp00002",
-          "Taspr-Group": "group-abc",
-          "Taspr-Group-Title": "Feature Group",
+          "Spry-Commit-Id": "grp00002",
+          "Spry-Group": "group-abc",
+          "Spry-Group-Title": "Feature Group",
         },
       });
       // Add a standalone commit outside the group
       await repo.commit({
         message: "Standalone commit",
-        trailers: { "Taspr-Commit-Id": "std00001" },
+        trailers: { "Spry-Commit-Id": "std00001" },
       });
     },
   },
 
   /**
-   * Stack with a split group (non-contiguous commits with same Taspr-Group).
+   * Stack with a split group (non-contiguous commits with same Spry-Group).
    * For testing sync validation blocking.
    */
   splitGroup: {
@@ -271,30 +271,30 @@ export const scenarios = {
       await repo.commit({
         message: "First grouped commit",
         trailers: {
-          "Taspr-Commit-Id": "spl00001",
-          "Taspr-Group": "group-split",
-          "Taspr-Group-Title": "Split Group",
+          "Spry-Commit-Id": "spl00001",
+          "Spry-Group": "group-split",
+          "Spry-Group-Title": "Split Group",
         },
       });
       // Interrupting commit (not in group)
       await repo.commit({
         message: "Interrupting commit",
-        trailers: { "Taspr-Commit-Id": "spl00002" },
+        trailers: { "Spry-Commit-Id": "spl00002" },
       });
       // Second commit in same group (non-contiguous = split)
       await repo.commit({
         message: "Second grouped commit",
         trailers: {
-          "Taspr-Commit-Id": "spl00003",
-          "Taspr-Group": "group-split",
-          "Taspr-Group-Title": "Split Group",
+          "Spry-Commit-Id": "spl00003",
+          "Spry-Group": "group-split",
+          "Spry-Group-Title": "Split Group",
         },
       });
     },
   },
 
   /**
-   * Stack with inconsistent group titles (same Taspr-Group but different Taspr-Group-Title).
+   * Stack with inconsistent group titles (same Spry-Group but different Spry-Group-Title).
    * For testing sync validation blocking.
    */
   inconsistentGroupTitle: {
@@ -305,17 +305,17 @@ export const scenarios = {
       await repo.commit({
         message: "First grouped commit",
         trailers: {
-          "Taspr-Commit-Id": "inc00001",
-          "Taspr-Group": "group-inconsistent",
-          "Taspr-Group-Title": "Title A",
+          "Spry-Commit-Id": "inc00001",
+          "Spry-Group": "group-inconsistent",
+          "Spry-Group-Title": "Title A",
         },
       });
       await repo.commit({
         message: "Second grouped commit with different title",
         trailers: {
-          "Taspr-Commit-Id": "inc00002",
-          "Taspr-Group": "group-inconsistent",
-          "Taspr-Group-Title": "Title B", // Different title = error
+          "Spry-Commit-Id": "inc00002",
+          "Spry-Group": "group-inconsistent",
+          "Spry-Group-Title": "Title B", // Different title = error
         },
       });
     },
@@ -334,55 +334,55 @@ export const scenarios = {
       // 1. Ungrouped commit at the base
       await repo.commit({
         message: "Add initial utils",
-        trailers: { "Taspr-Commit-Id": "mix00001" },
+        trailers: { "Spry-Commit-Id": "mix00001" },
       });
 
       // 2. Multi-commit group (3 commits - all have both trailers)
       await repo.commit({
         message: "Add user authentication",
         trailers: {
-          "Taspr-Commit-Id": "mix00002",
-          "Taspr-Group": "group-auth",
-          "Taspr-Group-Title": "User Authentication",
+          "Spry-Commit-Id": "mix00002",
+          "Spry-Group": "group-auth",
+          "Spry-Group-Title": "User Authentication",
         },
       });
       await repo.commit({
         message: "Add login form component",
         trailers: {
-          "Taspr-Commit-Id": "mix00003",
-          "Taspr-Group": "group-auth",
-          "Taspr-Group-Title": "User Authentication",
+          "Spry-Commit-Id": "mix00003",
+          "Spry-Group": "group-auth",
+          "Spry-Group-Title": "User Authentication",
         },
       });
       await repo.commit({
         message: "Add session management",
         trailers: {
-          "Taspr-Commit-Id": "mix00004",
-          "Taspr-Group": "group-auth",
-          "Taspr-Group-Title": "User Authentication",
+          "Spry-Commit-Id": "mix00004",
+          "Spry-Group": "group-auth",
+          "Spry-Group-Title": "User Authentication",
         },
       });
 
       // 3. Another ungrouped commit
       await repo.commit({
         message: "Fix typo in readme",
-        trailers: { "Taspr-Commit-Id": "mix00005" },
+        trailers: { "Spry-Commit-Id": "mix00005" },
       });
 
       // 4. Single-commit group
       await repo.commit({
         message: "Add dark mode support",
         trailers: {
-          "Taspr-Commit-Id": "mix00006",
-          "Taspr-Group": "group-dark",
-          "Taspr-Group-Title": "Dark Mode",
+          "Spry-Commit-Id": "mix00006",
+          "Spry-Group": "group-dark",
+          "Spry-Group-Title": "Dark Mode",
         },
       });
 
       // 5. Ungrouped commit at the top
       await repo.commit({
         message: "Update dependencies",
-        trailers: { "Taspr-Commit-Id": "mix00007" },
+        trailers: { "Spry-Commit-Id": "mix00007" },
       });
     },
   },

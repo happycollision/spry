@@ -1,17 +1,17 @@
 {
-  "name": "taspr",
+  "name": "spry",
   "version": "0.1.0-alpha.4",
   "description": "CLI tool for managing stacked PRs on GitHub",
   "bin": {
-    "taspr": "./dist/taspr"
+    "sp": "./dist/sp"
   },
   "type": "module",
   "scripts": {
     "dev": "bun run src/cli/index.ts",
-    "build": "bun build src/cli/index.ts --compile --outfile dist/taspr",
+    "build": "bun build src/cli/index.ts --compile --outfile dist/sp",
     "test": "bun test",
     "scenario": "bun run src/scenario/index.ts",
-    "test:github:setup": "bun run scripts/setup-taspr-check.ts",
+    "test:github:setup": "bun run scripts/setup-spry-check.ts",
     "test:github": "GITHUB_INTEGRATION_TESTS=1 GITHUB_CI_TESTS=1 bun test tests/integration/",
     "lint": "oxlint --type-aware",
     "types": "tsc --noEmit",

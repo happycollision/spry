@@ -13,8 +13,8 @@ export interface CommitWithTrailers extends Omit<CommitInfo, "trailers"> {
  * Detect PRUnits from a list of commits.
  * Returns an array of PRUnits in oldest-to-newest order.
  *
- * Singles: commits without Taspr-Group trailer
- * Groups: contiguous commits with the same Taspr-Group trailer
+ * Singles: commits without Spry-Group trailer
+ * Groups: contiguous commits with the same Spry-Group trailer
  *
  * @param commits - Commits with parsed trailers
  * @param titles - Optional group titles from ref storage (falls back to first commit subject)
@@ -24,8 +24,8 @@ export function detectPRUnits(commits: CommitWithTrailers[], titles: GroupTitles
   let currentGroup: PRUnit | null = null;
 
   for (const commit of commits) {
-    const commitId = commit.trailers["Taspr-Commit-Id"];
-    const groupId = commit.trailers["Taspr-Group"];
+    const commitId = commit.trailers["Spry-Commit-Id"];
+    const groupId = commit.trailers["Spry-Group"];
 
     if (groupId) {
       // This commit belongs to a group
@@ -79,7 +79,7 @@ export function detectPRUnits(commits: CommitWithTrailers[], titles: GroupTitles
 /**
  * Parse stack with validation for group integrity.
  * Returns a result type that includes validation errors for:
- * - Split groups (non-contiguous commits with same Taspr-Group)
+ * - Split groups (non-contiguous commits with same Spry-Group)
  *
  * @param commits - Commits with parsed trailers
  * @param titles - Optional group titles from ref storage (falls back to first commit subject)
@@ -96,7 +96,7 @@ export function parseStack(
     const commit = commits[i];
     if (!commit) continue;
 
-    const groupId = commit.trailers["Taspr-Group"];
+    const groupId = commit.trailers["Spry-Group"];
 
     if (groupId) {
       // Track position

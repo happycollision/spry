@@ -6,18 +6,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // Safety marker - this comment must be present in the README for us to force push
-const SAFETY_MARKER = "<!-- taspr-test-repo:v1 -->";
+const SAFETY_MARKER = "<!-- spry-test-repo:v1 -->";
 
 // Configurable via environment variables
-const REPO_NAME = process.env.TASPR_TEST_REPO_NAME || "taspr-check";
-const REPO_OWNER = process.env.TASPR_TEST_REPO_OWNER; // If not set, uses authenticated user
-const SKIP_CONFIRMATION = process.env.TASPR_TEST_REPO_SETUP_SKIP_CONFIRM === "1";
+const REPO_NAME = process.env.SPRY_TEST_REPO_NAME || "spry-check";
+const REPO_OWNER = process.env.SPRY_TEST_REPO_OWNER; // If not set, uses authenticated user
+const SKIP_CONFIRMATION = process.env.SPRY_TEST_REPO_SETUP_SKIP_CONFIRM === "1";
 
 const README_CONTENT = `# ${REPO_NAME}
 
 ${SAFETY_MARKER}
 
-This repository is used for integration testing of [taspr](https://github.com/happycollision/taspr).
+This repository is used for integration testing of [spry](https://github.com/happycollision/spry).
 
 ## Purpose
 
@@ -34,11 +34,11 @@ The CI workflow in this repository:
 ## Do Not
 
 - Do not create manual PRs or branches in this repository
-- Do not modify the CI workflow without updating taspr's test expectations
+- Do not modify the CI workflow without updating spry's test expectations
 - Do not add branch protection rules manually (tests manage this programmatically)
 
 ---
-*This repository is automatically managed by taspr integration tests.*
+*This repository is automatically managed by spry integration tests.*
 `;
 
 const WORKFLOW_CONTENT = `name: CI Check
@@ -102,7 +102,7 @@ async function verifyTestRepo(owner: string, repo: string): Promise<boolean> {
 }
 
 async function main() {
-  console.log("Setting up taspr test repository...\n");
+  console.log("Setting up spry test repository...\n");
 
   // Get current user (or use provided owner)
   let owner: string;
@@ -130,13 +130,13 @@ async function main() {
   if (repoExists) {
     console.log(`Repository ${fullRepoName} already exists.`);
 
-    // Safety check: verify this is a taspr test repo before force pushing
+    // Safety check: verify this is a spry test repo before force pushing
     const isTestRepo = await verifyTestRepo(owner, REPO_NAME);
 
     if (!isTestRepo) {
       console.error("\n⚠️  SAFETY CHECK FAILED ⚠️");
       console.error(
-        `Repository ${fullRepoName} exists but does not appear to be a taspr test repo.`,
+        `Repository ${fullRepoName} exists but does not appear to be a spry test repo.`,
       );
       console.error(`The README is missing the safety marker: ${SAFETY_MARKER}`);
       console.error("\nThis script will FORCE PUSH and WIPE ALL BRANCHES.");
@@ -163,7 +163,7 @@ async function main() {
     }
 
     const createResult =
-      await $`gh repo create ${REPO_NAME} --public --description "Test repository for taspr integration tests"`.nothrow();
+      await $`gh repo create ${REPO_NAME} --public --description "Test repository for spry integration tests"`.nothrow();
     if (createResult.exitCode !== 0) {
       console.error("Failed to create repository:");
       console.error(createResult.stderr.toString());
@@ -173,7 +173,7 @@ async function main() {
   }
 
   // Create a temp directory for the fresh repo
-  const tmpDir = await mkdtemp(join(tmpdir(), "taspr-check-setup-"));
+  const tmpDir = await mkdtemp(join(tmpdir(), "spry-check-setup-"));
   console.log(`Initializing in ${tmpDir}...`);
 
   try {
@@ -182,8 +182,8 @@ async function main() {
     await $`git -C ${tmpDir} remote add origin https://github.com/${fullRepoName}.git`.quiet();
 
     // Configure git
-    await $`git -C ${tmpDir} config user.email "taspr-tests@example.com"`.quiet();
-    await $`git -C ${tmpDir} config user.name "taspr-tests"`.quiet();
+    await $`git -C ${tmpDir} config user.email "spry-tests@example.com"`.quiet();
+    await $`git -C ${tmpDir} config user.name "spry-tests"`.quiet();
 
     // Write README
     await Bun.write(join(tmpDir, "README.md"), README_CONTENT);
@@ -197,7 +197,7 @@ async function main() {
     // This ensures the repo always has exactly one commit
     console.log("Creating initial commit...");
     await $`git -C ${tmpDir} add -A`.quiet();
-    await $`git -C ${tmpDir} commit -m "Initialize taspr-check repository"`.quiet();
+    await $`git -C ${tmpDir} commit -m "Initialize spry-check repository"`.quiet();
     await $`git -C ${tmpDir} branch -M main`.quiet();
     await $`git -C ${tmpDir} push --force origin main`.quiet();
     console.log("Force pushed to main (single commit).");
@@ -211,9 +211,9 @@ async function main() {
   console.log(`\nYou can now run GitHub integration tests with:`);
   console.log(`  GITHUB_INTEGRATION_TESTS=1 bun test tests/integration/`);
   console.log(`\nEnvironment variables:`);
-  console.log(`  TASPR_TEST_REPO_NAME   - Repository name (default: taspr-check)`);
-  console.log(`  TASPR_TEST_REPO_OWNER  - Repository owner (default: authenticated user)`);
-  console.log(`  TASPR_TEST_REPO_SETUP_SKIP_CONFIRM=1 - Skip confirmation prompts (for CI)`);
+  console.log(`  SPRY_TEST_REPO_NAME   - Repository name (default: spry-check)`);
+  console.log(`  SPRY_TEST_REPO_OWNER  - Repository owner (default: authenticated user)`);
+  console.log(`  SPRY_TEST_REPO_SETUP_SKIP_CONFIRM=1 - Skip confirmation prompts (for CI)`);
 }
 
 main().catch((err) => {

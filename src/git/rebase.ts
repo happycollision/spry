@@ -22,7 +22,7 @@ export interface InjectIdsResult {
 }
 
 /**
- * Inject Taspr-Commit-Id trailers into commits that don't have them.
+ * Inject Spry-Commit-Id trailers into commits that don't have them.
  * Uses git plumbing commands (no working directory modifications).
  *
  * @returns Information about the operation
@@ -32,7 +32,7 @@ export async function injectMissingIds(options: GitOptions = {}): Promise<Inject
   const commits = await getStackCommitsWithTrailers(options);
 
   // Find commits without IDs
-  const needsId = commits.filter((c) => !c.trailers["Taspr-Commit-Id"]);
+  const needsId = commits.filter((c) => !c.trailers["Spry-Commit-Id"]);
 
   if (needsId.length === 0) {
     return { modifiedCount: 0, rebasePerformed: false };
@@ -43,7 +43,7 @@ export async function injectMissingIds(options: GitOptions = {}): Promise<Inject
   for (const commit of needsId) {
     const newId = generateCommitId();
     const originalMessage = await getCommitMessage(commit.hash, options);
-    const newMessage = await addTrailers(originalMessage, { "Taspr-Commit-Id": newId });
+    const newMessage = await addTrailers(originalMessage, { "Spry-Commit-Id": newId });
     rewrites.set(commit.hash, newMessage);
   }
 
@@ -64,7 +64,7 @@ export async function injectMissingIds(options: GitOptions = {}): Promise<Inject
 }
 
 /**
- * Check if all commits in the stack have Taspr-Commit-Id trailers.
+ * Check if all commits in the stack have Spry-Commit-Id trailers.
  */
 export async function allCommitsHaveIds(options: GitOptions = {}): Promise<boolean> {
   const commits = await getStackCommitsWithTrailers(options);
@@ -73,15 +73,15 @@ export async function allCommitsHaveIds(options: GitOptions = {}): Promise<boole
     return true;
   }
 
-  return commits.every((c) => c.trailers["Taspr-Commit-Id"]);
+  return commits.every((c) => c.trailers["Spry-Commit-Id"]);
 }
 
 /**
- * Get the count of commits that are missing Taspr-Commit-Id trailers.
+ * Get the count of commits that are missing Spry-Commit-Id trailers.
  */
 export async function countCommitsMissingIds(options: GitOptions = {}): Promise<number> {
   const commits = await getStackCommitsWithTrailers(options);
-  return commits.filter((c) => !c.trailers["Taspr-Commit-Id"]).length;
+  return commits.filter((c) => !c.trailers["Spry-Commit-Id"]).length;
 }
 
 export interface RebaseResult {
@@ -267,7 +267,7 @@ To resolve:
   1. Edit the conflicting files
   2. git add <fixed files>
   3. git rebase --continue
-  4. taspr sync
+  4. sp sync
 
 To abort:
   git rebase --abort`;

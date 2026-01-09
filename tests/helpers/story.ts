@@ -4,7 +4,7 @@
  * Creates narrative markdown files during test runs that document
  * what each test demonstrates in plain English, followed by CLI output.
  *
- * Activated by setting TASPR_STORY_TEST_LOGGING=1 environment variable.
+ * Activated by setting SPRY_STORY_TEST_LOGGING=1 environment variable.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -40,7 +40,7 @@ export interface Story {
 
 /** Check if story logging is enabled */
 function isEnabled(): boolean {
-  return process.env.TASPR_STORY_TEST_LOGGING === "1";
+  return process.env.SPRY_STORY_TEST_LOGGING === "1";
 }
 
 /** Strip ANSI codes from text */

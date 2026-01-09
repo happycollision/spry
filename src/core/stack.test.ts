@@ -23,9 +23,9 @@ describe("core/stack", () => {
 
     test("creates single PRUnits for commits without group trailers", () => {
       const commits = [
-        makeCommit("aaa111", "Add user model", { "Taspr-Commit-Id": "a1b2c3d4" }),
-        makeCommit("bbb222", "Add auth endpoints", { "Taspr-Commit-Id": "b2c3d4e5" }),
-        makeCommit("ccc333", "Add UI components", { "Taspr-Commit-Id": "c3d4e5f6" }),
+        makeCommit("aaa111", "Add user model", { "Spry-Commit-Id": "a1b2c3d4" }),
+        makeCommit("bbb222", "Add auth endpoints", { "Spry-Commit-Id": "b2c3d4e5" }),
+        makeCommit("ccc333", "Add UI components", { "Spry-Commit-Id": "c3d4e5f6" }),
       ];
 
       const units = detectPRUnits(commits);
@@ -36,19 +36,19 @@ describe("core/stack", () => {
       expect(units[2]).toMatchObject({ type: "single", id: "c3d4e5f6", commits: ["ccc333"] });
     });
 
-    test("creates a group PRUnit for contiguous commits with same Taspr-Group", () => {
+    test("creates a group PRUnit for contiguous commits with same Spry-Group", () => {
       const commits = [
         makeCommit("aaa111", "Start auth feature", {
-          "Taspr-Commit-Id": "a1b2c3d4",
-          "Taspr-Group": "f7e8d9c0",
+          "Spry-Commit-Id": "a1b2c3d4",
+          "Spry-Group": "f7e8d9c0",
         }),
         makeCommit("bbb222", "Add login endpoint", {
-          "Taspr-Commit-Id": "b2c3d4e5",
-          "Taspr-Group": "f7e8d9c0",
+          "Spry-Commit-Id": "b2c3d4e5",
+          "Spry-Group": "f7e8d9c0",
         }),
         makeCommit("ccc333", "Add 2FA support", {
-          "Taspr-Commit-Id": "c3d4e5f6",
-          "Taspr-Group": "f7e8d9c0",
+          "Spry-Commit-Id": "c3d4e5f6",
+          "Spry-Group": "f7e8d9c0",
         }),
       ];
 
@@ -64,16 +64,16 @@ describe("core/stack", () => {
 
     test("handles mixed singles and groups", () => {
       const commits = [
-        makeCommit("aaa111", "Add user model", { "Taspr-Commit-Id": "a1b2c3d4" }),
+        makeCommit("aaa111", "Add user model", { "Spry-Commit-Id": "a1b2c3d4" }),
         makeCommit("bbb222", "Start auth", {
-          "Taspr-Commit-Id": "b2c3d4e5",
-          "Taspr-Group": "f7e8d9c0",
+          "Spry-Commit-Id": "b2c3d4e5",
+          "Spry-Group": "f7e8d9c0",
         }),
         makeCommit("ccc333", "End auth", {
-          "Taspr-Commit-Id": "c3d4e5f6",
-          "Taspr-Group": "f7e8d9c0",
+          "Spry-Commit-Id": "c3d4e5f6",
+          "Spry-Group": "f7e8d9c0",
         }),
-        makeCommit("ddd444", "Add dashboard", { "Taspr-Commit-Id": "d4e5f6a7" }),
+        makeCommit("ddd444", "Add dashboard", { "Spry-Commit-Id": "d4e5f6a7" }),
       ];
 
       const units = detectPRUnits(commits);
@@ -91,20 +91,20 @@ describe("core/stack", () => {
     test("handles multiple consecutive groups", () => {
       const commits = [
         makeCommit("aaa111", "Group 1 commit 1", {
-          "Taspr-Commit-Id": "a1",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "a1",
+          "Spry-Group": "g1",
         }),
         makeCommit("bbb222", "Group 1 commit 2", {
-          "Taspr-Commit-Id": "b2",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "b2",
+          "Spry-Group": "g1",
         }),
         makeCommit("ccc333", "Group 2 commit 1", {
-          "Taspr-Commit-Id": "c3",
-          "Taspr-Group": "g2",
+          "Spry-Commit-Id": "c3",
+          "Spry-Group": "g2",
         }),
         makeCommit("ddd444", "Group 2 commit 2", {
-          "Taspr-Commit-Id": "d4",
-          "Taspr-Group": "g2",
+          "Spry-Commit-Id": "d4",
+          "Spry-Group": "g2",
         }),
       ];
 
@@ -115,25 +115,25 @@ describe("core/stack", () => {
       expect(units[1]).toMatchObject({ type: "group", id: "g2", commits: ["ccc333", "ddd444"] });
     });
 
-    test("handles commits without Taspr-Commit-Id", () => {
+    test("handles commits without Spry-Commit-Id", () => {
       const commits = [
         makeCommit("aaa111", "No ID commit", {}),
-        makeCommit("bbb222", "Has ID", { "Taspr-Commit-Id": "b2c3d4e5" }),
+        makeCommit("bbb222", "Has ID", { "Spry-Commit-Id": "b2c3d4e5" }),
       ];
 
       const units = detectPRUnits(commits);
 
       expect(units).toHaveLength(2);
-      // Uses hash prefix as fallback ID, commitIds is empty when no Taspr-Commit-Id
+      // Uses hash prefix as fallback ID, commitIds is empty when no Spry-Commit-Id
       expect(units[0]).toMatchObject({ id: "aaa111".slice(0, 8), commitIds: [] });
       expect(units[1]).toMatchObject({ id: "b2c3d4e5", commitIds: ["b2c3d4e5"] });
     });
 
     test("preserves commit order (oldest first)", () => {
       const commits = [
-        makeCommit("first", "First commit", { "Taspr-Commit-Id": "id1" }),
-        makeCommit("second", "Second commit", { "Taspr-Commit-Id": "id2" }),
-        makeCommit("third", "Third commit", { "Taspr-Commit-Id": "id3" }),
+        makeCommit("first", "First commit", { "Spry-Commit-Id": "id1" }),
+        makeCommit("second", "Second commit", { "Spry-Commit-Id": "id2" }),
+        makeCommit("third", "Third commit", { "Spry-Commit-Id": "id3" }),
       ];
 
       const units = detectPRUnits(commits);
@@ -144,8 +144,8 @@ describe("core/stack", () => {
     test("handles single-commit group", () => {
       const commits = [
         makeCommit("aaa111", "Single-commit group", {
-          "Taspr-Commit-Id": "a1",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "a1",
+          "Spry-Group": "g1",
         }),
       ];
 
@@ -158,16 +158,16 @@ describe("core/stack", () => {
     test("handles single-commit group followed by multi-commit group", () => {
       const commits = [
         makeCommit("aaa111", "Single-commit group", {
-          "Taspr-Commit-Id": "a1",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "a1",
+          "Spry-Group": "g1",
         }),
         makeCommit("bbb222", "Multi-commit group start", {
-          "Taspr-Commit-Id": "b2",
-          "Taspr-Group": "g2",
+          "Spry-Commit-Id": "b2",
+          "Spry-Group": "g2",
         }),
         makeCommit("ccc333", "Multi-commit group end", {
-          "Taspr-Commit-Id": "c3",
-          "Taspr-Group": "g2",
+          "Spry-Commit-Id": "c3",
+          "Spry-Group": "g2",
         }),
       ];
 
@@ -182,8 +182,8 @@ describe("core/stack", () => {
   describe("parseStack", () => {
     test("returns success with PRUnits for valid stack without groups", () => {
       const commits = [
-        makeCommit("aaa111", "First", { "Taspr-Commit-Id": "a1" }),
-        makeCommit("bbb222", "Second", { "Taspr-Commit-Id": "b2" }),
+        makeCommit("aaa111", "First", { "Spry-Commit-Id": "a1" }),
+        makeCommit("bbb222", "Second", { "Spry-Commit-Id": "b2" }),
       ];
 
       const result = parseStack(commits);
@@ -197,12 +197,12 @@ describe("core/stack", () => {
     test("returns success with PRUnits for valid stack with groups", () => {
       const commits = [
         makeCommit("aaa111", "Group commit 1", {
-          "Taspr-Commit-Id": "a1",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "a1",
+          "Spry-Group": "g1",
         }),
         makeCommit("bbb222", "Group commit 2", {
-          "Taspr-Commit-Id": "b2",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "b2",
+          "Spry-Group": "g1",
         }),
       ];
 
@@ -218,20 +218,20 @@ describe("core/stack", () => {
     test("returns success for multiple non-overlapping groups", () => {
       const commits = [
         makeCommit("aaa111", "Group 1 commit 1", {
-          "Taspr-Commit-Id": "a1",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "a1",
+          "Spry-Group": "g1",
         }),
         makeCommit("bbb222", "Group 1 commit 2", {
-          "Taspr-Commit-Id": "b2",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "b2",
+          "Spry-Group": "g1",
         }),
         makeCommit("ccc333", "Group 2 commit 1", {
-          "Taspr-Commit-Id": "c3",
-          "Taspr-Group": "g2",
+          "Spry-Commit-Id": "c3",
+          "Spry-Group": "g2",
         }),
         makeCommit("ddd444", "Group 2 commit 2", {
-          "Taspr-Commit-Id": "d4",
-          "Taspr-Group": "g2",
+          "Spry-Commit-Id": "d4",
+          "Spry-Group": "g2",
         }),
       ];
 
@@ -246,13 +246,13 @@ describe("core/stack", () => {
     test("returns split-group error when group commits are non-contiguous", () => {
       const commits = [
         makeCommit("aaa111", "Group commit 1", {
-          "Taspr-Commit-Id": "a1",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "a1",
+          "Spry-Group": "g1",
         }),
-        makeCommit("bbb222", "Interrupting single commit", { "Taspr-Commit-Id": "b2" }),
+        makeCommit("bbb222", "Interrupting single commit", { "Spry-Commit-Id": "b2" }),
         makeCommit("ccc333", "Group commit 2", {
-          "Taspr-Commit-Id": "c3",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "c3",
+          "Spry-Group": "g1",
         }),
       ];
 
@@ -282,14 +282,14 @@ describe("core/stack", () => {
     test("handles split group with multiple interrupting commits", () => {
       const commits = [
         makeCommit("aaa111", "Group commit 1", {
-          "Taspr-Commit-Id": "a1",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "a1",
+          "Spry-Group": "g1",
         }),
-        makeCommit("bbb222", "Interrupting commit 1", { "Taspr-Commit-Id": "b2" }),
-        makeCommit("ccc333", "Interrupting commit 2", { "Taspr-Commit-Id": "c3" }),
+        makeCommit("bbb222", "Interrupting commit 1", { "Spry-Commit-Id": "b2" }),
+        makeCommit("ccc333", "Interrupting commit 2", { "Spry-Commit-Id": "c3" }),
         makeCommit("ddd444", "Group commit 2", {
-          "Taspr-Commit-Id": "d4",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "d4",
+          "Spry-Group": "g1",
         }),
       ];
 
@@ -308,12 +308,12 @@ describe("core/stack", () => {
     test("uses title from ref storage when provided", () => {
       const commits = [
         makeCommit("aaa111", "First commit subject", {
-          "Taspr-Commit-Id": "a1",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "a1",
+          "Spry-Group": "g1",
         }),
         makeCommit("bbb222", "Second commit subject", {
-          "Taspr-Commit-Id": "b2",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "b2",
+          "Spry-Group": "g1",
         }),
       ];
 
@@ -326,12 +326,12 @@ describe("core/stack", () => {
     test("does not have a fallback title if one is not present. (That is view layer stuff)", () => {
       const commits = [
         makeCommit("aaa111", "First commit subject", {
-          "Taspr-Commit-Id": "a1",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "a1",
+          "Spry-Group": "g1",
         }),
         makeCommit("bbb222", "Second commit subject", {
-          "Taspr-Commit-Id": "b2",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "b2",
+          "Spry-Group": "g1",
         }),
       ];
 
@@ -343,12 +343,12 @@ describe("core/stack", () => {
     test("resolves titles independently for multiple groups", () => {
       const commits = [
         makeCommit("aaa111", "Group 1 first commit", {
-          "Taspr-Commit-Id": "a1",
-          "Taspr-Group": "g1",
+          "Spry-Commit-Id": "a1",
+          "Spry-Group": "g1",
         }),
         makeCommit("bbb222", "Group 2 first commit", {
-          "Taspr-Commit-Id": "b2",
-          "Taspr-Group": "g2",
+          "Spry-Commit-Id": "b2",
+          "Spry-Group": "g2",
         }),
       ];
 
@@ -361,7 +361,7 @@ describe("core/stack", () => {
     });
 
     test("single commits use their subject as title", () => {
-      const commits = [makeCommit("aaa111", "My single commit", { "Taspr-Commit-Id": "a1" })];
+      const commits = [makeCommit("aaa111", "My single commit", { "Spry-Commit-Id": "a1" })];
 
       const units = detectPRUnits(commits);
 

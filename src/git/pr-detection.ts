@@ -8,7 +8,7 @@ import { getBranchName, type BranchNameConfig } from "../github/branches.ts";
 export interface CommitWithPR {
   /** Commit hash */
   hash: string;
-  /** Taspr-Commit-Id from trailer */
+  /** Spry-Commit-Id from trailer */
   commitId: string;
   /** Commit subject */
   subject: string;

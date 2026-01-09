@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING**: Renamed tool from "taspr" to "spry" (binary: `sp`)
+  - Git config keys: `taspr.*` → `spry.*`
+  - Git trailers: `Taspr-Commit-Id` → `Spry-Commit-Id`, `Taspr-Group` → `Spry-Group`
+  - Branch prefix default: `taspr/` → `spry/`
+  - Environment variables: `TASPR_*` → `SPRY_*`
+
 ## [0.1.0-alpha.4] - 2026-01-09
 
 ### Changed

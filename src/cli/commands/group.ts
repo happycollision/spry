@@ -62,7 +62,7 @@ export async function groupCommand(options: GroupCommandOptions = {}): Promise<v
  * Commits can be referenced by:
  * - Full hash
  * - Short hash (7 or 8 chars)
- * - Taspr-Commit-Id
+ * - Spry-Commit-Id
  */
 async function applyCommand(json: string): Promise<void> {
   try {
@@ -162,7 +162,7 @@ export async function dissolveCommand(
       console.log(`  ${group.id}: "${group.title}" (${group.commits.length} commits)`);
     }
     console.log("");
-    console.log("Usage: taspr group dissolve <group-id>");
+    console.log("Usage: spry group dissolve <group-id>");
     return;
   }
 

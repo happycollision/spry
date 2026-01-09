@@ -72,12 +72,12 @@ describe("group-rebase", () => {
 
       expect(result.success).toBe(true);
 
-      // Verify Taspr-Group trailer was added
+      // Verify Spry-Group trailer was added
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
       expect(commits).toHaveLength(1);
 
       const commit = commits[0]!;
-      const groupId = commit.trailers["Taspr-Group"];
+      const groupId = commit.trailers["Spry-Group"];
       expect(groupId).toBeDefined();
 
       // Title is stored in ref storage
@@ -102,16 +102,16 @@ describe("group-rebase", () => {
 
       expect(result.success).toBe(true);
 
-      // Verify Taspr-Group trailer was added to all commits
+      // Verify Spry-Group trailer was added to all commits
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
       expect(commits).toHaveLength(3);
 
-      const groupId = commits[0]!.trailers["Taspr-Group"];
+      const groupId = commits[0]!.trailers["Spry-Group"];
       expect(groupId).toBeDefined();
 
       // All commits should have the same group ID
       for (const commit of commits) {
-        expect(commit.trailers["Taspr-Group"]).toBe(groupId);
+        expect(commit.trailers["Spry-Group"]).toBe(groupId);
       }
 
       // Title is stored in ref storage
@@ -136,7 +136,7 @@ describe("group-rebase", () => {
       expect(result.success).toBe(true);
 
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      const groupId = commits[0]!.trailers["Taspr-Group"];
+      const groupId = commits[0]!.trailers["Spry-Group"];
       expect(groupId).toBeDefined();
 
       // Title is stored in ref storage
@@ -144,14 +144,14 @@ describe("group-rebase", () => {
       expect(titles[groupId!]).toBe("Short Hash Group");
     });
 
-    test("supports Taspr-Commit-Id references", async () => {
+    test("supports Spry-Commit-Id references", async () => {
       await repo.branch("feature");
       await repo.commit({
         message: "First commit",
-        trailers: { "Taspr-Commit-Id": "abc12345" },
+        trailers: { "Spry-Commit-Id": "abc12345" },
       });
 
-      // Reference by Taspr-Commit-Id
+      // Reference by Spry-Commit-Id
       const result = await applyGroupSpec(
         {
           groups: [{ commits: ["abc12345"], name: "ID Reference Group" }],
@@ -162,7 +162,7 @@ describe("group-rebase", () => {
       expect(result.success).toBe(true);
 
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      const groupId = commits[0]!.trailers["Taspr-Group"];
+      const groupId = commits[0]!.trailers["Spry-Group"];
       expect(groupId).toBeDefined();
 
       // Title is stored in ref storage, not in commit trailers
@@ -222,17 +222,17 @@ describe("group-rebase", () => {
       expect(commits[1]!.subject).toContain("First");
       expect(commits[2]!.subject).toContain("Second");
 
-      // Verify group (Third and First have same Taspr-Group)
-      const groupId = commits[0]!.trailers["Taspr-Group"];
+      // Verify group (Third and First have same Spry-Group)
+      const groupId = commits[0]!.trailers["Spry-Group"];
       expect(groupId).toBeDefined();
-      expect(commits[1]!.trailers["Taspr-Group"]).toBe(groupId);
+      expect(commits[1]!.trailers["Spry-Group"]).toBe(groupId);
 
       // Title is stored in ref storage
       const titles = await readGroupTitles({ cwd: repo.path });
       expect(titles[groupId!]).toBe("Reordered Group");
 
       // Second should not be in the group
-      expect(commits[2]!.trailers["Taspr-Group"]).toBeUndefined();
+      expect(commits[2]!.trailers["Spry-Group"]).toBeUndefined();
     });
 
     test("does nothing when no changes needed", async () => {
@@ -324,7 +324,7 @@ describe("group-rebase", () => {
       expect(commits).toHaveLength(2);
       const newHash1 = commits[0]!.hash;
       const newHash2 = commits[1]!.hash;
-      const originalGroupId = commits[0]!.trailers["Taspr-Group"];
+      const originalGroupId = commits[0]!.trailers["Spry-Group"];
       expect(originalGroupId).toBeDefined();
 
       // Verify first group was applied (title in ref storage)
@@ -345,7 +345,7 @@ describe("group-rebase", () => {
       expect(commits).toHaveLength(2);
 
       // New group should have a new ID
-      const newGroupId = commits[0]!.trailers["Taspr-Group"];
+      const newGroupId = commits[0]!.trailers["Spry-Group"];
       expect(newGroupId).toBeDefined();
 
       // Should only have the new group title in ref storage
@@ -355,7 +355,7 @@ describe("group-rebase", () => {
       // Check the commit message doesn't have duplicate trailers
       const { $ } = await import("bun");
       const message = await $`git -C ${repo.path} log -1 --format=%B ${commits[0]!.hash}`.text();
-      const groupMatches = message.match(/Taspr-Group:/g);
+      const groupMatches = message.match(/Spry-Group:/g);
       expect(groupMatches).toHaveLength(1); // Only one group trailer
     });
 
@@ -372,7 +372,7 @@ describe("group-rebase", () => {
       );
 
       let commits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      const groupId = commits[0]!.trailers["Taspr-Group"];
+      const groupId = commits[0]!.trailers["Spry-Group"];
       expect(groupId).toBeDefined();
 
       // Verify title in ref storage
@@ -389,7 +389,7 @@ describe("group-rebase", () => {
 
       // Verify trailers were removed
       commits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      expect(commits[0]!.trailers["Taspr-Group"]).toBeUndefined();
+      expect(commits[0]!.trailers["Spry-Group"]).toBeUndefined();
     });
   });
 
@@ -401,9 +401,9 @@ describe("group-rebase", () => {
       // Verify the group exists before dissolving
       let commits = await getStackCommitsWithTrailers({ cwd: repo.path });
       expect(commits).toHaveLength(3);
-      expect(commits[0]!.trailers["Taspr-Group"]).toBe("group-abc");
-      expect(commits[0]!.trailers["Taspr-Group-Title"]).toBe("Feature Group");
-      expect(commits[1]!.trailers["Taspr-Group"]).toBe("group-abc");
+      expect(commits[0]!.trailers["Spry-Group"]).toBe("group-abc");
+      expect(commits[0]!.trailers["Spry-Group-Title"]).toBe("Feature Group");
+      expect(commits[1]!.trailers["Spry-Group"]).toBe("group-abc");
 
       // Dissolve the group
       const result = await dissolveGroup("group-abc", { cwd: repo.path });
@@ -414,13 +414,13 @@ describe("group-rebase", () => {
       expect(commits).toHaveLength(3);
 
       // First and second commits should have no group trailers
-      expect(commits[0]!.trailers["Taspr-Group"]).toBeUndefined();
-      expect(commits[0]!.trailers["Taspr-Group-Title"]).toBeUndefined();
-      expect(commits[1]!.trailers["Taspr-Group"]).toBeUndefined();
-      expect(commits[1]!.trailers["Taspr-Group-Title"]).toBeUndefined();
+      expect(commits[0]!.trailers["Spry-Group"]).toBeUndefined();
+      expect(commits[0]!.trailers["Spry-Group-Title"]).toBeUndefined();
+      expect(commits[1]!.trailers["Spry-Group"]).toBeUndefined();
+      expect(commits[1]!.trailers["Spry-Group-Title"]).toBeUndefined();
 
       // Third commit was never in a group, should be unchanged
-      expect(commits[2]!.trailers["Taspr-Commit-Id"]).toBe("std00001");
+      expect(commits[2]!.trailers["Spry-Commit-Id"]).toBe("std00001");
 
       // parseStack should now see 3 individual units, not a group
       const parsed = parseStack(commits);
@@ -436,15 +436,15 @@ describe("group-rebase", () => {
       await repo.commit({
         message: "Single commit group",
         trailers: {
-          "Taspr-Commit-Id": "single01",
-          "Taspr-Group": "single-group",
-          "Taspr-Group-Title": "Single Group",
+          "Spry-Commit-Id": "single01",
+          "Spry-Group": "single-group",
+          "Spry-Group-Title": "Single Group",
         },
       });
 
       // Verify group exists
       let commits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      expect(commits[0]!.trailers["Taspr-Group"]).toBe("single-group");
+      expect(commits[0]!.trailers["Spry-Group"]).toBe("single-group");
 
       // Dissolve
       const result = await dissolveGroup("single-group", { cwd: repo.path });
@@ -452,10 +452,10 @@ describe("group-rebase", () => {
 
       // Verify trailers removed
       commits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      expect(commits[0]!.trailers["Taspr-Group"]).toBeUndefined();
-      expect(commits[0]!.trailers["Taspr-Group-Title"]).toBeUndefined();
-      // Taspr-Commit-Id should remain
-      expect(commits[0]!.trailers["Taspr-Commit-Id"]).toBe("single01");
+      expect(commits[0]!.trailers["Spry-Group"]).toBeUndefined();
+      expect(commits[0]!.trailers["Spry-Group-Title"]).toBeUndefined();
+      // Spry-Commit-Id should remain
+      expect(commits[0]!.trailers["Spry-Commit-Id"]).toBe("single01");
     });
 
     test("returns error for non-existent group", async () => {
@@ -474,15 +474,15 @@ describe("group-rebase", () => {
       await repo.commit({
         message: "Group A commit 1",
         trailers: {
-          "Taspr-Group": "group-a",
-          "Taspr-Group-Title": "Group A",
+          "Spry-Group": "group-a",
+          "Spry-Group-Title": "Group A",
         },
       });
       await repo.commit({
         message: "Group B commit 1",
         trailers: {
-          "Taspr-Group": "group-b",
-          "Taspr-Group-Title": "Group B",
+          "Spry-Group": "group-b",
+          "Spry-Group-Title": "Group B",
         },
       });
 
@@ -495,42 +495,42 @@ describe("group-rebase", () => {
       expect(commits).toHaveLength(2);
 
       // First commit (was group-a) should have no group trailers
-      expect(commits[0]!.trailers["Taspr-Group"]).toBeUndefined();
-      expect(commits[0]!.trailers["Taspr-Group-Title"]).toBeUndefined();
+      expect(commits[0]!.trailers["Spry-Group"]).toBeUndefined();
+      expect(commits[0]!.trailers["Spry-Group-Title"]).toBeUndefined();
 
       // Second commit (group-b) should still have its trailers
-      expect(commits[1]!.trailers["Taspr-Group"]).toBe("group-b");
-      expect(commits[1]!.trailers["Taspr-Group-Title"]).toBe("Group B");
+      expect(commits[1]!.trailers["Spry-Group"]).toBe("group-b");
+      expect(commits[1]!.trailers["Spry-Group-Title"]).toBe("Group B");
     });
 
     test("keeps original IDs when dissolving without assignGroupIdToCommit (no open PR)", async () => {
       await repo.branch("feature");
       const donorId = "donor-id-123";
 
-      // Create a group where the group ID matches a commit's Taspr-Commit-Id
+      // Create a group where the group ID matches a commit's Spry-Commit-Id
       // This simulates what happens when a group "adopts" a commit's existing PR
       await repo.commit({
         message: "Commit that donated ID to group",
         trailers: {
-          "Taspr-Commit-Id": donorId,
-          "Taspr-Group": donorId, // Group ID matches commit ID = donated PR
+          "Spry-Commit-Id": donorId,
+          "Spry-Group": donorId, // Group ID matches commit ID = donated PR
         },
       });
       await repo.commit({
         message: "Second commit in group",
         trailers: {
-          "Taspr-Commit-Id": "other-id-456",
-          "Taspr-Group": donorId, // Same group, different commit ID
+          "Spry-Commit-Id": "other-id-456",
+          "Spry-Group": donorId, // Same group, different commit ID
         },
       });
 
       // Verify initial state
       let commits = await getStackCommitsWithTrailers({ cwd: repo.path });
       expect(commits).toHaveLength(2);
-      expect(commits[0]!.trailers["Taspr-Commit-Id"]).toBe(donorId);
-      expect(commits[0]!.trailers["Taspr-Group"]).toBe(donorId);
-      expect(commits[1]!.trailers["Taspr-Commit-Id"]).toBe("other-id-456");
-      expect(commits[1]!.trailers["Taspr-Group"]).toBe(donorId);
+      expect(commits[0]!.trailers["Spry-Commit-Id"]).toBe(donorId);
+      expect(commits[0]!.trailers["Spry-Group"]).toBe(donorId);
+      expect(commits[1]!.trailers["Spry-Commit-Id"]).toBe("other-id-456");
+      expect(commits[1]!.trailers["Spry-Group"]).toBe(donorId);
 
       // Dissolve the group without specifying assignGroupIdToCommit
       // (simulating no open PR - all commits keep their IDs)
@@ -542,15 +542,15 @@ describe("group-rebase", () => {
       expect(commits).toHaveLength(2);
 
       // First commit (donated its ID to group) KEEPS its ID (no conflict when no PR)
-      expect(commits[0]!.trailers["Taspr-Group"]).toBeUndefined();
-      expect(commits[0]!.trailers["Taspr-Commit-Id"]).toBe(donorId); // Same ID!
+      expect(commits[0]!.trailers["Spry-Group"]).toBeUndefined();
+      expect(commits[0]!.trailers["Spry-Commit-Id"]).toBe(donorId); // Same ID!
 
       // Second commit keeps its original ID
-      expect(commits[1]!.trailers["Taspr-Group"]).toBeUndefined();
-      expect(commits[1]!.trailers["Taspr-Commit-Id"]).toBe("other-id-456"); // Same ID
+      expect(commits[1]!.trailers["Spry-Group"]).toBeUndefined();
+      expect(commits[1]!.trailers["Spry-Commit-Id"]).toBe("other-id-456"); // Same ID
     });
 
-    test("keeps Taspr-Commit-Id when dissolving a group with a different group ID", async () => {
+    test("keeps Spry-Commit-Id when dissolving a group with a different group ID", async () => {
       await repo.branch("feature");
 
       // Create a group where the group ID is different from all commit IDs
@@ -558,15 +558,15 @@ describe("group-rebase", () => {
       await repo.commit({
         message: "First commit in group",
         trailers: {
-          "Taspr-Commit-Id": "commit-id-111",
-          "Taspr-Group": "generated-group-id",
+          "Spry-Commit-Id": "commit-id-111",
+          "Spry-Group": "generated-group-id",
         },
       });
       await repo.commit({
         message: "Second commit in group",
         trailers: {
-          "Taspr-Commit-Id": "commit-id-222",
-          "Taspr-Group": "generated-group-id",
+          "Spry-Commit-Id": "commit-id-222",
+          "Spry-Group": "generated-group-id",
         },
       });
 
@@ -578,11 +578,11 @@ describe("group-rebase", () => {
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
       expect(commits).toHaveLength(2);
 
-      expect(commits[0]!.trailers["Taspr-Group"]).toBeUndefined();
-      expect(commits[0]!.trailers["Taspr-Commit-Id"]).toBe("commit-id-111"); // Same ID
+      expect(commits[0]!.trailers["Spry-Group"]).toBeUndefined();
+      expect(commits[0]!.trailers["Spry-Commit-Id"]).toBe("commit-id-111"); // Same ID
 
-      expect(commits[1]!.trailers["Taspr-Group"]).toBeUndefined();
-      expect(commits[1]!.trailers["Taspr-Commit-Id"]).toBe("commit-id-222"); // Same ID
+      expect(commits[1]!.trailers["Spry-Group"]).toBeUndefined();
+      expect(commits[1]!.trailers["Spry-Commit-Id"]).toBe("commit-id-222"); // Same ID
     });
 
     test("allows a specific commit to inherit the group ID via assignGroupIdToCommit", async () => {
@@ -593,15 +593,15 @@ describe("group-rebase", () => {
       await repo.commit({
         message: "First commit in group",
         trailers: {
-          "Taspr-Commit-Id": "commit-id-aaa",
-          "Taspr-Group": groupId,
+          "Spry-Commit-Id": "commit-id-aaa",
+          "Spry-Group": groupId,
         },
       });
       const hash2 = await repo.commit({
         message: "Second commit in group",
         trailers: {
-          "Taspr-Commit-Id": "commit-id-bbb",
-          "Taspr-Group": groupId,
+          "Spry-Commit-Id": "commit-id-bbb",
+          "Spry-Group": groupId,
         },
       });
 
@@ -617,12 +617,12 @@ describe("group-rebase", () => {
       expect(commits).toHaveLength(2);
 
       // First commit keeps its original ID
-      expect(commits[0]!.trailers["Taspr-Group"]).toBeUndefined();
-      expect(commits[0]!.trailers["Taspr-Commit-Id"]).toBe("commit-id-aaa");
+      expect(commits[0]!.trailers["Spry-Group"]).toBeUndefined();
+      expect(commits[0]!.trailers["Spry-Commit-Id"]).toBe("commit-id-aaa");
 
       // Second commit now has the GROUP ID as its commit ID (inheriting the PR)
-      expect(commits[1]!.trailers["Taspr-Group"]).toBeUndefined();
-      expect(commits[1]!.trailers["Taspr-Commit-Id"]).toBe(groupId); // Inherited!
+      expect(commits[1]!.trailers["Spry-Group"]).toBeUndefined();
+      expect(commits[1]!.trailers["Spry-Commit-Id"]).toBe(groupId); // Inherited!
     });
 
     test("donor commit gets new ID when a different commit is assigned the group ID", async () => {
@@ -633,15 +633,15 @@ describe("group-rebase", () => {
       await repo.commit({
         message: "Donor commit (ID matches group)",
         trailers: {
-          "Taspr-Commit-Id": groupId, // Same as group ID - this commit donated it
-          "Taspr-Group": groupId,
+          "Spry-Commit-Id": groupId, // Same as group ID - this commit donated it
+          "Spry-Group": groupId,
         },
       });
       const hash2 = await repo.commit({
         message: "Second commit",
         trailers: {
-          "Taspr-Commit-Id": "other-id-456",
-          "Taspr-Group": groupId,
+          "Spry-Commit-Id": "other-id-456",
+          "Spry-Group": groupId,
         },
       });
 
@@ -657,11 +657,11 @@ describe("group-rebase", () => {
       expect(commits).toHaveLength(2);
 
       // First commit (donor) gets a NEW ID because second commit is taking the group ID
-      expect(commits[0]!.trailers["Taspr-Commit-Id"]).toBeDefined();
-      expect(commits[0]!.trailers["Taspr-Commit-Id"]).not.toBe(groupId); // New ID!
+      expect(commits[0]!.trailers["Spry-Commit-Id"]).toBeDefined();
+      expect(commits[0]!.trailers["Spry-Commit-Id"]).not.toBe(groupId); // New ID!
 
       // Second commit now has the group ID (inherits the PR)
-      expect(commits[1]!.trailers["Taspr-Commit-Id"]).toBe(groupId);
+      expect(commits[1]!.trailers["Spry-Commit-Id"]).toBe(groupId);
     });
 
     test("donor commit keeps its ID when it is assigned the group ID", async () => {
@@ -672,15 +672,15 @@ describe("group-rebase", () => {
       const hash1 = await repo.commit({
         message: "First commit (ID matches group)",
         trailers: {
-          "Taspr-Commit-Id": groupId, // Same as group ID
-          "Taspr-Group": groupId,
+          "Spry-Commit-Id": groupId, // Same as group ID
+          "Spry-Group": groupId,
         },
       });
       await repo.commit({
         message: "Second commit",
         trailers: {
-          "Taspr-Commit-Id": "other-id-456",
-          "Taspr-Group": groupId,
+          "Spry-Commit-Id": "other-id-456",
+          "Spry-Group": groupId,
         },
       });
 
@@ -696,15 +696,15 @@ describe("group-rebase", () => {
       expect(commits).toHaveLength(2);
 
       // First commit keeps the group ID (it was already its ID)
-      expect(commits[0]!.trailers["Taspr-Commit-Id"]).toBe(groupId);
+      expect(commits[0]!.trailers["Spry-Commit-Id"]).toBe(groupId);
 
       // Second commit keeps its original ID
-      expect(commits[1]!.trailers["Taspr-Commit-Id"]).toBe("other-id-456");
+      expect(commits[1]!.trailers["Spry-Commit-Id"]).toBe("other-id-456");
     });
   });
 
   describe("addGroupTrailers", () => {
-    test("adds Taspr-Group trailer and saves title to ref storage", async () => {
+    test("adds Spry-Group trailer and saves title to ref storage", async () => {
       await scenarios.multiCommitStack.setup(repo);
 
       // Get commits
@@ -721,10 +721,10 @@ describe("group-rebase", () => {
       );
       expect(result.success).toBe(true);
 
-      // Verify the Taspr-Group trailer was added
+      // Verify the Spry-Group trailer was added
       const { $ } = await import("bun");
       const afterTrailers = await $`git -C ${repo.path} log --format=%s%n%b--- HEAD~3..HEAD`.text();
-      expect(afterTrailers).toContain("Taspr-Group: test-group-id");
+      expect(afterTrailers).toContain("Spry-Group: test-group-id");
 
       // Verify title was saved to ref storage
       const titles = await readGroupTitles({ cwd: repo.path });
@@ -733,14 +733,14 @@ describe("group-rebase", () => {
   });
 
   describe("removeGroupTrailers", () => {
-    test("removes Taspr-Group trailer from a commit", async () => {
+    test("removes Spry-Group trailer from a commit", async () => {
       await scenarios.withGroups.setup(repo);
 
       // Get commits and find one with group trailers
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      const groupCommit = commits.find((c) => c.trailers["Taspr-Group"]);
+      const groupCommit = commits.find((c) => c.trailers["Spry-Group"]);
       expect(groupCommit).toBeDefined();
-      const groupId = groupCommit!.trailers["Taspr-Group"];
+      const groupId = groupCommit!.trailers["Spry-Group"];
       expect(groupId).toBeDefined();
 
       // Remove the group trailers
@@ -750,11 +750,11 @@ describe("group-rebase", () => {
       // Verify group trailers were removed from that commit
       const newCommits = await getStackCommitsWithTrailers({ cwd: repo.path });
       const updatedCommit = newCommits.find(
-        (c) => c.subject === groupCommit!.subject && !c.trailers["Taspr-Group"],
+        (c) => c.subject === groupCommit!.subject && !c.trailers["Spry-Group"],
       );
       expect(updatedCommit).toBeDefined();
       // Commit IDs should still be there
-      expect(updatedCommit!.trailers["Taspr-Commit-Id"]).toBeDefined();
+      expect(updatedCommit!.trailers["Spry-Commit-Id"]).toBeDefined();
     });
   });
 

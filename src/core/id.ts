@@ -9,8 +9,8 @@ import { randomBytes } from "crypto";
  * - Once PRs merge, their IDs leave the active set
  *
  * Used for:
- * - Taspr-Commit-Id: Assigned to every commit
- * - Taspr-Group-Start / Taspr-Group-End: Marks group boundaries
+ * - Spry-Commit-Id: Assigned to every commit
+ * - Spry-Group-Start / Spry-Group-End: Marks group boundaries
  */
 export function generateCommitId(): string {
   return randomBytes(4).toString("hex");

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# taspr installation script
-# Usage: curl -fsSL https://raw.githubusercontent.com/happycollision/taspr/main/install.sh | bash
+# Spry installation script
+# Usage: curl -fsSL https://raw.githubusercontent.com/happycollision/spry/main/install.sh | bash
 #        curl -fsSL ... | bash -s -- v0.1.0-alpha.1   # specific version
 #        curl -fsSL ... | bash -s -- --prerelease     # latest prerelease
 
 set -euo pipefail
 
 # Configuration
-REPO="happycollision/taspr"
-INSTALL_DIR="${TASPR_INSTALL_DIR:-$HOME/.taspr}"
-BIN_DIR="${TASPR_BIN_DIR:-$INSTALL_DIR/bin}"
+REPO="happycollision/spry"
+INSTALL_DIR="${SPRY_INSTALL_DIR:-$HOME/.spry}"
+BIN_DIR="${SPRY_BIN_DIR:-$INSTALL_DIR/bin}"
 
 # Parse arguments
 REQUESTED_VERSION=""
@@ -131,7 +131,7 @@ download() {
 }
 
 # Main installation function
-install_taspr() {
+install_spry() {
     local os arch version binary_name download_url
 
     info "Detecting system..."
@@ -143,8 +143,8 @@ install_taspr() {
     if [ -n "$REQUESTED_VERSION" ]; then
         version="$REQUESTED_VERSION"
         info "Using specified version: $version"
-    elif [ -n "${TASPR_VERSION:-}" ]; then
-        version="$TASPR_VERSION"
+    elif [ -n "${SPRY_VERSION:-}" ]; then
+        version="$SPRY_VERSION"
         info "Using specified version: $version"
     elif [ "$INCLUDE_PRERELEASE" = true ]; then
         info "Fetching latest version (including prereleases)..."
@@ -157,8 +157,8 @@ install_taspr() {
     fi
 
     # Construct binary name and download URL
-    # Binary naming convention: taspr-<os>-<arch>
-    binary_name="taspr-${os}-${arch}"
+    # Binary naming convention: sp-<os>-<arch>
+    binary_name="sp-${os}-${arch}"
     if [ "$os" = "windows" ]; then
         binary_name="${binary_name}.exe"
     fi
@@ -175,24 +175,24 @@ install_taspr() {
     tmp_file=$(mktemp)
     if ! download "$download_url" "$tmp_file"; then
         rm -f "$tmp_file"
-        error "Failed to download taspr from $download_url"
+        error "Failed to download sp from $download_url"
     fi
 
     # Install the binary
-    local target_path="$BIN_DIR/taspr"
+    local target_path="$BIN_DIR/sp"
     if [ "$os" = "windows" ]; then
-        target_path="$BIN_DIR/taspr.exe"
+        target_path="$BIN_DIR/sp.exe"
     fi
 
     mv "$tmp_file" "$target_path"
     chmod +x "$target_path"
 
-    success "taspr $version installed to $target_path"
+    success "Spry $version installed to $target_path"
 
     # Check if bin directory is in PATH
     if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
         echo ""
-        warn "taspr was installed, but $BIN_DIR is not in your PATH."
+        warn "Spry was installed, but $BIN_DIR is not in your PATH."
         echo ""
         echo "To add it to your PATH, run one of the following:"
         echo ""
@@ -229,9 +229,9 @@ install_taspr() {
         success "Installation complete!"
         echo ""
         if [[ ":$PATH:" == *":$BIN_DIR:"* ]]; then
-            echo "Run 'taspr --help' to get started."
+            echo "Run 'sp --help' to get started."
         else
-            echo "After updating your PATH (see above), run 'taspr --help' to get started."
+            echo "After updating your PATH (see above), run 'sp --help' to get started."
         fi
     else
         error "Installation failed: binary not executable"
@@ -239,4 +239,4 @@ install_taspr() {
 }
 
 # Run the installation
-install_taspr
+install_spry

@@ -1,6 +1,6 @@
 import type { EnrichedPRUnit, PRStatus, StackParseResult } from "../types.ts";
 import type { UserPR } from "./commands/view.ts";
-import { getTasprConfig } from "../git/config.ts";
+import { getSpryConfig } from "../git/config.ts";
 
 const SEPARATOR = "─".repeat(72);
 
@@ -62,7 +62,7 @@ export async function formatStackView(
   branchName: string,
   commitCount: number,
 ): Promise<string> {
-  const config = await getTasprConfig();
+  const config = await getSpryConfig();
   const defaultBranchRef = `origin/${config.defaultBranch}`;
 
   if (units.length === 0) {
@@ -176,7 +176,7 @@ export function formatValidationError(result: Exclude<StackParseResult, { ok: tr
       }
       lines.push("");
       lines.push("  This can happen when fixup! commits are squashed into a group.");
-      lines.push("  To fix, run `taspr group --fix` to merge or dissolve the group.");
+      lines.push("  To fix, run `sp group --fix` to merge or dissolve the group.");
       break;
     }
   }

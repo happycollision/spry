@@ -104,7 +104,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR checks status", () =>
       await $`git -C ${repo.path} rm .github/workflows/ci.yml`.quiet();
       await $`git -C ${repo.path} commit -m "Remove CI workflow for testing"`.quiet();
 
-      // Push the branch and create PR manually (not using taspr sync since we need the workflow deleted)
+      // Push the branch and create PR manually (not using sp sync since we need the workflow deleted)
       await $`git -C ${repo.path} push origin ${branchName}`.quiet();
       const prCreateResult =
         await $`gh pr create --repo ${repo.github.owner}/${repo.github.repo} --head ${branchName} --title "Remove CI workflow" --body "Testing no CI"`.text();

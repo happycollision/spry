@@ -55,16 +55,16 @@ jobs:
 
           # Build with cross-compilation target
           if [ "$os" = "windows" ]; then
-            bun build src/cli/index.ts --compile --target=$BUN_TARGET --outfile dist/taspr-${{ matrix.target }}.exe
+            bun build src/cli/index.ts --compile --target=$BUN_TARGET --outfile dist/sp-${{ matrix.target }}.exe
           else
-            bun build src/cli/index.ts --compile --target=$BUN_TARGET --outfile dist/taspr-${{ matrix.target }}
+            bun build src/cli/index.ts --compile --target=$BUN_TARGET --outfile dist/sp-${{ matrix.target }}
           fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: taspr-${{ matrix.target }}
-          path: dist/taspr-${{ matrix.target }}*
+          name: sp-${{ matrix.target }}
+          path: dist/sp-${{ matrix.target }}*
 
   release:
     needs: build
@@ -82,7 +82,7 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release
-          find artifacts -type f -name 'taspr-*' -exec cp {} release/ \;
+          find artifacts -type f -name 'sp-*' -exec cp {} release/ \;
           ls -la release/
 
       - name: Extract release notes from changelog

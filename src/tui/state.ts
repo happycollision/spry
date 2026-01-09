@@ -10,7 +10,7 @@ export interface CommitDisplay {
   shortHash: string;
   /** Commit subject line */
   subject: string;
-  /** Taspr-Commit-Id if present */
+  /** Spry-Commit-Id if present */
   commitId?: string;
   /** Original group assignment from trailers */
   originalGroup?: string;

@@ -51,12 +51,12 @@ function arraysEqual(a: string[], b: string[]): boolean {
 }
 
 /**
- * Remove group trailers (Taspr-Group and legacy Taspr-Group-Title) from a message.
+ * Remove group trailers (Spry-Group and legacy Spry-Group-Title) from a message.
  */
 function stripGroupTrailers(message: string): string {
   return message
     .split("\n")
-    .filter((line) => !line.startsWith("Taspr-Group:") && !line.startsWith("Taspr-Group-Title:"))
+    .filter((line) => !line.startsWith("Spry-Group:") && !line.startsWith("Spry-Group-Title:"))
     .join("\n")
     .replace(/\n+$/, ""); // Trim trailing newlines
 }
@@ -66,7 +66,7 @@ function stripGroupTrailers(message: string): string {
  * Uses git plumbing when possible.
  *
  * The spec contains:
- * - order: Optional new order of commits (by hash or Taspr-Commit-Id)
+ * - order: Optional new order of commits (by hash or Spry-Commit-Id)
  * - groups: Array of {commits: string[], name: string} to create groups
  *
  * @param spec - The group specification
@@ -88,7 +88,7 @@ export async function applyGroupSpec(
   // Build ID to hash mapping for resolving references
   const idToHash = new Map<string, string>();
   for (const commit of commits) {
-    const id = commit.trailers["Taspr-Commit-Id"];
+    const id = commit.trailers["Spry-Commit-Id"];
     if (id) {
       idToHash.set(id, commit.hash);
     }
@@ -166,12 +166,12 @@ export async function applyGroupSpec(
     // Track title to save to ref storage
     groupTitlesToSave.push({ id: groupId, name: group.name });
 
-    // Add Taspr-Group trailer to ALL commits in the group
+    // Add Spry-Group trailer to ALL commits in the group
     for (const commitHash of group.commits) {
       const existing = trailerMap.get(commitHash) ?? {};
       trailerMap.set(commitHash, {
         ...existing,
-        "Taspr-Group": groupId,
+        "Spry-Group": groupId,
       });
     }
   }
@@ -179,7 +179,7 @@ export async function applyGroupSpec(
   // Check which commits currently have group trailers (to remove them)
   const commitsWithGroupTrailers = new Set<string>();
   for (const commit of commits) {
-    if (commit.trailers["Taspr-Group"] || commit.trailers["Taspr-Group-Title"]) {
+    if (commit.trailers["Spry-Group"] || commit.trailers["Spry-Group-Title"]) {
       commitsWithGroupTrailers.add(commit.hash);
     }
   }
@@ -345,7 +345,7 @@ export function parseGroupSpec(json: string): GroupSpec {
 export interface DissolveOptions extends GitOptions {
   /**
    * If specified, this commit (by hash) will be assigned the group's ID as its
-   * Taspr-Commit-Id, allowing it to inherit the group's PR association.
+   * Spry-Commit-Id, allowing it to inherit the group's PR association.
    *
    * This is only needed when the group has an open PR and you want a specific
    * commit to keep that PR. If the commit that originally donated its ID to
@@ -363,10 +363,10 @@ export interface DissolveOptions extends GitOptions {
  *
  * When a group is dissolved:
  * - If `assignGroupIdToCommit` is specified, that commit gets the group ID as its
- *   Taspr-Commit-Id (inheriting the group's PR). If a different commit originally
+ *   Spry-Commit-Id (inheriting the group's PR). If a different commit originally
  *   donated its ID to the group, that commit gets a new ID to avoid conflicts.
  * - If `assignGroupIdToCommit` is NOT specified, all commits keep their original
- *   Taspr-Commit-Ids (the commit that donated its ID keeps it).
+ *   Spry-Commit-Ids (the commit that donated its ID keeps it).
  */
 export async function dissolveGroup(
   groupId: string,
@@ -376,7 +376,7 @@ export async function dissolveGroup(
   const commits = await getStackCommitsWithTrailers(gitOptions);
 
   // Find commits belonging to this group
-  const groupCommits = commits.filter((c) => c.trailers["Taspr-Group"] === groupId);
+  const groupCommits = commits.filter((c) => c.trailers["Spry-Group"] === groupId);
 
   if (groupCommits.length === 0) {
     return { success: false, error: `Group ${groupId} not found` };
@@ -387,40 +387,40 @@ export async function dissolveGroup(
 
   for (const commit of commits) {
     // Check if this commit belongs to the group we're dissolving
-    if (commit.trailers["Taspr-Group"] === groupId) {
-      const commitId = commit.trailers["Taspr-Commit-Id"];
+    if (commit.trailers["Spry-Group"] === groupId) {
+      const commitId = commit.trailers["Spry-Commit-Id"];
       let message = await getCommitMessage(commit.hash, gitOptions);
 
       // Remove group trailers
       message = message
         .split("\n")
         .filter(
-          (line) => line !== `Taspr-Group: ${groupId}` && !line.startsWith("Taspr-Group-Title:"),
+          (line) => line !== `Spry-Group: ${groupId}` && !line.startsWith("Spry-Group-Title:"),
         )
         .join("\n")
         .replace(/\n+$/, "");
 
       if (assignGroupIdToCommit && commit.hash === assignGroupIdToCommit) {
         // This commit is being assigned the group ID (inheriting the PR)
-        // Remove existing Taspr-Commit-Id and add new one with group ID
+        // Remove existing Spry-Commit-Id and add new one with group ID
         message = message
           .split("\n")
-          .filter((line) => !line.startsWith("Taspr-Commit-Id:"))
+          .filter((line) => !line.startsWith("Spry-Commit-Id:"))
           .join("\n")
           .replace(/\n+$/, "");
-        message = await addTrailers(message, { "Taspr-Commit-Id": groupId });
+        message = await addTrailers(message, { "Spry-Commit-Id": groupId });
       } else if (assignGroupIdToCommit && commitId === groupId) {
         // This commit originally donated its ID to the group, but a DIFFERENT
         // commit is being assigned the group ID. Generate a new ID to avoid conflicts.
         const newId = generateCommitId();
         message = message
           .split("\n")
-          .filter((line) => !line.startsWith("Taspr-Commit-Id:"))
+          .filter((line) => !line.startsWith("Spry-Commit-Id:"))
           .join("\n")
           .replace(/\n+$/, "");
-        message = await addTrailers(message, { "Taspr-Commit-Id": newId });
+        message = await addTrailers(message, { "Spry-Commit-Id": newId });
       }
-      // else: Just remove group trailers, keep existing Taspr-Commit-Id
+      // else: Just remove group trailers, keep existing Spry-Commit-Id
 
       rewrites.set(commit.hash, message);
     }
@@ -446,7 +446,7 @@ export async function dissolveGroup(
 /**
  * Add group trailers to a commit (used for fixing split groups).
  * Uses git plumbing (no working directory modifications).
- * Adds Taspr-Group trailer and saves title to ref storage.
+ * Adds Spry-Group trailer and saves title to ref storage.
  */
 export async function addGroupTrailers(
   commitHash: string,
@@ -464,7 +464,7 @@ export async function addGroupTrailers(
   // Build rewrites map - only the target commit needs changes
   const rewrites = new Map<string, string>();
   let message = await getCommitMessage(targetCommit.hash, options);
-  message = await addTrailers(message, { "Taspr-Group": groupId });
+  message = await addTrailers(message, { "Spry-Group": groupId });
   rewrites.set(targetCommit.hash, message);
 
   // Get current branch and tip for finalization
@@ -487,7 +487,7 @@ export async function addGroupTrailers(
 /**
  * Remove group trailers from a specific commit.
  * Uses git plumbing (no working directory modifications).
- * Removes Taspr-Group and any legacy Taspr-Group-Title.
+ * Removes Spry-Group and any legacy Spry-Group-Title.
  */
 export async function removeGroupTrailers(
   commitHash: string,
@@ -508,7 +508,7 @@ export async function removeGroupTrailers(
   // Remove group trailers
   message = message
     .split("\n")
-    .filter((line) => line !== `Taspr-Group: ${groupId}` && !line.startsWith("Taspr-Group-Title:"))
+    .filter((line) => line !== `Spry-Group: ${groupId}` && !line.startsWith("Spry-Group-Title:"))
     .join("\n")
     .replace(/\n+$/, "");
 
@@ -560,7 +560,7 @@ export async function mergeSplitGroup(
   let firstCommitSubject = "";
 
   for (const commit of commits) {
-    if (commit.trailers["Taspr-Group"] === groupId) {
+    if (commit.trailers["Spry-Group"] === groupId) {
       groupCommitHashes.push(commit.hash);
       if (!firstCommitSubject) {
         firstCommitSubject = commit.subject;
@@ -613,11 +613,11 @@ export async function removeAllGroupTrailers(options: GitOptions = {}): Promise<
 
   // Find commits that have any group trailers and collect group IDs to delete
   const commitsWithGroupTrailers = commits.filter(
-    (c) => c.trailers["Taspr-Group"] || c.trailers["Taspr-Group-Title"],
+    (c) => c.trailers["Spry-Group"] || c.trailers["Spry-Group-Title"],
   );
   const groupIdsToDelete = new Set<string>();
   for (const commit of commitsWithGroupTrailers) {
-    const groupId = commit.trailers["Taspr-Group"];
+    const groupId = commit.trailers["Spry-Group"];
     if (groupId) {
       groupIdsToDelete.add(groupId);
     }
@@ -633,7 +633,7 @@ export async function removeAllGroupTrailers(options: GitOptions = {}): Promise<
   const rewrites = new Map<string, string>();
 
   for (const commit of commits) {
-    const hasGroupTrailers = commit.trailers["Taspr-Group"] || commit.trailers["Taspr-Group-Title"];
+    const hasGroupTrailers = commit.trailers["Spry-Group"] || commit.trailers["Spry-Group-Title"];
 
     if (hasGroupTrailers) {
       let message = await getCommitMessage(commit.hash, options);
@@ -641,9 +641,7 @@ export async function removeAllGroupTrailers(options: GitOptions = {}): Promise<
       // Remove all group trailers
       message = message
         .split("\n")
-        .filter(
-          (line) => !line.startsWith("Taspr-Group:") && !line.startsWith("Taspr-Group-Title:"),
-        )
+        .filter((line) => !line.startsWith("Spry-Group:") && !line.startsWith("Spry-Group-Title:"))
         .join("\n")
         .replace(/\n+$/, "");
 

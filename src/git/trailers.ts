@@ -2,9 +2,9 @@ import { $ } from "bun";
 import type { GitOptions } from "./commands.ts";
 
 export interface CommitTrailers {
-  "Taspr-Commit-Id"?: string;
+  "Spry-Commit-Id"?: string;
   /** Group ID - present on ALL commits in a group */
-  "Taspr-Group"?: string;
+  "Spry-Group"?: string;
   [key: string]: string | undefined;
 }
 

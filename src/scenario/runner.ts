@@ -2,7 +2,7 @@
  * Interactive scenario runner.
  *
  * Presents a menu of scenarios, creates the selected repo,
- * spawns a shell in the repo directory with taspr in PATH,
+ * spawns a shell in the repo directory with sp (spry) in PATH,
  * and cleans up on exit.
  *
  * Usage:
@@ -60,9 +60,9 @@ async function selectScenario(): Promise<ScenarioDefinition | null> {
 }
 
 /**
- * Get the path to the taspr dist directory.
+ * Get the path to the spry dist directory.
  */
-function getTasprPath(): string {
+function getSpryPath(): string {
   // This file is at src/scenario/runner.ts
   // Project root is two directories up
   const projectRoot = dirname(dirname(dirname(import.meta.path)));
@@ -70,10 +70,10 @@ function getTasprPath(): string {
 }
 
 /**
- * Spawn a shell in the scenario directory with taspr in PATH.
+ * Spawn a shell in the scenario directory with sp (spry) in PATH.
  */
 async function spawnShell(repo: LocalRepo, scenarioName: string): Promise<void> {
-  const tasprPath = getTasprPath();
+  const spryPath = getSpryPath();
 
   console.log("\n" + "=".repeat(60));
   console.log(`Scenario: ${scenarioName}`);
@@ -94,7 +94,7 @@ async function spawnShell(repo: LocalRepo, scenarioName: string): Promise<void> 
     stdio: "inherit",
     env: {
       ...process.env,
-      PATH: `${tasprPath}:${process.env.PATH}`,
+      PATH: `${spryPath}:${process.env.PATH}`,
     },
   });
 }
@@ -106,7 +106,7 @@ function printHelp(): void {
   console.log(`Usage: bun run scenario [<name>]
 
 Spin up a temporary git repo with a pre-configured scenario for testing.
-Spawns a shell in the repo with 'taspr' in PATH. Cleans up on exit.
+Spawns a shell in the repo with 'sp' in PATH. Cleans up on exit.
 
 Arguments:
   <name>    Scenario name (optional - shows interactive menu if omitted)

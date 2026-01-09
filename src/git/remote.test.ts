@@ -12,7 +12,7 @@ import type { PRUnit } from "../types.ts";
 
 const repos = repoManager();
 
-const testConfig: BranchNameConfig = { prefix: "taspr", username: "testuser" };
+const testConfig: BranchNameConfig = { prefix: "spry", username: "testuser" };
 
 describe("git/remote", () => {
   describe("getRemoteBranchCommit", () => {
@@ -29,11 +29,11 @@ describe("git/remote", () => {
       await repo.branch("feature");
 
       const commitHash = await repo.commit();
-      await pushBranch(commitHash, "taspr/testuser/abc123", false, { cwd: repo.path });
+      await pushBranch(commitHash, "spry/testuser/abc123", false, { cwd: repo.path });
 
       await repo.fetch();
 
-      const result = await getRemoteBranchCommit("taspr/testuser/abc123", { cwd: repo.path });
+      const result = await getRemoteBranchCommit("spry/testuser/abc123", { cwd: repo.path });
 
       expect(result).toBe(commitHash);
     });
@@ -57,7 +57,7 @@ describe("git/remote", () => {
 
       const status = await getSyncStatus(unit, testConfig, { cwd: repo.path });
 
-      expect(status.branchName).toBe("taspr/testuser/newbranch");
+      expect(status.branchName).toBe("spry/testuser/newbranch");
       expect(status.localCommit).toBe(commitHash);
       expect(status.remoteCommit).toBeNull();
       expect(status.needsCreate).toBe(true);
@@ -69,7 +69,7 @@ describe("git/remote", () => {
       await repo.branch("feature");
 
       const firstCommit = await repo.commit();
-      await pushBranch(firstCommit, "taspr/testuser/updateme", false, { cwd: repo.path });
+      await pushBranch(firstCommit, "spry/testuser/updateme", false, { cwd: repo.path });
 
       // Make a new local commit (simulating amend/rebase)
       const secondCommit = await repo.commit();
@@ -87,7 +87,7 @@ describe("git/remote", () => {
 
       const status = await getSyncStatus(unit, testConfig, { cwd: repo.path });
 
-      expect(status.branchName).toBe("taspr/testuser/updateme");
+      expect(status.branchName).toBe("spry/testuser/updateme");
       expect(status.localCommit).toBe(secondCommit);
       expect(status.remoteCommit).toBe(firstCommit);
       expect(status.needsCreate).toBe(false);
@@ -99,7 +99,7 @@ describe("git/remote", () => {
       await repo.branch("feature");
 
       const commitHash = await repo.commit();
-      await pushBranch(commitHash, "taspr/testuser/synced", false, { cwd: repo.path });
+      await pushBranch(commitHash, "spry/testuser/synced", false, { cwd: repo.path });
 
       await repo.fetch();
 
@@ -114,7 +114,7 @@ describe("git/remote", () => {
 
       const status = await getSyncStatus(unit, testConfig, { cwd: repo.path });
 
-      expect(status.branchName).toBe("taspr/testuser/synced");
+      expect(status.branchName).toBe("spry/testuser/synced");
       expect(status.localCommit).toBe(commitHash);
       expect(status.remoteCommit).toBe(commitHash);
       expect(status.needsCreate).toBe(false);
@@ -131,7 +131,7 @@ describe("git/remote", () => {
       const commit2 = await repo.commit();
 
       // Push only the first commit's branch
-      await pushBranch(commit1, "taspr/testuser/unit1", false, { cwd: repo.path });
+      await pushBranch(commit1, "spry/testuser/unit1", false, { cwd: repo.path });
 
       const units: PRUnit[] = [
         {

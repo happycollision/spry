@@ -2,7 +2,7 @@ import { $ } from "bun";
 import type { CommitInfo } from "../types.ts";
 import { parseTrailers } from "./trailers.ts";
 import type { CommitWithTrailers } from "../core/stack.ts";
-import { getDefaultBranchRef, getTasprConfig } from "./config.ts";
+import { getDefaultBranchRef, getSpryConfig } from "./config.ts";
 
 export interface GitOptions {
   cwd?: string;
@@ -27,9 +27,9 @@ export async function getMergeBase(options: GitOptions = {}): Promise<string> {
       ? await $`git -C ${cwd} rev-parse --verify ${defaultBranchRef} 2>/dev/null`.nothrow()
       : await $`git rev-parse --verify ${defaultBranchRef} 2>/dev/null`.nothrow();
     if (remoteCheck.exitCode !== 0) {
-      const config = await getTasprConfig();
+      const config = await getSpryConfig();
       throw new Error(
-        `No ${defaultBranchRef} branch found. Please ensure you have a remote named 'origin' with a '${config.defaultBranch}' branch, or set a different default branch with: git config taspr.defaultBranch <branch>`,
+        `No ${defaultBranchRef} branch found. Please ensure you have a remote named 'origin' with a '${config.defaultBranch}' branch, or set a different default branch with: git config spry.defaultBranch <branch>`,
       );
     }
     throw new Error(`Failed to find merge-base with ${defaultBranchRef}`);

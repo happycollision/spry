@@ -1,4 +1,4 @@
-# taspr
+# Spry
 
 A CLI tool for managing **stacked pull requests** on GitHub. Organize related commits as interdependent PRs, where each PR builds on the previous one—enabling incremental code review for large features.
 
@@ -9,7 +9,7 @@ Traditional PR workflows force you to either:
 - Submit one massive PR that's hard to review
 - Manually manage dependent branches and rebase chains
 
-Taspr automates the stacked PR workflow:
+Spry automates the stacked PR workflow:
 
 - Each commit (or group of commits) becomes its own PR
 - PRs are automatically chained with proper base branches
@@ -21,28 +21,28 @@ Taspr automates the stacked PR workflow:
 ### Quick Install (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/happycollision/taspr/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/happycollision/spry/main/install.sh | bash
 ```
 
-This downloads the latest stable release and installs it to `~/.taspr/bin`.
+This downloads the latest stable release and installs it to `~/.spry/bin`.
 
 ```bash
 # Install a specific version
-curl -fsSL https://raw.githubusercontent.com/happycollision/taspr/main/install.sh | bash -s -- v0.1.0
+curl -fsSL https://raw.githubusercontent.com/happycollision/spry/main/install.sh | bash -s -- v0.1.0
 
 # Install the latest prerelease
-curl -fsSL https://raw.githubusercontent.com/happycollision/taspr/main/install.sh | bash -s -- --prerelease
+curl -fsSL https://raw.githubusercontent.com/happycollision/spry/main/install.sh | bash -s -- --prerelease
 
 # Custom install directory
-TASPR_INSTALL_DIR=/opt/taspr curl -fsSL https://raw.githubusercontent.com/happycollision/taspr/main/install.sh | bash
+SPRY_INSTALL_DIR=/opt/spry curl -fsSL https://raw.githubusercontent.com/happycollision/spry/main/install.sh | bash
 ```
 
 ### Build from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/happycollision/taspr.git
-cd taspr
+git clone https://github.com/happycollision/spry.git
+cd spry
 
 # Install dependencies
 bun install
@@ -51,13 +51,13 @@ bun install
 bun run build
 ```
 
-This creates `./dist/taspr` as a compiled executable. Move it where you like and add it to your PATH or create an alias.
+This creates `./dist/sp` as a compiled executable. Move it where you like and add it to your PATH or create an alias.
 
 On Linux or macOS, it would be something like this:
 
 ```bash
 # Add to your ~/.bashrc, ~/.zshrc, or similar
-alias taspr='/path/to/taspr/dir'
+alias sp='/path/to/spry/dir'
 ```
 
 If you are developing, perhaps you want to point to this dist folder in your current terminal session. Copy/pasting the line below should do it.
@@ -82,67 +82,67 @@ git commit -m "Add user API endpoints"
 git commit -m "Add user tests"
 
 # 2. View your stack
-taspr view
+sp view
 
 # 3. Sync with GitHub and create PRs
-taspr sync --open
+sp sync --open
 
 # 4. When the first PR is approved, land it
-taspr land
+sp land
 ```
 
 ## Commands
 
-### `taspr view`
+### `sp view`
 
 Display the current stack of commits and their PR status.
 
 ```bash
-taspr view          # View stack for current branch
-taspr view --all    # View all your open PRs across branches
+sp view          # View stack for current branch
+sp view --all    # View all your open PRs across branches
 ```
 
 Output shows:
 
-- Commit messages and their taspr IDs
+- Commit messages and their Spry IDs
 - PR numbers and status (open, merged, closed)
 - PR health: CI checks, review status, comments
 - Grouped commits displayed together
 
-### `taspr sync`
+### `sp sync`
 
 Synchronize your local stack with GitHub.
 
 ```bash
 # Push branches only
-taspr sync
+sp sync
 
 # Push branches and create/update PRs
-taspr sync --open
+sp sync --open
 ```
 
 This command:
 
 1. Validates your working tree is clean
-2. Adds `Taspr-Commit-Id` trailers to commits (via interactive rebase)
+2. Adds `Spry-Commit-Id` trailers to commits (via interactive rebase)
 3. Pushes each branch to the remote
 4. Creates or updates PRs (with `--open` flag)
 5. Automatically retargets open PRs when earlier branches are merged
 6. Cleans up merged PRs and orphaned branches
 
-### `taspr land`
+### `sp land`
 
 Merge ready PRs from your stack into main.
 
 ```bash
 # Merge the bottom-most ready PR
-taspr land
+sp land
 
 # Merge all consecutive ready PRs from the bottom
-taspr land --all
+sp land --all
 ```
 
-Before merging, `taspr land` validates:
+Before merging, `sp land` validates:
 
 - CI checks are passing
 - Required reviews are approved
@@ -153,12 +153,12 @@ After merging:
 - Dependent PRs are automatically retargeted to the new base
 - Remote branches are cleaned up
 
-### `taspr group`
+### `sp group`
 
 Interactive TUI for grouping multiple commits into a single PR.
 
 ```bash
-taspr group
+sp group
 ```
 
 **Keyboard controls:**
@@ -176,95 +176,95 @@ taspr group
 
 ```bash
 # Apply grouping via JSON specification
-taspr group --apply '{"order": ["abc123", "def456"], "groups": [{"commits": ["abc123", "def456"], "name": "Feature X"}]}'
+sp group --apply '{"order": ["abc123", "def456"], "groups": [{"commits": ["abc123", "def456"], "name": "Feature X"}]}'
 ```
 
 **Repair invalid groups:**
 
 ```bash
 # Interactive repair
-taspr group --fix
+sp group --fix
 
 # Non-interactive: dissolve problematic groups
-taspr group --fix dissolve
+sp group --fix dissolve
 ```
 
-### `taspr group dissolve`
+### `sp group dissolve`
 
 Remove grouping from commits, turning them back into individual PRs.
 
 ```bash
 # Interactive: select groups to dissolve
-taspr group dissolve
+sp group dissolve
 
 # Dissolve a specific group
-taspr group dissolve <group-id>
+sp group dissolve <group-id>
 
 # Specify which commit inherits the existing PR
-taspr group dissolve <group-id> --inherit <commit>
+sp group dissolve <group-id> --inherit <commit>
 
 # Don't inherit the PR to any commit
-taspr group dissolve <group-id> --no-inherit
+sp group dissolve <group-id> --no-inherit
 ```
 
-### `taspr clean`
+### `sp clean`
 
 Find and remove orphaned branches that have been merged.
 
 ```bash
 # Preview what would be cleaned
-taspr clean --dry-run
+sp clean --dry-run
 
 # Delete orphaned branches
-taspr clean
+sp clean
 
 # Force delete branches detected by commit-id (may lose original content)
-taspr clean --force
+sp clean --force
 ```
 
 ## Core Concepts
 
 ### Commit Trailers
 
-Taspr uses git trailers (metadata in commit messages) for tracking:
+Spry uses git trailers (metadata in commit messages) for tracking:
 
 ```
 feat: Add user authentication
 
 Implements JWT-based auth with refresh tokens.
 
-Taspr-Commit-Id: a1b2c3d4
+Spry-Commit-Id: a1b2c3d4
 ```
 
-Trailers are added automatically by `taspr sync`.
+Trailers are added automatically by `sp sync`.
 
 ### Grouping Commits
 
-You can group multiple commits into a single PR using `taspr group` (recommended) or manually via trailers:
+You can group multiple commits into a single PR using `sp group` (recommended) or manually via trailers:
 
-All grouped commits become one PR when you `taspr sync --open`.
+All grouped commits become one PR when you `sp sync --open`.
 
 ## Configuration
 
 Configure via git config:
 
 ```bash
-# Custom branch prefix (default: "taspr")
-git config taspr.branchPrefix my-prefix
+# Custom branch prefix (default: "spry")
+git config spry.branchPrefix my-prefix
 
 # Custom default branch (auto-detected if not set)
-git config taspr.defaultBranch main
+git config spry.defaultBranch main
 
 # Temporary commit prefixes (default: "WIP,fixup!,amend!,squash!")
-git config taspr.tempCommitPrefixes "WIP,DRAFT,TODO"
+git config spry.tempCommitPrefixes "WIP,DRAFT,TODO"
 
 # Disable temp commit detection (create PRs for all commits)
-git config taspr.tempCommitPrefixes ""
+git config spry.tempCommitPrefixes ""
 ```
 
 ### Temporary Commits
 
-Commits with certain prefixes are considered "temporary" and won't automatically get PRs created during `taspr sync --open`. This is useful for:
+Commits with certain prefixes are considered "temporary" and won't automatically get PRs created during `sp sync --open`. This is useful for:
 
 - **WIP commits**: Work you're not ready to review yet
 - **fixup!/amend!/squash! commits**: Commits meant to be squashed during interactive rebase
@@ -287,12 +287,12 @@ Commits with certain prefixes are considered "temporary" and won't automatically
 ```bash
 # Example: WIP commit won't get a PR
 git commit -m "WIP: experimenting with new caching approach"
-taspr sync --open
+sp sync --open
 # Output: ⚠ Skipped PR for 1 temporary commit(s)
 
 # Later, when ready, amend the commit message
 git commit --amend -m "Add new caching approach"
-taspr sync --open
+sp sync --open
 # Now creates a PR
 ```
 
@@ -311,7 +311,7 @@ When you need to fix an earlier commit in your stack, use git's `--fixup` flag. 
 git commit --fixup "Add user model"
 
 # Sync - the fixup commit pushes but doesn't get a PR
-taspr sync --open
+sp sync --open
 # Output: ⚠ Skipped PR for 1 temporary commit(s):
 #   fixup! Add user model
 
@@ -320,7 +320,7 @@ git rebase -i --autosquash origin/main
 # The fixup commit automatically moves next to "Add user model" and squashes
 
 # Sync again to update PR #1 with the fix
-taspr sync
+sp sync
 ```
 
 **Alternative: Adding fixup! commits to an existing PR:**
@@ -334,17 +334,17 @@ Some teams prefer reviewers to see fixup! commits that address feedback, rather 
 # Create a fixup commit
 git commit --fixup "Add user model"
 
-# Group the fixup! commit with the original using taspr group
-taspr group
+# Group the fixup! commit with the original using sp group
+sp group
 # Select both "Add user model" and "fixup! Add user model" in the TUI
 
 # Sync - now the fixup! commit is part of PR #1
-taspr sync
+sp sync
 # Reviewer can see exactly what changed in response to feedback
 
 # Later, when approved, squash before merging
 git rebase -i --autosquash origin/main
-taspr sync
+sp sync
 ```
 
 ## Workflow Examples
@@ -362,11 +362,11 @@ git commit -m "Add user API"
 git commit -m "Add user tests"
 
 # View the stack
-taspr view
+sp view
 # Shows 4 commits, each will become a PR
 
 # Create the PRs
-taspr sync --open
+sp sync --open
 # Creates 4 stacked PRs:
 # PR #1: Add database migrations (base: main)
 # PR #2: Add user model (base: PR #1's branch)
@@ -378,14 +378,14 @@ git rebase -i HEAD~4
 # ... make changes ...
 
 # Sync again to update PRs
-taspr sync
+sp sync
 
 # When PR #1 is approved, land it
-taspr land
+sp land
 # PR #1 merges to main, PR #2 is retargeted to main
 
 # Land all remaining ready PRs
-taspr land --all
+sp land --all
 ```
 
 ### Grouping Related Commits
@@ -397,23 +397,23 @@ git commit -m "Add auth middleware"
 git commit -m "Add auth routes"
 
 # Group them into one PR
-taspr group
+sp group
 # Use ←/→ to assign all three commits to group "A"
 # Press Enter to confirm
 
 # Sync creates a single PR for the group
-taspr sync --open
+sp sync --open
 ```
 
 ### Managing many branches/stacks
 
 ```bash
 # View all your open PRs across branches
-taspr view --all
+sp view --all
 
 # Clean up merged branches
-taspr clean --dry-run  # Preview first
-taspr clean            # Delete orphaned branches
+sp clean --dry-run  # Preview first
+sp clean            # Delete orphaned branches
 ```
 
 ## Development

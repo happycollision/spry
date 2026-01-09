@@ -3,14 +3,14 @@ import { $ } from "bun";
 import { repoManager } from "../helpers/local-repo.ts";
 import { scenarios } from "../../src/scenario/definitions.ts";
 import { createStory } from "../helpers/story.ts";
-import { runTaspr } from "./helpers.ts";
+import { runSpry } from "./helpers.ts";
 
 /**
- * Run taspr group --fix command.
+ * Run sp group --fix command.
  */
 async function runGroupFix(cwd: string, mode?: string) {
   const args = mode ? [`--fix=${mode}`] : ["--fix"];
-  return runTaspr(cwd, "group", args);
+  return runSpry(cwd, "group", args);
 }
 
 /**
@@ -20,7 +20,7 @@ async function getCommitTrailers(cwd: string, count: number): Promise<string> {
   return await $`git -C ${cwd} log --format=%s%n%b--- HEAD~${count}..HEAD`.text();
 }
 
-describe("taspr group --fix", () => {
+describe("sp group --fix", () => {
   const repos = repoManager();
   const story = createStory("group-fix.test.ts");
 
@@ -30,7 +30,7 @@ describe("taspr group --fix", () => {
 
   test("reports valid stack when no issues found", async () => {
     story.begin("reports valid stack when no issues found");
-    story.narrate("When all groups in a stack are valid, taspr group --fix reports no issues.");
+    story.narrate("When all groups in a stack are valid, sp group --fix reports no issues.");
 
     const repo = await repos.create();
     await scenarios.withGroups.setup(repo);
@@ -56,7 +56,7 @@ describe("taspr group --fix", () => {
 
     // Verify initial state has split group trailers
     const beforeTrailers = await getCommitTrailers(repo.path, 3);
-    expect(beforeTrailers).toContain("Taspr-Group: group-split");
+    expect(beforeTrailers).toContain("Spry-Group: group-split");
 
     // In non-TTY mode, --fix falls back to dissolve behavior
     const result = await runGroupFix(repo.path);
@@ -69,8 +69,8 @@ describe("taspr group --fix", () => {
 
     // Verify group trailers are removed
     const afterTrailers = await getCommitTrailers(repo.path, 3);
-    expect(afterTrailers).not.toContain("Taspr-Group:");
-    expect(afterTrailers).toContain("Taspr-Commit-Id"); // Should preserve commit IDs
+    expect(afterTrailers).not.toContain("Spry-Group:");
+    expect(afterTrailers).toContain("Spry-Commit-Id"); // Should preserve commit IDs
   });
 
   test("handles empty stack gracefully", async () => {
@@ -90,10 +90,10 @@ describe("taspr group --fix", () => {
 
   test("handles stack without any group trailers", async () => {
     story.begin("handles stack without any group trailers");
-    story.narrate("A stack with Taspr-Commit-Id trailers but no groups is valid.");
+    story.narrate("A stack with Spry-Commit-Id trailers but no groups is valid.");
 
     const repo = await repos.create();
-    await scenarios.withTasprIds.setup(repo);
+    await scenarios.withSpryIds.setup(repo);
 
     const result = await runGroupFix(repo.path);
     story.log(result);
@@ -122,7 +122,7 @@ describe("taspr group --fix", () => {
 
     // Verify group trailers are removed
     const afterTrailers = await getCommitTrailers(repo.path, 3);
-    expect(afterTrailers).not.toContain("Taspr-Group:");
-    expect(afterTrailers).toContain("Taspr-Commit-Id"); // Should preserve commit IDs
+    expect(afterTrailers).not.toContain("Spry-Group:");
+    expect(afterTrailers).toContain("Spry-Commit-Id"); // Should preserve commit IDs
   });
 });

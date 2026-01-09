@@ -14,8 +14,8 @@ export type IdentifierResolution =
  * The identifier can be:
  * - A full git commit hash
  * - A short git commit hash (7-8 chars)
- * - A Taspr-Commit-Id
- * - A group ID (from Taspr-Group trailer)
+ * - A Spry-Commit-Id
+ * - A group ID (from Spry-Group trailer)
  *
  * @param identifier - The identifier to resolve
  * @param units - The parsed PRUnits from the stack
@@ -26,7 +26,7 @@ export function resolveIdentifier(
   units: PRUnit[],
   commits: CommitInfo[],
 ): IdentifierResolution {
-  // First try: exact match on unit ID (handles Taspr-Commit-Id and group IDs)
+  // First try: exact match on unit ID (handles Spry-Commit-Id and group IDs)
   const exactMatch = units.find((u) => u.id === identifier);
   if (exactMatch) {
     return { ok: true, unit: exactMatch };
