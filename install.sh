@@ -220,13 +220,19 @@ install_taspr() {
                 ;;
         esac
         echo ""
+    else
+        info "$BIN_DIR is already in your PATH"
     fi
 
     # Verify installation
     if [ -x "$target_path" ]; then
         success "Installation complete!"
         echo ""
-        echo "Run 'taspr --help' to get started."
+        if [[ ":$PATH:" == *":$BIN_DIR:"* ]]; then
+            echo "Run 'taspr --help' to get started."
+        else
+            echo "After updating your PATH (see above), run 'taspr --help' to get started."
+        fi
     else
         error "Installation failed: binary not executable"
     fi

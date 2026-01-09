@@ -103,3 +103,23 @@ bun --hot ./index.ts
 ```
 
 For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+
+## Releasing
+
+Use the release script to cut a new version:
+
+```bash
+./scripts/release.sh 0.1.0-alpha.5
+```
+
+This will:
+1. Validate the version format (semver with optional prerelease)
+2. Check that there are no uncommitted changes
+3. Verify the version is newer than the latest tag (use `--force` to bypass)
+4. Update `package.json` version
+5. Commit the version bump
+6. Create and push the git tag
+
+The GitHub workflow automatically builds binaries for all platforms and creates a release.
+
+**Version format:** `X.Y.Z` or `X.Y.Z-prerelease` (e.g., `0.1.0`, `0.1.0-alpha.4`, `1.0.0-beta.1`)

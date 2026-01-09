@@ -5,10 +5,14 @@ import { syncCommand } from "./commands/sync.ts";
 import { landCommand } from "./commands/land.ts";
 import { cleanCommand } from "./commands/clean.ts";
 import { groupCommand, dissolveCommand } from "./commands/group.ts";
+import packageJson from "../../package.json";
 
 const program = new Command();
 
-program.name("taspr").description("CLI tool for managing stacked PRs on GitHub").version("0.1.0");
+program
+  .name("taspr")
+  .description("CLI tool for managing stacked PRs on GitHub")
+  .version(packageJson.version);
 
 program
   .command("view")
