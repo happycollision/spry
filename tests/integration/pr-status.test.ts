@@ -1,20 +1,31 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, afterAll } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../helpers/local-repo.ts";
+import { createStory } from "../helpers/story.ts";
 import { SKIP_GITHUB_TESTS, SKIP_CI_TESTS, runSync } from "./helpers.ts";
 import { getPRChecksStatus, getPRReviewStatus, getPRCommentStatus } from "../../src/github/pr.ts";
 
 describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR checks status", () => {
   const repos = repoManager({ github: true });
+  const story = createStory("pr-status.test.ts");
+
+  afterAll(async () => {
+    await story.flush();
+  });
 
   test.skipIf(SKIP_CI_TESTS)(
     "returns 'passing' for PR with passing CI checks",
     async () => {
+      story.begin("returns 'passing' for PR with passing CI checks", repos.uniqueId);
+      story.narrate("After CI passes on a PR, getPRChecksStatus returns 'passing'.");
+
       const repo = await repos.clone({ testName: "checks-pass" });
       await repo.branch("feature/checks-pass");
       await repo.commit();
 
       const syncResult = await runSync(repo.path, { open: true });
+      story.log(syncResult);
+      story.end();
       expect(syncResult.exitCode).toBe(0);
 
       const pr = await repo.findPR(repo.uniqueId);
@@ -32,11 +43,16 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR checks status", () =>
   test.skipIf(SKIP_CI_TESTS)(
     "returns 'failing' for PR with failing CI checks",
     async () => {
+      story.begin("returns 'failing' for PR with failing CI checks", repos.uniqueId);
+      story.narrate("When CI fails on a PR, getPRChecksStatus returns 'failing'.");
+
       const repo = await repos.clone({ testName: "checks-fail" });
       await repo.branch("feature/checks-fail");
       await repo.commit({ message: "[FAIL_CI] trigger CI failure" });
 
       const syncResult = await runSync(repo.path, { open: true });
+      story.log(syncResult);
+      story.end();
       expect(syncResult.exitCode).toBe(0);
 
       const pr = await repo.findPR(repo.uniqueId);
@@ -54,11 +70,16 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR checks status", () =>
   test.skipIf(SKIP_CI_TESTS)(
     "returns 'pending' for PR with running CI checks",
     async () => {
+      story.begin("returns 'pending' for PR with running CI checks", repos.uniqueId);
+      story.narrate("While CI is still running on a PR, getPRChecksStatus returns 'pending'.");
+
       const repo = await repos.clone({ testName: "checks-pending" });
       await repo.branch("feature/checks-pending");
       await repo.commit({ message: "[CI_SLOW_TEST] slow commit" });
 
       const syncResult = await runSync(repo.path, { open: true });
+      story.log(syncResult);
+      story.end();
       expect(syncResult.exitCode).toBe(0);
 
       const pr = await repo.findPR(repo.uniqueId);

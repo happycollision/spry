@@ -1,14 +1,25 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, afterAll } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../helpers/local-repo.ts";
+import { createStory } from "../helpers/story.ts";
 import { SKIP_GITHUB_TESTS, SKIP_CI_TESTS, runSync, runLand } from "./helpers.ts";
 
 describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
   const repos = repoManager({ github: true });
+  const story = createStory("land.test.ts");
+
+  afterAll(async () => {
+    await story.flush();
+  });
 
   test.skipIf(SKIP_CI_TESTS)(
     "lands a single PR and deletes the branch",
     async () => {
+      story.begin("lands a single PR and deletes the branch", repos.uniqueId);
+      story.narrate(
+        "When you run `taspr land` on a branch with an approved PR, it merges to main and cleans up the remote branch.",
+      );
+
       const repo = await repos.clone({ testName: "land" });
       await repo.branch("feature/land-test");
       await repo.commit();
@@ -25,6 +36,8 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
 
       // Run taspr land
       const landResult = await runLand(repo.path);
+      story.log(landResult);
+      story.end();
 
       expect(landResult.exitCode).toBe(0);
       expect(landResult.stdout).toContain(`Merging PR #${pr.number}`);
@@ -167,6 +180,11 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
   test(
     "reports no open PRs when stack has no PRs",
     async () => {
+      story.begin("reports no open PRs when stack has no PRs", repos.uniqueId);
+      story.narrate(
+        "If you try to land a stack that has no open PRs, taspr tells you there's nothing to land.",
+      );
+
       const repo = await repos.clone({ testName: "no-pr" });
       await repo.branch("feature/no-pr-test");
       await repo.commit();
@@ -177,6 +195,8 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
 
       // Try to land - should report no open PRs
       const landResult = await runLand(repo.path);
+      story.log(landResult);
+      story.end();
 
       expect(landResult.exitCode).toBe(0);
       expect(landResult.stdout).toContain("No open PRs in stack");

@@ -1,18 +1,31 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, afterAll } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../helpers/local-repo.ts";
+import { createStory } from "../helpers/story.ts";
 import { SKIP_GITHUB_TESTS, SKIP_CI_TESTS, runSync, runClean } from "./helpers.ts";
 
 describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
   const repos = repoManager({ github: true });
+  const story = createStory("clean.test.ts");
+
+  afterAll(async () => {
+    await story.flush();
+  });
 
   test(
     "reports no orphaned branches when none exist",
     async () => {
+      story.begin("reports no orphaned branches when none exist", repos.uniqueId);
+      story.narrate(
+        "When there are no merged PRs with leftover branches, taspr clean reports nothing to clean up.",
+      );
+
       const repo = await repos.clone({ testName: "no-orphans" });
 
       // Run clean without any orphaned branches
       const result = await runClean(repo.path);
+      story.log(result);
+      story.end();
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("No orphaned branches found");
@@ -23,6 +36,11 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
   test(
     "--dry-run shows orphaned branches without deleting",
     async () => {
+      story.begin("--dry-run shows orphaned branches without deleting", repos.uniqueId);
+      story.narrate(
+        "The --dry-run flag lets you preview which branches would be cleaned up without actually deleting them.",
+      );
+
       const repo = await repos.clone({ testName: "dry-run" });
       await repo.branch("feature/clean-dry-run");
       await repo.commit();
@@ -45,7 +63,10 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
       await repo.fetch();
 
       // Run clean with --dry-run
+      story.narrate("After merging the PR but leaving the branch, run clean with --dry-run:");
       const cleanResult = await runClean(repo.path, { dryRun: true });
+      story.log(cleanResult);
+      story.end();
 
       expect(cleanResult.exitCode).toBe(0);
       expect(cleanResult.stdout).toContain("Found");
@@ -64,6 +85,11 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
   test.skipIf(SKIP_CI_TESTS)(
     "deletes orphaned branches from merged PRs",
     async () => {
+      story.begin("deletes orphaned branches from merged PRs", repos.uniqueId);
+      story.narrate(
+        "When a PR is merged but the branch wasn't deleted, taspr clean removes the orphaned remote branch.",
+      );
+
       const repo = await repos.clone({ testName: "delete" });
       await repo.branch("feature/clean-delete");
       await repo.commit();
@@ -89,7 +115,10 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
       await repo.fetch();
 
       // Run clean (without --dry-run)
+      story.narrate("After merging and leaving the branch orphaned, run clean:");
       const cleanResult = await runClean(repo.path);
+      story.log(cleanResult);
+      story.end();
 
       expect(cleanResult.exitCode).toBe(0);
       expect(cleanResult.stdout).toContain("Deleted");
@@ -105,6 +134,11 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
   test(
     "detects multiple orphaned branches",
     async () => {
+      story.begin("detects multiple orphaned branches", repos.uniqueId);
+      story.narrate(
+        "When multiple PRs are merged with branches left behind, taspr clean detects all of them.",
+      );
+
       const repo = await repos.clone({ testName: "multi" });
       await repo.branch("feature/clean-multi");
       await repo.commit();
@@ -136,7 +170,10 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
       await repo.fetch();
 
       // Run clean with --dry-run to see both branches
+      story.narrate("After merging both PRs with branches left behind:");
       const cleanResult = await runClean(repo.path, { dryRun: true });
+      story.log(cleanResult);
+      story.end();
 
       expect(cleanResult.exitCode).toBe(0);
       expect(cleanResult.stdout).toContain("Found 2 merged branch");
@@ -149,6 +186,15 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
   test(
     "detects orphaned branches when commit is amended and pushed to main directly",
     async () => {
+      story.begin(
+        "detects orphaned branches when commit is amended and pushed to main directly",
+        repos.uniqueId,
+      );
+      story.narrate(
+        "When a commit is amended and pushed directly to main (bypassing the PR), " +
+          "taspr clean can still detect the orphaned branch via the Taspr-Commit-Id trailer.",
+      );
+
       // This tests the scenario where:
       // 1. User creates a commit with taspr sync --open (creates branch with Taspr-Commit-Id)
       // 2. User amends the commit locally (SHA changes, but trailer preserved)
@@ -204,7 +250,11 @@ Taspr-Commit-Id: ${commitId}"`.quiet();
       expect(isAncestor.exitCode).not.toBe(0); // Should NOT be an ancestor
 
       // Run clean with --dry-run - should detect via commit-id trailer
+      story.narrate(
+        "The branch SHA differs from main but shares the same Taspr-Commit-Id. With --dry-run:",
+      );
       const cleanResult = await runClean(repo.path, { dryRun: true });
+      story.log(cleanResult);
 
       expect(cleanResult.exitCode).toBe(0);
       expect(cleanResult.stdout).toContain("commit-id");
@@ -212,7 +262,9 @@ Taspr-Commit-Id: ${commitId}"`.quiet();
       expect(cleanResult.stdout).toContain(pr.headRefName);
 
       // Run clean WITHOUT --force - should skip this branch
+      story.narrate("Without --force, the branch is skipped:");
       const cleanNoForce = await runClean(repo.path);
+      story.log(cleanNoForce);
       expect(cleanNoForce.exitCode).toBe(0);
       expect(cleanNoForce.stdout).toContain("Skipped");
       expect(cleanNoForce.stdout).toContain("--force");
@@ -223,7 +275,11 @@ Taspr-Commit-Id: ${commitId}"`.quiet();
       expect(branchStillExists.exitCode).toBe(0);
 
       // Run clean WITH --force - should delete the branch
+      story.narrate("With --force, the branch is deleted:");
       const cleanWithForce = await runClean(repo.path, { force: true });
+      story.log(cleanWithForce);
+      story.end();
+
       expect(cleanWithForce.exitCode).toBe(0);
       expect(cleanWithForce.stdout).toContain("Deleted");
       expect(cleanWithForce.stdout).toContain("forced");

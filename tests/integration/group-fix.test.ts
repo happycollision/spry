@@ -1,16 +1,14 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, afterAll } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../helpers/local-repo.ts";
 import { scenarios } from "../../src/scenario/definitions.ts";
+import { createStory } from "../helpers/story.ts";
 import { runTaspr } from "./helpers.ts";
 
 /**
  * Run taspr group --fix command.
  */
-async function runGroupFix(
-  cwd: string,
-  mode?: string,
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+async function runGroupFix(cwd: string, mode?: string) {
   const args = mode ? [`--fix=${mode}`] : ["--fix"];
   return runTaspr(cwd, "group", args);
 }
@@ -24,12 +22,22 @@ async function getCommitTrailers(cwd: string, count: number): Promise<string> {
 
 describe("taspr group --fix", () => {
   const repos = repoManager();
+  const story = createStory("group-fix.test.ts");
+
+  afterAll(async () => {
+    await story.flush();
+  });
 
   test("reports valid stack when no issues found", async () => {
+    story.begin("reports valid stack when no issues found");
+    story.narrate("When all groups in a stack are valid, taspr group --fix reports no issues.");
+
     const repo = await repos.create();
     await scenarios.withGroups.setup(repo);
 
     const result = await runGroupFix(repo.path);
+    story.log(result);
+    story.end();
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("No invalid groups found");
@@ -37,6 +45,12 @@ describe("taspr group --fix", () => {
   });
 
   test("fixes split group by dissolving in non-TTY mode", async () => {
+    story.begin("fixes split group by dissolving in non-TTY mode");
+    story.narrate(
+      "A 'split group' occurs when commits with the same group ID are not contiguous. " +
+        "In non-TTY mode, --fix automatically dissolves the group by removing trailers.",
+    );
+
     const repo = await repos.create();
     await scenarios.splitGroup.setup(repo);
 
@@ -46,6 +60,8 @@ describe("taspr group --fix", () => {
 
     // In non-TTY mode, --fix falls back to dissolve behavior
     const result = await runGroupFix(repo.path);
+    story.log(result);
+    story.end();
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Split group");
@@ -58,30 +74,47 @@ describe("taspr group --fix", () => {
   });
 
   test("handles empty stack gracefully", async () => {
+    story.begin("handles empty stack gracefully");
+    story.narrate("Running group --fix on a branch with no commits above main exits cleanly.");
+
     const repo = await repos.create();
     await scenarios.emptyStack.setup(repo);
 
     const result = await runGroupFix(repo.path);
+    story.log(result);
+    story.end();
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("No commits in stack");
   });
 
   test("handles stack without any group trailers", async () => {
+    story.begin("handles stack without any group trailers");
+    story.narrate("A stack with Taspr-Commit-Id trailers but no groups is valid.");
+
     const repo = await repos.create();
     await scenarios.withTasprIds.setup(repo);
 
     const result = await runGroupFix(repo.path);
+    story.log(result);
+    story.end();
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("No invalid groups found");
   });
 
   test("--fix=dissolve removes split group trailers", async () => {
+    story.begin("--fix=dissolve removes split group trailers");
+    story.narrate(
+      "Using --fix=dissolve explicitly dissolves a split group by removing its trailers.",
+    );
+
     const repo = await repos.create();
     await scenarios.splitGroup.setup(repo);
 
     const result = await runGroupFix(repo.path, "dissolve");
+    story.log(result);
+    story.end();
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Split group");
