@@ -1,6 +1,6 @@
 {
   "name": "taspr",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.4",
   "description": "CLI tool for managing stacked PRs on GitHub",
   "bin": {
     "taspr": "./dist/taspr"
