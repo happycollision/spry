@@ -22,7 +22,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: view command", () => {
       story.log(result);
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("Empty stack");
+      expect(result.stdout).toContain("No commits ahead of");
     },
     { timeout: 60000 },
   );
