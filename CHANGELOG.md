@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Content hash tracking to avoid unnecessary PR body updates
 - Alpha warning footer in generated PR bodies
 - New config options: `spry.showStackLinks`, `spry.includePrTemplate`, `spry.prTemplateLocation`
+- Validation that groups have stored titles before creating PRs
+- New flag `--allow-untitled-pr` to bypass title validation and use first commit subject
 
 ### Fixed
 
