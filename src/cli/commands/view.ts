@@ -4,9 +4,8 @@ import { parseStack } from "../../core/stack.ts";
 import { formatStackView, formatValidationError, formatAllPRsView } from "../output.ts";
 import { getBranchNameConfig, getBranchName } from "../../github/branches.ts";
 import {
-  findPRByBranch,
-  getPRChecksStatus,
-  getPRReviewStatus,
+  findPRsByBranches,
+  getPRChecksAndReviewStatus,
   getPRCommentStatus,
 } from "../../github/pr.ts";
 import { ensureGhInstalled } from "../../github/api.ts";
@@ -18,9 +17,10 @@ export interface ViewOptions {
 }
 
 async function fetchPRStatus(prNumber: number): Promise<PRStatus> {
-  const [checks, review, comments] = await Promise.all([
-    getPRChecksStatus(prNumber),
-    getPRReviewStatus(prNumber),
+  // Fetch checks + review in one call, comments separately
+  // (comments requires GraphQL, so can't easily combine)
+  const [{ checks, review }, comments] = await Promise.all([
+    getPRChecksAndReviewStatus(prNumber),
     getPRCommentStatus(prNumber),
   ]);
 
@@ -30,29 +30,48 @@ async function fetchPRStatus(prNumber: number): Promise<PRStatus> {
 async function enrichUnitsWithPRInfo(units: PRUnit[]): Promise<EnrichedPRUnit[]> {
   const config = await getBranchNameConfig();
 
-  return Promise.all(
-    units.map(async (unit): Promise<EnrichedPRUnit> => {
-      const branchName = getBranchName(unit.id, config);
-      const pr = await findPRByBranch(branchName);
+  // Build branch name lookup for all units
+  const branchNames = units.map((unit) => getBranchName(unit.id, config));
 
-      if (pr) {
-        // Only fetch status for open PRs
-        const status = pr.state === "OPEN" ? await fetchPRStatus(pr.number) : undefined;
+  // Batch fetch all PRs in a single API call
+  const prMap = await findPRsByBranches(branchNames, { includeAll: true });
 
-        return {
-          ...unit,
-          pr: {
-            number: pr.number,
-            url: pr.url,
-            state: pr.state,
-            status,
-          },
-        };
-      }
+  // Find open PRs that need status fetching
+  const openPRNumbers: number[] = [];
+  for (const unit of units) {
+    const branchName = getBranchName(unit.id, config);
+    const pr = prMap.get(branchName);
+    if (pr?.state === "OPEN") {
+      openPRNumbers.push(pr.number);
+    }
+  }
 
-      return unit;
-    }),
-  );
+  // Fetch statuses for all open PRs (still N calls per status type, but no longer N×3 parallel)
+  // TODO: Further optimize with batch GraphQL query (spry-6yt)
+  const statusMap = new Map<number, PRStatus>();
+  for (const prNumber of openPRNumbers) {
+    statusMap.set(prNumber, await fetchPRStatus(prNumber));
+  }
+
+  // Enrich units with PR info
+  return units.map((unit): EnrichedPRUnit => {
+    const branchName = getBranchName(unit.id, config);
+    const pr = prMap.get(branchName);
+
+    if (pr) {
+      return {
+        ...unit,
+        pr: {
+          number: pr.number,
+          url: pr.url,
+          state: pr.state,
+          status: statusMap.get(pr.number),
+        },
+      };
+    }
+
+    return unit;
+  });
 }
 
 /**

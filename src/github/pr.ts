@@ -417,6 +417,40 @@ export async function getPRCommentStatus(prNumber: number, repo?: string): Promi
 }
 
 /**
+ * Get both checks and review status for a PR in a single API call.
+ * More efficient than calling getPRChecksStatus and getPRReviewStatus separately.
+ */
+export async function getPRChecksAndReviewStatus(
+  prNumber: number,
+  repo?: string,
+): Promise<{ checks: ChecksStatus; review: ReviewDecision }> {
+  await ensureGhInstalled();
+
+  const repoArg = repo ? ["--repo", repo] : [];
+  const result = await $`gh pr view ${prNumber} ${repoArg} --json statusCheckRollup,reviewDecision`
+    .quiet()
+    .nothrow();
+
+  if (result.exitCode !== 0) {
+    const stderr = result.stderr.toString();
+    if (stderr.includes("not found") || stderr.includes("Could not resolve")) {
+      throw new PRNotFoundError(prNumber);
+    }
+    throw new Error(`Failed to get PR #${prNumber} status: ${stderr}`);
+  }
+
+  const data = JSON.parse(result.stdout.toString()) as {
+    statusCheckRollup: CheckRollupItem[] | null;
+    reviewDecision: string | null;
+  };
+
+  return {
+    checks: determineChecksStatus(data.statusCheckRollup),
+    review: determineReviewDecision(data.reviewDecision),
+  };
+}
+
+/**
  * Get the merge status of a PR (CI checks and review decision).
  */
 export async function getPRMergeStatus(prNumber: number): Promise<PRMergeStatus> {

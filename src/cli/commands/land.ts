@@ -4,7 +4,7 @@ import { formatValidationError } from "../output.ts";
 import { getBranchNameConfig, getBranchName } from "../../github/branches.ts";
 import { resolveUnitTitle } from "../../core/title.ts";
 import {
-  findPRByBranch,
+  findPRsByBranches,
   landPR,
   deleteRemoteBranch,
   getPRMergeStatus,
@@ -40,25 +40,30 @@ function getNotReadyReasons(status: PRMergeStatus): string[] {
 async function enrichUnitsWithPRInfo(units: PRUnit[]): Promise<EnrichedPRUnit[]> {
   const config = await getBranchNameConfig();
 
-  return Promise.all(
-    units.map(async (unit): Promise<EnrichedPRUnit> => {
-      const branchName = getBranchName(unit.id, config);
-      const pr = await findPRByBranch(branchName);
+  // Build branch name lookup for all units
+  const branchNames = units.map((unit) => getBranchName(unit.id, config));
 
-      if (pr) {
-        return {
-          ...unit,
-          pr: {
-            number: pr.number,
-            url: pr.url,
-            state: pr.state,
-          },
-        };
-      }
+  // Batch fetch all PRs in a single API call (open PRs only)
+  const prMap = await findPRsByBranches(branchNames);
 
-      return unit;
-    }),
-  );
+  // Enrich units with PR info
+  return units.map((unit): EnrichedPRUnit => {
+    const branchName = getBranchName(unit.id, config);
+    const pr = prMap.get(branchName);
+
+    if (pr) {
+      return {
+        ...unit,
+        pr: {
+          number: pr.number,
+          url: pr.url,
+          state: pr.state,
+        },
+      };
+    }
+
+    return unit;
+  });
 }
 
 type EnrichedUnitWithPR = EnrichedPRUnit & { pr: NonNullable<EnrichedPRUnit["pr"]> };
