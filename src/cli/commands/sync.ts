@@ -53,20 +53,14 @@ import {
 } from "../../github/pr-body.ts";
 import { openSelect, type OpenSelectOption } from "../../tui/open-select.ts";
 import { isTTY } from "../../tui/terminal.ts";
-
-/**
- * Get the display title for a PRUnit.
- * Groups may not have a title in ref storage yet, so fall back to first commit subject.
- */
-function getUnitTitle(unit: PRUnit): string {
-  return unit.title ?? unit.subjects[0] ?? "Untitled";
-}
+import { resolveUnitTitle, hasStoredTitle } from "../../core/title.ts";
 
 export interface SyncOptions {
   open?: boolean;
   apply?: string;
   upTo?: string;
   interactive?: boolean;
+  allowUntitledPr?: boolean;
 }
 
 interface MergedPRInfo {
@@ -297,7 +291,7 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       for (const unit of activeUnits) {
         const headBranch = getBranchName(unit.id, branchConfig);
         const existingPR = openPRMap.get(headBranch) ?? null;
-        const unitTitle = getUnitTitle(unit);
+        const unitTitle = resolveUnitTitle(unit);
         const isTemp = isTempCommit(unitTitle, spryConfig.tempCommitPrefixes);
 
         selectOptions.push({
@@ -343,7 +337,7 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       const headBranch = getBranchName(unit.id, branchConfig);
       const headCommit = asserted(unit.commits.at(-1));
       const status = asserted(syncStatuses.get(unit.id));
-      const unitTitle = getUnitTitle(unit);
+      const unitTitle = resolveUnitTitle(unit);
 
       // Use cached PR data from cleanupMergedPRs batch fetch
       const existingPR = openPRMap.get(headBranch) ?? null;
@@ -380,6 +374,16 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
           // Branch was still pushed for stacking
           skippedByApply.push(unitTitle);
         } else {
+          // Validate that groups have stored titles before creating PRs
+          if (unit.type === "group" && !hasStoredTitle(unit) && !options.allowUntitledPr) {
+            console.error("");
+            console.error(`✗ Error: Group "${unit.id}" has no stored title`);
+            console.error("");
+            console.error("  Set a title using: sp group");
+            console.error("  Or allow fallback: sp sync --open --allow-untitled-pr");
+            process.exit(1);
+          }
+
           // Create new PR (--open is specified and no PR exists)
           // Generate initial body without stack links (will be added in second pass)
           const unitIndex = unitIndexMap.get(unit.id) ?? 0;

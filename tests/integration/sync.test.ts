@@ -412,7 +412,8 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR Body Generation", () 
     async () => {
       story.begin("group PR lists all commit subjects", repos.uniqueId);
       story.narrate(
-        "When multiple commits are grouped, the PR body lists all commit subjects as bullet points.",
+        "When multiple commits are grouped, the PR body lists all commit subjects as bullet points. " +
+          "Using --allow-untitled-pr since this group has no stored title.",
       );
 
       const repo = await repos.clone({ testName: "pr-body-group" });
@@ -433,7 +434,8 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR Body Generation", () 
         trailers: { "Spry-Group": groupId },
       });
 
-      const result = await runSync(repo.path, { open: true });
+      // Use --allow-untitled-pr since this group has no stored title
+      const result = await runSync(repo.path, { open: true, allowUntitledPr: true });
       story.log(result);
       story.end();
 
@@ -447,6 +449,41 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR Body Generation", () 
       expect(body).toContain("- Start feature X");
       expect(body).toContain("- Continue feature X");
       expect(body).toContain("- Complete feature X");
+    },
+    { timeout: 60000 },
+  );
+
+  test(
+    "fails to create PR for group without stored title",
+    async () => {
+      story.begin("fails to create PR for group without stored title", repos.uniqueId);
+      story.narrate(
+        "When a group has no stored title and --allow-untitled-pr is not set, sync fails with a helpful error.",
+      );
+
+      const repo = await repos.clone({ testName: "pr-body-untitled-fail" });
+      await repo.branch("feature/untitled-group-test");
+
+      // Create grouped commits without a stored title
+      const groupId = `group-${repo.uniqueId}`;
+      await repo.commit({
+        message: `First commit [${repo.uniqueId}]`,
+        trailers: { "Spry-Group": groupId },
+      });
+      await repo.commit({
+        message: `Second commit [${repo.uniqueId}]`,
+        trailers: { "Spry-Group": groupId },
+      });
+
+      // Without --allow-untitled-pr, this should fail
+      const result = await runSync(repo.path, { open: true });
+      story.log(result);
+      story.end();
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("has no stored title");
+      expect(result.stderr).toContain("sp group");
+      expect(result.stderr).toContain("--allow-untitled-pr");
     },
     { timeout: 60000 },
   );

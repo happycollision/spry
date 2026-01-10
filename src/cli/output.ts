@@ -1,6 +1,7 @@
 import type { EnrichedPRUnit, PRStatus, StackParseResult } from "../types.ts";
 import type { UserPR } from "./commands/view.ts";
 import { getSpryConfig } from "../git/config.ts";
+import { resolveUnitTitle } from "../core/title.ts";
 
 const SEPARATOR = "─".repeat(72);
 
@@ -123,7 +124,7 @@ function formatPRUnit(unit: EnrichedPRUnit): string {
     lines.push(`  ${statusIcon} ${prNum}${unit.title}${idDisplay}`);
   } else {
     // Group - show title (or "(unnamed)" if no title stored), plus group ID indicator if missing
-    const displayTitle = unit.title ?? "(unnamed)";
+    const displayTitle = resolveUnitTitle(unit);
     const groupIdDisplay = hasCommitId(unit) ? "" : " (no commit ID yet)";
     lines.push(`  ${statusIcon} ${prNum}${displayTitle}${groupIdDisplay}`);
 

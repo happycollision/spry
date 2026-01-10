@@ -187,7 +187,7 @@ describe("cli/commands/view", () => {
       expect(noIdMatches?.length).toBe(2); // twice for commits
     });
 
-    test("shows '(unnamed)' for group without a name", async () => {
+    test("uses first commit subject for group without stored title", async () => {
       const units: EnrichedPRUnit[] = [
         {
           type: "group",
@@ -201,7 +201,9 @@ describe("cli/commands/view", () => {
 
       const output = await formatStackView(units, "main", 2);
 
-      expect(output).toContain("(unnamed)");
+      // Should use first commit subject as fallback title (via resolveUnitTitle)
+      // The title line shows the resolved title followed by "(no commit ID yet)"
+      expect(output).toContain("First commit");
     });
 
     test("shows mixed commit IDs in group", async () => {

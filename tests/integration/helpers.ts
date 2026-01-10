@@ -49,9 +49,11 @@ export async function runSpry(
 // Helper to run sp sync in a directory
 export async function runSync(
   cwd: string,
-  options: { open?: boolean } = {},
+  options: { open?: boolean; allowUntitledPr?: boolean } = {},
 ): Promise<CommandResult> {
-  const args = options.open ? ["--open"] : [];
+  const args: string[] = [];
+  if (options.open) args.push("--open");
+  if (options.allowUntitledPr) args.push("--allow-untitled-pr");
   return runSpry(cwd, "sync", args);
 }
 

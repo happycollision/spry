@@ -36,6 +36,10 @@ program
   )
   .option("--up-to <id>", "Only open PRs for commits/groups up to and including this identifier")
   .option("-i, --interactive", "Interactively select which commits/groups to open PRs for")
+  .option(
+    "--allow-untitled-pr",
+    "Allow creating PRs for groups without stored titles (uses first commit subject)",
+  )
   .action((options) => syncCommand(options));
 
 program

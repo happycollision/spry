@@ -2,6 +2,7 @@ import { getStackCommitsWithTrailers } from "../../git/commands.ts";
 import { parseStack } from "../../core/stack.ts";
 import { formatValidationError } from "../output.ts";
 import { getBranchNameConfig, getBranchName } from "../../github/branches.ts";
+import { resolveUnitTitle } from "../../core/title.ts";
 import {
   findPRByBranch,
   landPR,
@@ -71,7 +72,7 @@ async function landSinglePR(
   unit: EnrichedUnitWithPR,
   config: Awaited<ReturnType<typeof getBranchNameConfig>>,
 ): Promise<string> {
-  console.log(`Merging PR #${unit.pr.number} (${unit.title})...`);
+  console.log(`Merging PR #${unit.pr.number} (${resolveUnitTitle(unit)})...`);
 
   await landPR(unit.pr.number);
 
