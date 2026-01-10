@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Validation that groups have stored titles before creating PRs
 - New flag `--allow-untitled-pr` to bypass title validation and use first commit subject
 
+### Changed
+
+- **BREAKING**: `sp clean --force` renamed to `--unsafe` for commit-id matched branches
+  - Safe branches (exact SHA match) are deleted by default
+  - Unsafe branches (commit-id trailer match only) require explicit `--unsafe` flag
+- Split groups in non-TTY mode now require explicit fix method (`--dissolve` or `--regroup`)
+
 ### Fixed
 
 - CLI help now shows correct binary name (`sp`) and tagline
