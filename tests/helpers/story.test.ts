@@ -89,4 +89,52 @@ describe("Story API", () => {
 
     delete process.env.SPRY_STORY_TEST_LOGGING;
   });
+
+  test("marks failures with story.fail()", async () => {
+    process.env.SPRY_STORY_TEST_LOGGING = "1";
+
+    const story = createStory("fail-explicit.test.ts");
+
+    story.begin("Failing test");
+    story.narrate("This test will fail.");
+    story.fail("Expected value to be 42");
+    story.end();
+
+    await story.flush();
+
+    const content = await Bun.file(join(testLogsDir, "fail-explicit.md")).text();
+    expect(content).toContain("[FAILED]");
+    expect(content).toContain("Expected value to be 42");
+    expect(content).toContain("**1 test(s) failed:**");
+
+    delete process.env.SPRY_STORY_TEST_LOGGING;
+  });
+
+  test("story.run() captures failures and re-throws", async () => {
+    process.env.SPRY_STORY_TEST_LOGGING = "1";
+
+    const story = createStory("fail-run.test.ts");
+
+    story.begin("Auto-captured failure");
+    story.narrate("Testing automatic failure capture.");
+
+    let caught = false;
+    try {
+      await story.run(async () => {
+        throw new Error("Something went wrong");
+      });
+    } catch {
+      caught = true;
+    }
+
+    expect(caught).toBe(true);
+
+    await story.flush();
+
+    const content = await Bun.file(join(testLogsDir, "fail-run.md")).text();
+    expect(content).toContain("[FAILED]");
+    expect(content).toContain("Something went wrong");
+
+    delete process.env.SPRY_STORY_TEST_LOGGING;
+  });
 });

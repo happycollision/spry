@@ -23,6 +23,8 @@ interface StorySection {
   testId?: string;
   sectionId: string;
   entries: StoryEntry[];
+  failed?: boolean;
+  failureReason?: string;
 }
 
 export interface Story {
@@ -32,8 +34,16 @@ export interface Story {
   narrate(text: string): void;
   /** Log a command result */
   log(result: CommandResult): void;
+  /** Mark the current section as failed */
+  fail(reason?: string): void;
   /** End the current story section */
   end(): void;
+  /**
+   * Run a test body with automatic failure capture.
+   * Wraps the test in try/catch to capture failures, then re-throws.
+   * Automatically calls end() when done.
+   */
+  run<T>(fn: () => T | Promise<T>): Promise<T>;
   /** Write all stories to disk */
   flush(): Promise<void>;
 }
@@ -91,8 +101,16 @@ function formatSection(
   const ansiOutputs: { id: string; content: string }[] = [];
   let outputCounter = 0;
 
-  lines.push(`## ${section.testName}`);
+  // Add FAILED marker to heading if test failed
+  const heading = section.failed ? `## ${section.testName} [FAILED]` : `## ${section.testName}`;
+  lines.push(heading);
   lines.push("");
+
+  // Add failure reason if present
+  if (section.failed && section.failureReason) {
+    lines.push(`> **Failure:** ${section.failureReason}`);
+    lines.push("");
+  }
 
   for (const entry of section.entries) {
     if (entry.type === "narrate") {
@@ -167,6 +185,32 @@ export function createStory(testFileName: string): Story {
       currentSection.entries.push({ type: "command", result });
     },
 
+    fail(reason?: string): void {
+      if (!isEnabled() || !currentSection) return;
+
+      currentSection.failed = true;
+      currentSection.failureReason = reason;
+    },
+
+    async run<T>(fn: () => T | Promise<T>): Promise<T> {
+      try {
+        return await fn();
+      } catch (error) {
+        // Capture the failure before re-throwing
+        if (currentSection) {
+          currentSection.failed = true;
+          currentSection.failureReason = error instanceof Error ? error.message : String(error);
+        }
+        throw error;
+      } finally {
+        // Always end the section
+        if (currentSection) {
+          sections.push(currentSection);
+          currentSection = null;
+        }
+      }
+    },
+
     end(): void {
       if (!isEnabled() || !currentSection) return;
 
@@ -184,8 +228,22 @@ export function createStory(testFileName: string): Story {
       const ansiDir = join(outputDir, baseName);
       await mkdir(ansiDir, { recursive: true });
 
-      // Generate header
-      const header = `# ${baseName} Stories\n\n`;
+      // Check for failures
+      const failedSections = sections.filter((s) => s.failed);
+
+      // Generate header with optional failure summary
+      let header = `# ${baseName} Stories\n\n`;
+      if (failedSections.length > 0) {
+        header += `> **${failedSections.length} test(s) failed:**\n`;
+        for (const section of failedSections) {
+          header += `> - ${section.testName}`;
+          if (section.failureReason) {
+            header += `: ${section.failureReason}`;
+          }
+          header += "\n";
+        }
+        header += "\n";
+      }
 
       // Process all sections
       const markdownParts: string[] = [];
