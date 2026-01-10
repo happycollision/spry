@@ -48,12 +48,16 @@ function stripAnsi(text: string): string {
   return text.replace(ANSI_PATTERN, "");
 }
 
+/** Pattern matching test IDs like "happy-penguin-x3f" */
+const TEST_ID_PATTERN = /[a-z]+-[a-z]+-[a-z0-9]{3}/g;
+
 /** Sanitize test IDs from text */
 function sanitizeTestId(text: string, testId?: string): string {
-  if (!testId) return text;
+  // Always strip any bracketed test IDs: [happy-penguin-x3f] -> (removed entirely)
+  // This catches test IDs from any repo created during the test, not just the current one
+  let result = text.replace(new RegExp(`\\s*\\[${TEST_ID_PATTERN.source}\\]`, "g"), "");
 
-  // Replace test ID in brackets (commit messages): [happy-penguin-x3f] -> (removed entirely)
-  let result = text.replace(new RegExp(`\\s*\\[${escapeRegex(testId)}\\]`, "g"), "");
+  if (!testId) return result;
 
   // Replace test ID in branch names: feature-happy-penguin-x3f -> feature-{id}
   result = result.replace(new RegExp(`-${escapeRegex(testId)}`, "g"), "-{id}");
