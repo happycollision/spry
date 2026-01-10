@@ -334,10 +334,28 @@ async function fixCommand(mode?: string): Promise<void> {
     return;
   }
 
-  // Non-interactive dissolve mode
-  if (mode === "dissolve" || !isTTY()) {
+  // Explicit dissolve mode
+  if (mode === "dissolve") {
     await dissolveErrorGroup(validation);
     return;
+  }
+
+  // Explicit merge mode
+  if (mode === "merge") {
+    await mergeErrorGroup(validation);
+    return;
+  }
+
+  // Non-TTY requires explicit mode choice
+  if (!isTTY()) {
+    console.log(formatValidationError(validation));
+    console.log("");
+    console.log("Non-interactive mode requires an explicit fix method. Run one of:");
+    console.log("  sp group --fix=dissolve   Remove group trailers");
+    console.log("  sp group --fix=merge      Reorder commits to restore group");
+    console.log("");
+    console.log("Or run in an interactive terminal for guided repair.");
+    process.exit(1);
   }
 
   // Interactive repair mode - only split-group errors remain
@@ -362,6 +380,26 @@ async function dissolveErrorGroup(
     process.exit(1);
   }
   console.log(`✓ Group "${validation.group.title}" dissolved.`);
+}
+
+/**
+ * Non-interactive merge: reorder commits to restore group contiguity.
+ */
+async function mergeErrorGroup(validation: Exclude<StackParseResult, { ok: true }>): Promise<void> {
+  // Show what's wrong
+  console.log(formatValidationError(validation));
+  console.log("");
+
+  console.log(`Reordering commits to merge group "${validation.group.title}"...`);
+  const result = await mergeSplitGroup(validation.group.id);
+  if (!result.success) {
+    console.error(`✗ Error: ${result.error}`);
+    if (result.conflictFile) {
+      console.error(`  Conflict in: ${result.conflictFile}`);
+    }
+    process.exit(1);
+  }
+  console.log("✓ Group commits merged successfully.");
 }
 
 /**
