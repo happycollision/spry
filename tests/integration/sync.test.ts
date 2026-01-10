@@ -1,9 +1,11 @@
-import { test, expect, beforeAll, beforeEach, afterEach, afterAll, describe } from "bun:test";
+import { expect, beforeAll, beforeEach, afterEach, describe } from "bun:test";
 import { $ } from "bun";
 import { createGitHubFixture, type GitHubFixture } from "../helpers/github-fixture.ts";
 import { repoManager } from "../helpers/local-repo.ts";
-import { createStory } from "../helpers/story.ts";
+import { createStoryTest } from "../helpers/story-test.ts";
 import { SKIP_GITHUB_TESTS, SKIP_CI_TESTS, runSync } from "./helpers.ts";
+
+const { test } = createStoryTest("sync.test.ts");
 
 describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration", () => {
   let github: GitHubFixture;
@@ -27,13 +29,13 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration", () => {
     await github.reset();
   });
 
-  test("fixture can connect to test repository", async () => {
+  test.noStory("fixture can connect to test repository", async () => {
     expect(github.owner).toBeTruthy();
     expect(github.repo).toBe(process.env.SPRY_TEST_REPO_NAME || "spry-check");
     expect(github.repoUrl).toContain("github.com");
   });
 
-  test("reset cleans up branches and PRs", async () => {
+  test.noStory("reset cleans up branches and PRs", async () => {
     // Create a branch directly via API
     const sha = (
       await $`gh api repos/${github.owner}/${github.repo}/git/refs/heads/main --jq .object.sha`.text()
@@ -66,16 +68,11 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration", () => {
 
 describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
   const repos = repoManager({ github: true });
-  const story = createStory("sync.test.ts");
-
-  afterAll(async () => {
-    await story.flush();
-  });
 
   test(
-    "skips PR creation for WIP commits",
-    async () => {
-      story.begin("Skipping WIP commits", repos.uniqueId);
+    "Skipping WIP commits",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate(
         "If you have a commit prefixed with 'WIP:', sp will push branches but skip opening a PR for it.",
       );
@@ -86,7 +83,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
 
       const result = await runSync(repo.path, { open: true });
       story.log(result);
-      story.end();
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Skipped PR for 1 temporary commit");
@@ -100,9 +96,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
   );
 
   test(
-    "skips PR creation for fixup! commits",
-    async () => {
-      story.begin("Skipping fixup! commits", repos.uniqueId);
+    "Skipping fixup! commits",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate(
         "Commits prefixed with 'fixup!' are meant to be squashed later, so sp skips opening PRs for them.",
       );
@@ -113,7 +109,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
 
       const result = await runSync(repo.path, { open: true });
       story.log(result);
-      story.end();
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Skipped PR for 1 temporary commit");
@@ -127,9 +122,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
   );
 
   test(
-    "creates PRs for non-temp commits while skipping temp commits in same stack",
-    async () => {
-      story.begin("Mixed stack with temp commits", repos.uniqueId);
+    "Mixed stack with temp commits",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate(
         "When a stack has both regular and temporary commits, sp creates PRs for the regular commits and skips the temporary ones.",
       );
@@ -141,7 +136,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
 
       const result = await runSync(repo.path, { open: true });
       story.log(result);
-      story.end();
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Created 1 PR");
@@ -155,9 +149,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
   );
 
   test(
-    "creates PR for a single commit stack",
-    async () => {
-      story.begin("Single commit PR creation", repos.uniqueId);
+    "Single commit PR creation",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate("A feature branch with a single commit gets one PR created.");
 
       const repo = await repos.clone({ testName: "single-pr" });
@@ -166,7 +160,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
 
       const result = await runSync(repo.path, { open: true });
       story.log(result);
-      story.end();
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Created");
@@ -179,9 +172,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
   );
 
   test(
-    "opens PRs for commits already pushed to remote",
-    async () => {
-      story.begin("Opening PRs for existing branches", repos.uniqueId);
+    "Opening PRs for existing branches",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate(
         "If branches were previously pushed without --open, running sync --open later will create PRs for them.",
       );
@@ -205,7 +198,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
       story.narrate("Then, sync with --open to create PRs:");
       const openResult = await runSync(repo.path, { open: true });
       story.log(openResult);
-      story.end();
 
       expect(openResult.exitCode).toBe(0);
 
@@ -216,7 +208,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
     { timeout: 90000 },
   );
 
-  test.skipIf(SKIP_CI_TESTS)(
+  test.noStory.skipIf(SKIP_CI_TESTS)(
     "CI passes for normal commits",
     async () => {
       const repo = await repos.clone({ testName: "ci-pass" });
@@ -235,7 +227,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
     { timeout: 200000 },
   );
 
-  test.skipIf(SKIP_CI_TESTS)(
+  test.noStory.skipIf(SKIP_CI_TESTS)(
     "CI fails for commits with [FAIL_CI] marker",
     async () => {
       const repo = await repos.clone({ testName: "sync-ci-fail" });
@@ -258,7 +250,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync --open", () => {
 describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync cleanup", () => {
   const repos = repoManager({ github: true });
 
-  test.skipIf(SKIP_CI_TESTS)(
+  test.noStory.skipIf(SKIP_CI_TESTS)(
     "detects merged PRs and cleans up their remote branches when merged via GitHub UI",
     async () => {
       const repo = await repos.clone({ testName: "cleanup" });
@@ -316,11 +308,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync cleanup", () => {
 
 describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR Body Generation", () => {
   const repos = repoManager({ github: true });
-  const story = createStory("sync.test.ts");
-
-  afterAll(async () => {
-    await story.flush();
-  });
 
   /** Helper to get PR body via gh CLI */
   async function getPRBody(
@@ -333,9 +320,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR Body Generation", () 
   }
 
   test(
-    "creates PR with body containing commit message",
-    async () => {
-      story.begin("PR body from commit message", repos.uniqueId);
+    "PR body from commit message",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate("When creating a PR, sp generates a body with the commit message content.");
 
       const repo = await repos.clone({ testName: "pr-body-basic" });
@@ -350,7 +337,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR Body Generation", () 
 
       const result = await runSync(repo.path, { open: true });
       story.log(result);
-      story.end();
 
       expect(result.exitCode).toBe(0);
 
@@ -370,9 +356,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR Body Generation", () 
   );
 
   test(
-    "creates PR with stack links for multiple commits",
-    async () => {
-      story.begin("Stack links in PR body", repos.uniqueId);
+    "Stack links in PR body",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate(
         "When a stack has multiple PRs, each PR body contains links to all PRs in the stack.",
       );
@@ -384,7 +370,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR Body Generation", () 
 
       const result = await runSync(repo.path, { open: true });
       story.log(result);
-      story.end();
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Created 2 PR");
@@ -408,9 +393,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR Body Generation", () 
   );
 
   test(
-    "group PR lists all commit subjects",
-    async () => {
-      story.begin("Group PR with commit list", repos.uniqueId);
+    "Group PR with commit list",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate(
         "When multiple commits are grouped, the PR body lists all commit subjects as bullet points. " +
           "Using --allow-untitled-pr since this group has no stored title.",
@@ -437,7 +422,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR Body Generation", () 
       // Use --allow-untitled-pr since this group has no stored title
       const result = await runSync(repo.path, { open: true, allowUntitledPr: true });
       story.log(result);
-      story.end();
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Created 1 PR");
@@ -454,9 +438,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR Body Generation", () 
   );
 
   test(
-    "fails to create PR for group without stored title",
-    async () => {
-      story.begin("Untitled group PR error", repos.uniqueId);
+    "Untitled group PR error",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate(
         "When a group has no stored title and --allow-untitled-pr is not set, sync fails with a helpful error.",
       );
@@ -478,7 +462,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR Body Generation", () 
       // Without --allow-untitled-pr, this should fail
       const result = await runSync(repo.path, { open: true });
       story.log(result);
-      story.end();
 
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("has no stored title");
@@ -508,7 +491,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: Branch Protection", () =
     await github.reset();
   });
 
-  test("can enable and disable branch protection", async () => {
+  test.noStory("can enable and disable branch protection", async () => {
     // Enable protection
     await github.enableBranchProtection("main", {
       requireStatusChecks: true,
@@ -529,7 +512,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: Branch Protection", () =
     expect(statusAfter).toBeNull();
   });
 
-  test("can require PR reviews", async () => {
+  test.noStory("can require PR reviews", async () => {
     await github.enableBranchProtection("main", {
       requirePullRequestReviews: true,
       requiredApprovingReviewCount: 1,

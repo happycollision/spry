@@ -1,21 +1,18 @@
-import { test, expect, describe, afterAll } from "bun:test";
+import { expect, describe } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../helpers/local-repo.ts";
-import { createStory } from "../helpers/story.ts";
+import { createStoryTest } from "../helpers/story-test.ts";
 import { SKIP_GITHUB_TESTS, SKIP_CI_TESTS, runSync, runLand } from "./helpers.ts";
+
+const { test } = createStoryTest("land.test.ts");
 
 describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
   const repos = repoManager({ github: true });
-  const story = createStory("land.test.ts");
-
-  afterAll(async () => {
-    await story.flush();
-  });
 
   test.skipIf(SKIP_CI_TESTS)(
-    "lands a single PR and deletes the branch",
-    async () => {
-      story.begin("Landing a single PR", repos.uniqueId);
+    "Landing a single PR",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate(
         "When you run `sp land` on a branch with an approved PR, it merges to main and cleans up the remote branch.",
       );
@@ -37,7 +34,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
       // Run sp land
       const landResult = await runLand(repo.path);
       story.log(landResult);
-      story.end();
 
       expect(landResult.exitCode).toBe(0);
       expect(landResult.stdout).toContain(`Merging PR #${pr.number}`);
@@ -61,7 +57,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
     { timeout: 200000 },
   );
 
-  test.skipIf(SKIP_CI_TESTS)(
+  test.noStory.skipIf(SKIP_CI_TESTS)(
     "retargets next PR to main after landing, preventing it from being closed",
     async () => {
       const repo = await repos.clone({ testName: "retarget" });
@@ -136,7 +132,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
     { timeout: 400000 },
   );
 
-  test.skipIf(SKIP_CI_TESTS)(
+  test.noStory.skipIf(SKIP_CI_TESTS)(
     "fails to land when PR cannot be fast-forwarded",
     async () => {
       const repo = await repos.clone({ testName: "conflict" });
@@ -178,9 +174,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
   );
 
   test(
-    "reports no open PRs when stack has no PRs",
-    async () => {
-      story.begin("No open PRs to land", repos.uniqueId);
+    "No open PRs to land",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate(
         "If you try to land a stack that has no open PRs, sp tells you there's nothing to land.",
       );
@@ -196,7 +192,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
       // Try to land - should report no open PRs
       const landResult = await runLand(repo.path);
       story.log(landResult);
-      story.end();
 
       expect(landResult.exitCode).toBe(0);
       expect(landResult.stdout).toContain("No open PRs in stack");
@@ -204,7 +199,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
     { timeout: 60000 },
   );
 
-  test.skipIf(SKIP_CI_TESTS)(
+  test.noStory.skipIf(SKIP_CI_TESTS)(
     "fails to land when CI checks are failing",
     async () => {
       const repo = await repos.clone({ testName: "land-ci-fail" });
@@ -234,7 +229,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
 describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
   const repos = repoManager({ github: true });
 
-  test.skipIf(SKIP_CI_TESTS)(
+  test.noStory.skipIf(SKIP_CI_TESTS)(
     "lands all consecutive ready PRs in a stack",
     async () => {
       const repo = await repos.clone({ testName: "land-all" });
@@ -277,7 +272,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
     { timeout: 300000 },
   );
 
-  test.skipIf(SKIP_CI_TESTS)(
+  test.noStory.skipIf(SKIP_CI_TESTS)(
     "stops at first non-ready PR when using --all",
     async () => {
       const repo = await repos.clone({ testName: "stop" });
@@ -327,7 +322,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
     { timeout: 300000 },
   );
 
-  test.skipIf(SKIP_CI_TESTS)(
+  test.noStory.skipIf(SKIP_CI_TESTS)(
     "snapshots readiness at start and doesn't land PRs that become ready during execution",
     async () => {
       const repo = await repos.clone({ testName: "snapshot" });
@@ -369,7 +364,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
     { timeout: 300000 },
   );
 
-  test.skipIf(SKIP_CI_TESTS)(
+  test.noStory.skipIf(SKIP_CI_TESTS)(
     "reports no ready PRs when first PR is not ready",
     async () => {
       const repo = await repos.clone({ testName: "not-ready" });

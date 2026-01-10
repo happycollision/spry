@@ -1,21 +1,18 @@
-import { test, expect, describe, afterAll } from "bun:test";
+import { expect, describe } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../helpers/local-repo.ts";
-import { createStory } from "../helpers/story.ts";
+import { createStoryTest } from "../helpers/story-test.ts";
 import { SKIP_GITHUB_TESTS, SKIP_CI_TESTS, runSync, runClean } from "./helpers.ts";
+
+const { test } = createStoryTest("clean.test.ts");
 
 describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
   const repos = repoManager({ github: true });
-  const story = createStory("clean.test.ts");
-
-  afterAll(async () => {
-    await story.flush();
-  });
 
   test(
-    "reports no orphaned branches when none exist",
-    async () => {
-      story.begin("No orphaned branches", repos.uniqueId);
+    "No orphaned branches",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate(
         "When there are no merged PRs with leftover branches, sp clean reports nothing to clean up.",
       );
@@ -25,7 +22,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
       // Run clean without any orphaned branches
       const result = await runClean(repo.path);
       story.log(result);
-      story.end();
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("No orphaned branches found");
@@ -34,9 +30,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
   );
 
   test(
-    "--dry-run shows orphaned branches without deleting",
-    async () => {
-      story.begin("Dry run preview", repos.uniqueId);
+    "Dry run preview",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate(
         "The --dry-run flag lets you preview which branches would be cleaned up without actually deleting them.",
       );
@@ -66,7 +62,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
       story.narrate("After merging the PR but leaving the branch, run clean with --dry-run:");
       const cleanResult = await runClean(repo.path, { dryRun: true });
       story.log(cleanResult);
-      story.end();
 
       expect(cleanResult.exitCode).toBe(0);
       expect(cleanResult.stdout).toContain("Found");
@@ -83,9 +78,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
   );
 
   test.skipIf(SKIP_CI_TESTS)(
-    "deletes orphaned branches from merged PRs",
-    async () => {
-      story.begin("Deleting orphaned branches", repos.uniqueId);
+    "Deleting orphaned branches",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate(
         "When a PR is merged but the branch wasn't deleted, sp clean removes the orphaned remote branch.",
       );
@@ -118,7 +113,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
       story.narrate("After merging and leaving the branch orphaned, run clean:");
       const cleanResult = await runClean(repo.path);
       story.log(cleanResult);
-      story.end();
 
       expect(cleanResult.exitCode).toBe(0);
       expect(cleanResult.stdout).toContain("Deleted");
@@ -132,9 +126,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
   );
 
   test(
-    "detects multiple orphaned branches",
-    async () => {
-      story.begin("Multiple orphaned branches", repos.uniqueId);
+    "Multiple orphaned branches",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate(
         "When multiple PRs are merged with branches left behind, sp clean detects all of them.",
       );
@@ -173,7 +167,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
       story.narrate("After merging both PRs with branches left behind:");
       const cleanResult = await runClean(repo.path, { dryRun: true });
       story.log(cleanResult);
-      story.end();
 
       expect(cleanResult.exitCode).toBe(0);
       expect(cleanResult.stdout).toContain("Found 2 merged branch");
@@ -184,9 +177,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
   );
 
   test(
-    "detects orphaned branches when commit is amended and pushed to main directly",
-    async () => {
-      story.begin("Amended commit detection via trailer", repos.uniqueId);
+    "Amended commit detection via trailer",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate(
         "When a commit is amended and pushed directly to main (bypassing the PR), " +
           "sp clean can still detect the orphaned branch via the Spry-Commit-Id trailer.",
@@ -275,7 +268,6 @@ Spry-Commit-Id: ${commitId}"`.quiet();
       story.narrate("With --force, the branch is deleted:");
       const cleanWithForce = await runClean(repo.path, { force: true });
       story.log(cleanWithForce);
-      story.end();
 
       expect(cleanWithForce.exitCode).toBe(0);
       expect(cleanWithForce.stdout).toContain("Deleted");

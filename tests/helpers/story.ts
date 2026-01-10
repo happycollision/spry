@@ -1,10 +1,16 @@
 /**
- * Story logging API for integration tests.
+ * Low-level story logging API for integration tests.
  *
  * Creates narrative markdown files during test runs that document
  * what each test demonstrates in plain English, followed by CLI output.
  *
  * Activated by setting SPRY_STORY_TEST_LOGGING=1 environment variable.
+ *
+ * **PREFER using `createStoryTest` from `./story-test.ts` instead.**
+ * It provides a cleaner API with automatic lifecycle management.
+ *
+ * This module is for internal use by story-test.ts and for unit testing
+ * the story functionality itself.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";

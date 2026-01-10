@@ -1,22 +1,19 @@
-import { test, expect, describe, afterAll } from "bun:test";
+import { expect, describe } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../helpers/local-repo.ts";
-import { createStory } from "../helpers/story.ts";
+import { createStoryTest } from "../helpers/story-test.ts";
 import { SKIP_GITHUB_TESTS, SKIP_CI_TESTS, runSync } from "./helpers.ts";
 import { getPRChecksStatus, getPRReviewStatus, getPRCommentStatus } from "../../src/github/pr.ts";
 
+const { test } = createStoryTest("pr-status.test.ts");
+
 describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR checks status", () => {
   const repos = repoManager({ github: true });
-  const story = createStory("pr-status.test.ts");
-
-  afterAll(async () => {
-    await story.flush();
-  });
 
   test.skipIf(SKIP_CI_TESTS)(
-    "returns 'passing' for PR with passing CI checks",
-    async () => {
-      story.begin("CI checks passing", repos.uniqueId);
+    "CI checks passing",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate("After CI passes on a PR, getPRChecksStatus returns 'passing'.");
 
       const repo = await repos.clone({ testName: "checks-pass" });
@@ -25,7 +22,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR checks status", () =>
 
       const syncResult = await runSync(repo.path, { open: true });
       story.log(syncResult);
-      story.end();
       expect(syncResult.exitCode).toBe(0);
 
       const pr = await repo.findPR(repo.uniqueId);
@@ -41,9 +37,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR checks status", () =>
   );
 
   test.skipIf(SKIP_CI_TESTS)(
-    "returns 'failing' for PR with failing CI checks",
-    async () => {
-      story.begin("CI checks failing", repos.uniqueId);
+    "CI checks failing",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate("When CI fails on a PR, getPRChecksStatus returns 'failing'.");
 
       const repo = await repos.clone({ testName: "checks-fail" });
@@ -52,7 +48,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR checks status", () =>
 
       const syncResult = await runSync(repo.path, { open: true });
       story.log(syncResult);
-      story.end();
       expect(syncResult.exitCode).toBe(0);
 
       const pr = await repo.findPR(repo.uniqueId);
@@ -68,9 +63,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR checks status", () =>
   );
 
   test.skipIf(SKIP_CI_TESTS)(
-    "returns 'pending' for PR with running CI checks",
-    async () => {
-      story.begin("CI checks pending", repos.uniqueId);
+    "CI checks pending",
+    async (story) => {
+      story.strip(repos.uniqueId);
       story.narrate("While CI is still running on a PR, getPRChecksStatus returns 'pending'.");
 
       const repo = await repos.clone({ testName: "checks-pending" });
@@ -79,7 +74,6 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR checks status", () =>
 
       const syncResult = await runSync(repo.path, { open: true });
       story.log(syncResult);
-      story.end();
       expect(syncResult.exitCode).toBe(0);
 
       const pr = await repo.findPR(repo.uniqueId);
@@ -94,7 +88,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR checks status", () =>
     { timeout: 120000 },
   );
 
-  test.skipIf(SKIP_CI_TESTS)(
+  test.noStory.skipIf(SKIP_CI_TESTS)(
     "returns 'none' for PR with no CI checks configured",
     async () => {
       const repo = await repos.clone({ testName: "no-ci" });
@@ -127,7 +121,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR checks status", () =>
 describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR review status", () => {
   const repos = repoManager({ github: true });
 
-  test(
+  test.noStory(
     "returns 'none' for PR with no review requirements",
     async () => {
       const repo = await repos.clone({ testName: "review-none" });
@@ -159,7 +153,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR review status", () =>
   // Note: This test is skipped because GitHub doesn't allow you to approve your own PR.
   // The getPRReviewStatus function is still tested via unit tests for determineReviewDecision.
   // To manually test this, create a PR and have another user approve it.
-  test.skip(
+  test.noStory.skip(
     "returns 'approved' after PR is approved",
     async () => {
       const repo = await repos.clone({ testName: "review-approved" });
@@ -194,7 +188,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR review status", () =>
   // Note: This test is skipped because GitHub doesn't allow you to request changes on your own PR.
   // The getPRReviewStatus function is still tested via unit tests for determineReviewDecision.
   // To manually test this, create a PR and have another user request changes.
-  test.skip(
+  test.noStory.skip(
     "returns 'changes_requested' after changes are requested",
     async () => {
       const repo = await repos.clone({ testName: "review-changes" });
@@ -226,7 +220,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR review status", () =>
     { timeout: 60000 },
   );
 
-  test(
+  test.noStory(
     "returns 'review_required' when branch protection requires reviews",
     async () => {
       const repo = await repos.clone({ testName: "review-required" });
@@ -274,7 +268,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR review status", () =>
 describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR comment status", () => {
   const repos = repoManager({ github: true });
 
-  test(
+  test.noStory(
     "returns zero counts for PR with no review threads",
     async () => {
       const repo = await repos.clone({ testName: "no-comments" });
@@ -303,7 +297,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR comment status", () =
     { timeout: 60000 },
   );
 
-  test(
+  test.noStory(
     "returns correct counts for PR with unresolved review thread",
     async () => {
       const repo = await repos.clone({ testName: "with-comment" });

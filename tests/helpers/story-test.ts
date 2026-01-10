@@ -166,6 +166,11 @@ export function createStoryTest(testFileName: string) {
   // Use test.noStory.skip for skipped tests without story
   test.noStory = bunTest;
 
+  // Skip a story-aware test (still receives story context signature)
+  test.skip = (name: string, _fn: StoryTestFn, _options?: StoryTestOptions) => {
+    bunTest.skip(name, async () => {});
+  };
+
   test.only = (name: string, fn: StoryTestFn, options?: StoryTestOptions) => {
     const wrappedFn = async () => {
       currentTestId = undefined;
