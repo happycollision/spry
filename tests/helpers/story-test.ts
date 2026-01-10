@@ -2,22 +2,21 @@
  * Story-aware test wrapper for integration tests.
  *
  * Provides a cleaner API that automatically handles story lifecycle:
- * - Auto-begins with test name if begin() not called
+ * - Auto-begins with test name if title() not called
  * - Auto-ends when test completes
  * - Captures failures automatically
+ * - Auto-registers afterAll to flush story output
  *
  * Usage:
  * ```ts
  * import { createStoryTest } from "./helpers/story-test.ts";
  *
- * const { test, afterAll } = createStoryTest("my-feature.test.ts");
+ * const { test } = createStoryTest("my-feature.test.ts");
  *
  * describe("my feature", () => {
- *   afterAll(); // Required: flushes story output
- *
  *   test("does something", async (story) => {
  *     story.strip(testId); // Optional: set ID for sanitization
- *     story.begin("Custom title"); // Optional: override test name as title
+ *     story.title("Custom title"); // Optional: override test name as title
  *     story.narrate("Description of what's happening.");
  *
  *     const result = await runCommand();
@@ -31,7 +30,7 @@
  */
 
 import { test as bunTest, afterAll as bunAfterAll, type TestOptions } from "bun:test";
-import { createStory, type Story } from "./story.ts";
+import { createStory } from "./story.ts";
 import type { CommandResult } from "../integration/helpers.ts";
 
 /** Story context passed to each test */
@@ -39,7 +38,7 @@ export interface StoryContext {
   /** Set the test ID for sanitizing dynamic IDs from output */
   strip(testId: string): void;
   /** Override the section title (defaults to test name) */
-  begin(title: string): void;
+  title(title: string): void;
   /** Add narrative text to the story */
   narrate(text: string): void;
   /** Log a command result */
@@ -62,6 +61,11 @@ interface StoryTestOptions extends TestOptions {
 export function createStoryTest(testFileName: string) {
   const baseStory = createStory(testFileName);
 
+  // Auto-register afterAll to flush story output
+  bunAfterAll(async () => {
+    await baseStory.flush();
+  });
+
   // Track state for the current test
   let currentTestId: string | undefined;
   let hasBegunSection = false;
@@ -72,7 +76,7 @@ export function createStoryTest(testFileName: string) {
       currentTestId = testId;
     },
 
-    begin(title: string) {
+    title(title: string) {
       hasBegunSection = true;
       baseStory.begin(title, currentTestId);
     },
@@ -194,12 +198,5 @@ export function createStoryTest(testFileName: string) {
     }
   };
 
-  // afterAll that flushes the story - returns a function to call in describe block
-  function afterAll() {
-    bunAfterAll(async () => {
-      await baseStory.flush();
-    });
-  }
-
-  return { test, afterAll };
+  return { test };
 }

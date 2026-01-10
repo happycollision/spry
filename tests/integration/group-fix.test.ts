@@ -5,7 +5,7 @@ import { scenarios } from "../../src/scenario/definitions.ts";
 import { createStoryTest } from "../helpers/story-test.ts";
 import { runSpry } from "./helpers.ts";
 
-const { test, afterAll } = createStoryTest("group-fix.test.ts");
+const { test } = createStoryTest("group-fix.test.ts");
 
 /**
  * Run sp group --fix command.
@@ -24,8 +24,6 @@ async function getCommitTrailers(cwd: string, count: number): Promise<string> {
 
 describe("sp group --fix", () => {
   const repos = repoManager();
-
-  afterAll();
 
   test("Valid stack with no issues", async (story) => {
     story.narrate("When all groups in a stack are valid, sp group --fix reports no issues.");
