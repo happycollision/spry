@@ -314,6 +314,144 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: sync cleanup", () => {
   );
 });
 
+describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: PR Body Generation", () => {
+  const repos = repoManager({ github: true });
+  const story = createStory("sync.test.ts");
+
+  afterAll(async () => {
+    await story.flush();
+  });
+
+  /** Helper to get PR body via gh CLI */
+  async function getPRBody(
+    github: { owner: string; repo: string },
+    prNumber: number,
+  ): Promise<string> {
+    const result =
+      await $`gh pr view ${prNumber} --repo ${github.owner}/${github.repo} --json body`.text();
+    return JSON.parse(result).body || "";
+  }
+
+  test(
+    "creates PR with body containing commit message",
+    async () => {
+      story.begin("creates PR with body containing commit message", repos.uniqueId);
+      story.narrate("When creating a PR, sp generates a body with the commit message content.");
+
+      const repo = await repos.clone({ testName: "pr-body-basic" });
+      await repo.branch("feature/body-test");
+      // Use default commit (with auto-generated title containing uniqueId) but add body via commitFiles
+      await repo.commitFiles(
+        { "feature.txt": "New feature content" },
+        {
+          message: `Add feature [${repo.uniqueId}]\n\nThis is a detailed description of the feature.`,
+        },
+      );
+
+      const result = await runSync(repo.path, { open: true });
+      story.log(result);
+      story.end();
+
+      expect(result.exitCode).toBe(0);
+
+      const pr = await repo.findPR(repo.uniqueId);
+      const body = await getPRBody(repo.github, pr.number);
+
+      // Body should contain spry markers
+      expect(body).toContain("<!-- spry:body:begin -->");
+      expect(body).toContain("<!-- spry:body:end -->");
+      // Body should contain the commit description
+      expect(body).toContain("This is a detailed description of the feature.");
+      // Footer should be present
+      expect(body).toContain("<!-- spry:footer:begin -->");
+      expect(body).toContain("Spry");
+    },
+    { timeout: 60000 },
+  );
+
+  test(
+    "creates PR with stack links for multiple commits",
+    async () => {
+      story.begin("creates PR with stack links for multiple commits", repos.uniqueId);
+      story.narrate(
+        "When a stack has multiple PRs, each PR body contains links to all PRs in the stack.",
+      );
+
+      const repo = await repos.clone({ testName: "pr-body-stack" });
+      await repo.branch("feature/stack-links-test");
+      await repo.commit({ message: "First commit in stack" });
+      await repo.commit({ message: "Second commit in stack" });
+
+      const result = await runSync(repo.path, { open: true });
+      story.log(result);
+      story.end();
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Created 2 PR");
+
+      const prs = await repo.findPRs(repo.uniqueId);
+      expect(prs.length).toBe(2);
+
+      // Check first PR body has stack links
+      const firstPR = prs.find((p) => p.title.includes("First commit"));
+      if (!firstPR) throw new Error("First PR not found");
+
+      const body = await getPRBody(repo.github, firstPR.number);
+
+      // Should have stack links section
+      expect(body).toContain("<!-- spry:stack-links:begin -->");
+      expect(body).toContain("<!-- spry:stack-links:end -->");
+      expect(body).toContain("**Stack**");
+      expect(body).toContain("← this PR");
+    },
+    { timeout: 90000 },
+  );
+
+  test(
+    "group PR lists all commit subjects",
+    async () => {
+      story.begin("group PR lists all commit subjects", repos.uniqueId);
+      story.narrate(
+        "When multiple commits are grouped, the PR body lists all commit subjects as bullet points.",
+      );
+
+      const repo = await repos.clone({ testName: "pr-body-group" });
+      await repo.branch("feature/group-body-test");
+
+      // Create grouped commits - the group ID needs to match pattern and commit messages get uniqueId appended
+      const groupId = `group-${repo.uniqueId}`;
+      await repo.commit({
+        message: `Start feature X [${repo.uniqueId}]`,
+        trailers: { "Spry-Group": groupId },
+      });
+      await repo.commit({
+        message: `Continue feature X [${repo.uniqueId}]`,
+        trailers: { "Spry-Group": groupId },
+      });
+      await repo.commit({
+        message: `Complete feature X [${repo.uniqueId}]`,
+        trailers: { "Spry-Group": groupId },
+      });
+
+      const result = await runSync(repo.path, { open: true });
+      story.log(result);
+      story.end();
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Created 1 PR");
+
+      const pr = await repo.findPR(repo.uniqueId);
+      const body = await getPRBody(repo.github, pr.number);
+
+      // Body should list all commit subjects
+      expect(body).toContain("- Start feature X");
+      expect(body).toContain("- Continue feature X");
+      expect(body).toContain("- Complete feature X");
+    },
+    { timeout: 60000 },
+  );
+});
+
 describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: Branch Protection", () => {
   let github: GitHubFixture;
 

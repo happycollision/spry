@@ -17,6 +17,7 @@ import {
   deleteRemoteBranch,
   getPRBaseBranch,
   retargetPR,
+  updatePRBody,
   type PRInfo,
 } from "../../github/pr.ts";
 import { asserted } from "../../utils/assert.ts";
@@ -34,8 +35,32 @@ import {
   pushGroupTitles,
   purgeOrphanedTitles,
 } from "../../git/group-titles.ts";
+import {
+  readStackSettings,
+  setContentHashes,
+  pushStackSettings,
+  fetchStackSettings,
+  purgeOrphanedSettings,
+} from "../../git/stack-settings.ts";
+import {
+  findPRTemplate,
+  generateInitialPRBody,
+  generateBodyContent,
+  generateStackLinksContent,
+  generateUpdatedPRBody,
+  calculateContentHash,
+  type StackPRInfo,
+} from "../../github/pr-body.ts";
 import { openSelect, type OpenSelectOption } from "../../tui/open-select.ts";
 import { isTTY } from "../../tui/terminal.ts";
+
+/**
+ * Get the display title for a PRUnit.
+ * Groups may not have a title in ref storage yet, so fall back to first commit subject.
+ */
+function getUnitTitle(unit: PRUnit): string {
+  return unit.title ?? unit.subjects[0] ?? "Untitled";
+}
 
 export interface SyncOptions {
   open?: boolean;
@@ -129,8 +154,8 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
     // Check for uncommitted changes
     await requireCleanWorkingTree();
 
-    // Fetch group titles from remote at start of sync
-    await fetchGroupTitles();
+    // Fetch group titles and stack settings from remote at start of sync
+    await Promise.all([fetchGroupTitles(), fetchStackSettings()]);
 
     // Get commits and check which need IDs
     let commits = await getStackCommitsWithTrailers();
@@ -166,9 +191,10 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
 
     const units = stackResult.units;
 
-    // Purge orphaned titles (groups that no longer exist)
+    // Purge orphaned titles and settings (for groups/units that no longer exist)
     const currentGroupIds = units.filter((u) => u.type === "group").map((u) => u.id);
-    await purgeOrphanedTitles(currentGroupIds);
+    const allUnitIds = units.map((u) => u.id);
+    await Promise.all([purgeOrphanedTitles(currentGroupIds), purgeOrphanedSettings(allUnitIds)]);
     if (units.length === 0) {
       console.log("✓ No changes to sync");
       return;
@@ -214,8 +240,12 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       return;
     }
 
-    // Get temp commit prefixes for skipping PR creation
+    // Get spry config and PR template
     const spryConfig = await getSpryConfig();
+    const prTemplate = spryConfig.includePrTemplate ? await findPRTemplate() : undefined;
+
+    // Read existing stack settings for content hash tracking
+    const stackSettings = await readStackSettings();
 
     // Validate mutually exclusive options
     const selectorCount = [options.apply, options.upTo, options.interactive].filter(Boolean).length;
@@ -267,11 +297,12 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       for (const unit of activeUnits) {
         const headBranch = getBranchName(unit.id, branchConfig);
         const existingPR = openPRMap.get(headBranch) ?? null;
-        const isTemp = isTempCommit(unit.title, spryConfig.tempCommitPrefixes);
+        const unitTitle = getUnitTitle(unit);
+        const isTemp = isTempCommit(unitTitle, spryConfig.tempCommitPrefixes);
 
         selectOptions.push({
           id: unit.id,
-          label: unit.title,
+          label: unitTitle,
           shortId: unit.id.slice(0, 8),
           hasPR: existingPR !== null,
           prNumber: existingPR?.number,
@@ -297,10 +328,22 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
     const skippedByApply: string[] = [];
     let pushedCount = 0;
 
+    // Track all PRs in the stack for second-pass body updates
+    // Maps unit ID to { prNumber, index }
+    const prsByUnitId = new Map<string, { prNumber: number; index: number }>();
+
+    // Build unit index lookup (position in stack, 0 = oldest)
+    const unitIndexMap = new Map<string, number>();
+    activeUnits.forEach((unit, idx) => unitIndexMap.set(unit.id, idx));
+
+    // Track which units need body updates in the second pass
+    const unitsNeedingBodyUpdate: { unit: PRUnit; prNumber: number; isNew: boolean }[] = [];
+
     for (const unit of activeUnits) {
       const headBranch = getBranchName(unit.id, branchConfig);
       const headCommit = asserted(unit.commits.at(-1));
       const status = asserted(syncStatuses.get(unit.id));
+      const unitTitle = getUnitTitle(unit);
 
       // Use cached PR data from cleanupMergedPRs batch fetch
       const existingPR = openPRMap.get(headBranch) ?? null;
@@ -318,35 +361,108 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       }
 
       if (existingPR) {
+        // Track existing PR for body updates
+        const unitIndex = unitIndexMap.get(unit.id) ?? 0;
+        prsByUnitId.set(unit.id, { prNumber: existingPR.number, index: unitIndex });
+
         if (status.needsUpdate) {
-          // Existing PR was updated by the push
+          // Existing PR was updated by the push - may need body update too
           updated.push(existingPR);
+          unitsNeedingBodyUpdate.push({ unit, prNumber: existingPR.number, isNew: false });
         }
       } else if (options.open) {
         // Check if this is a temp commit (WIP, fixup!, etc.)
-        if (isTempCommit(unit.title, spryConfig.tempCommitPrefixes)) {
+        if (isTempCommit(unitTitle, spryConfig.tempCommitPrefixes)) {
           // Skip PR creation for temp commits, but branch was already pushed for stacking
-          skippedTemp.push(unit.title);
+          skippedTemp.push(unitTitle);
         } else if (applyUnitIds && !applyUnitIds.has(unit.id)) {
           // Skip PR creation if --apply is specified and this unit is not in the list
           // Branch was still pushed for stacking
-          skippedByApply.push(unit.title);
+          skippedByApply.push(unitTitle);
         } else {
           // Create new PR (--open is specified and no PR exists)
+          // Generate initial body without stack links (will be added in second pass)
+          const unitIndex = unitIndexMap.get(unit.id) ?? 0;
+          const body = generateInitialPRBody({
+            unit,
+            commits: commits as CommitInfo[],
+            prTemplate,
+            prTemplateLocation: spryConfig.prTemplateLocation,
+            showStackLinks: false, // Stack links added in second pass
+          });
+
           const pr = await createPR({
-            title: unit.title,
+            title: unitTitle,
             head: headBranch,
             base: baseBranch,
+            body,
           });
-          created.push({ ...pr, state: "OPEN", title: unit.title });
+
+          created.push({ ...pr, state: "OPEN", title: unitTitle });
+          prsByUnitId.set(unit.id, { prNumber: pr.number, index: unitIndex });
+          unitsNeedingBodyUpdate.push({ unit, prNumber: pr.number, isNew: true });
         }
       } else if (status.needsCreate) {
         // No PR and --open not specified - don't push, just track
-        skippedNoPR.push(unit.title);
+        skippedNoPR.push(unitTitle);
       }
 
       // Next PR bases on this branch (use local branch name for stacking context)
       baseBranch = headBranch;
+    }
+
+    // Second pass: Update PR bodies with stack links (if enabled and we have multiple PRs)
+    const shouldUpdateBodies = spryConfig.showStackLinks && prsByUnitId.size > 1;
+    const newContentHashes: Record<string, string> = {};
+    let bodiesUpdated = 0;
+
+    if (shouldUpdateBodies && unitsNeedingBodyUpdate.length > 0) {
+      // Build stack PR info for all PRs in the stack
+      const stackPRs: StackPRInfo[] = [];
+      for (const [_unitId, info] of prsByUnitId) {
+        stackPRs.push({ prNumber: info.prNumber, index: info.index });
+      }
+
+      for (const { unit, prNumber, isNew } of unitsNeedingBodyUpdate) {
+        const unitIndex = unitIndexMap.get(unit.id) ?? 0;
+        const bodyContent = generateBodyContent(unit, commits as CommitInfo[]);
+        const stackLinksContent = generateStackLinksContent(stackPRs, unitIndex, defaultBranch);
+        const contentHash = calculateContentHash(bodyContent, stackLinksContent);
+
+        // Check if content has changed (skip update if hash matches)
+        const existingHash = stackSettings.contentHashes[unit.id];
+        if (!isNew && existingHash === contentHash) {
+          // Content hasn't changed, skip update
+          continue;
+        }
+
+        // Get existing PR body and generate updated body
+        const existingBody = isNew
+          ? generateInitialPRBody({
+              unit,
+              commits: commits as CommitInfo[],
+              prTemplate,
+              prTemplateLocation: spryConfig.prTemplateLocation,
+              showStackLinks: false,
+            })
+          : (openPRMap.get(getBranchName(unit.id, branchConfig))?.body ?? "");
+
+        const updatedBody = generateUpdatedPRBody({
+          existingBody,
+          bodyContent,
+          stackLinksContent,
+          showStackLinks: true,
+        });
+
+        await updatePRBody(prNumber, updatedBody);
+        newContentHashes[unit.id] = contentHash;
+        bodiesUpdated++;
+      }
+
+      // Save content hashes for change detection
+      if (Object.keys(newContentHashes).length > 0) {
+        await setContentHashes(newContentHashes);
+      }
     }
 
     // Report results
@@ -387,8 +503,8 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       console.log(`✓ ${summary.upToDate} branch(es) already up to date`);
     }
 
-    // Push group titles to remote at end of sync
-    await pushGroupTitles();
+    // Push group titles and stack settings to remote at end of sync
+    await Promise.all([pushGroupTitles(), pushStackSettings()]);
   } catch (error) {
     if (error instanceof DirtyWorkingTreeError) {
       console.error("✗ Error: Cannot sync with uncommitted changes");

@@ -38,6 +38,7 @@ export interface PRInfo {
   url: string;
   state: "OPEN" | "CLOSED" | "MERGED";
   title: string;
+  body?: string;
   baseRefName?: string;
 }
 
@@ -150,6 +151,7 @@ export async function findPRByBranch(
 /** Extended PR info including head branch name for batch lookups */
 interface PRInfoWithHead extends PRInfo {
   headRefName: string;
+  body: string;
 }
 
 /**
@@ -182,7 +184,7 @@ export async function findPRsByBranches(
   const stateVal = options?.includeAll ? "all" : "";
 
   const ghResult =
-    await $`gh pr list ${stateArg} ${stateVal} --json number,url,state,title,headRefName`
+    await $`gh pr list ${stateArg} ${stateVal} --json number,url,state,title,body,headRefName`
       .quiet()
       .nothrow();
 
@@ -594,6 +596,49 @@ export async function getPRState(prNumber: number): Promise<"OPEN" | "CLOSED" | 
 
   const data = JSON.parse(result.stdout.toString()) as { state: "OPEN" | "CLOSED" | "MERGED" };
   return data.state;
+}
+
+/**
+ * Get the body content of a PR.
+ *
+ * @param prNumber - The PR number
+ * @returns The PR body as a string, or empty string if not set
+ */
+export async function getPRBody(prNumber: number): Promise<string> {
+  await ensureGhInstalled();
+
+  const result = await $`gh pr view ${prNumber} --json body`.quiet().nothrow();
+
+  if (result.exitCode !== 0) {
+    const stderr = result.stderr.toString();
+    if (stderr.includes("not found") || stderr.includes("Could not resolve")) {
+      throw new PRNotFoundError(prNumber);
+    }
+    throw new Error(`Failed to get PR #${prNumber} body: ${stderr}`);
+  }
+
+  const data = JSON.parse(result.stdout.toString()) as { body: string };
+  return data.body || "";
+}
+
+/**
+ * Update the body content of a PR.
+ *
+ * @param prNumber - The PR number
+ * @param body - The new body content
+ */
+export async function updatePRBody(prNumber: number, body: string): Promise<void> {
+  await ensureGhInstalled();
+
+  const result = await $`gh pr edit ${prNumber} --body ${body}`.quiet().nothrow();
+
+  if (result.exitCode !== 0) {
+    const stderr = result.stderr.toString();
+    if (stderr.includes("not found") || stderr.includes("Could not resolve")) {
+      throw new PRNotFoundError(prNumber);
+    }
+    throw new Error(`Failed to update PR #${prNumber} body: ${stderr}`);
+  }
 }
 
 /**

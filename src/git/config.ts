@@ -1,9 +1,14 @@
 import { $ } from "bun";
 
+export type TemplateLocation = "prepend" | "afterBody" | "afterStackLinks" | "append";
+
 export interface SpryConfig {
   branchPrefix: string;
   defaultBranch: string;
   tempCommitPrefixes: string[];
+  showStackLinks: boolean;
+  includePrTemplate: boolean;
+  prTemplateLocation: TemplateLocation;
 }
 
 /**
@@ -22,16 +27,30 @@ let cachedConfig: SpryConfig | null = null;
  * Configuration options:
  * - spry.branchPrefix: Custom prefix for branch names (default: "spry")
  * - spry.defaultBranch: Default branch to stack on (default: auto-detect from origin)
+ * - spry.tempCommitPrefixes: Comma-separated prefixes for temp commits (default: "WIP,fixup!,amend!,squash!")
+ * - spry.showStackLinks: Show stack links in PR body (default: true)
+ * - spry.includePrTemplate: Include PR template in PR body (default: true)
+ * - spry.prTemplateLocation: Where to place PR template - "prepend", "afterBody", "afterStackLinks", "append" (default: "afterBody")
  */
 export async function getSpryConfig(): Promise<SpryConfig> {
   if (cachedConfig) {
     return cachedConfig;
   }
 
-  const [prefixResult, defaultBranchResult, tempPrefixesResult] = await Promise.all([
+  const [
+    prefixResult,
+    defaultBranchResult,
+    tempPrefixesResult,
+    showStackLinksResult,
+    includePrTemplateResult,
+    prTemplateLocationResult,
+  ] = await Promise.all([
     $`git config --get spry.branchPrefix`.nothrow(),
     $`git config --get spry.defaultBranch`.nothrow(),
     $`git config --get spry.tempCommitPrefixes`.nothrow(),
+    $`git config --get spry.showStackLinks`.nothrow(),
+    $`git config --get spry.includePrTemplate`.nothrow(),
+    $`git config --get spry.prTemplateLocation`.nothrow(),
   ]);
 
   const branchPrefix = prefixResult.exitCode === 0 ? prefixResult.stdout.toString().trim() : "spry";
@@ -61,7 +80,40 @@ export async function getSpryConfig(): Promise<SpryConfig> {
     tempCommitPrefixes = DEFAULT_TEMP_COMMIT_PREFIXES;
   }
 
-  cachedConfig = { branchPrefix, defaultBranch, tempCommitPrefixes };
+  // Parse boolean settings (default true)
+  const showStackLinks =
+    showStackLinksResult.exitCode === 0
+      ? showStackLinksResult.stdout.toString().trim().toLowerCase() !== "false"
+      : true;
+
+  const includePrTemplate =
+    includePrTemplateResult.exitCode === 0
+      ? includePrTemplateResult.stdout.toString().trim().toLowerCase() !== "false"
+      : true;
+
+  // Parse prTemplateLocation with validation (default "afterBody")
+  let prTemplateLocation: TemplateLocation = "afterBody";
+  if (prTemplateLocationResult.exitCode === 0) {
+    const value = prTemplateLocationResult.stdout.toString().trim() as TemplateLocation;
+    const validLocations: TemplateLocation[] = [
+      "prepend",
+      "afterBody",
+      "afterStackLinks",
+      "append",
+    ];
+    if (validLocations.includes(value)) {
+      prTemplateLocation = value;
+    }
+  }
+
+  cachedConfig = {
+    branchPrefix,
+    defaultBranch,
+    tempCommitPrefixes,
+    showStackLinks,
+    includePrTemplate,
+    prTemplateLocation,
+  };
   return cachedConfig;
 }
 

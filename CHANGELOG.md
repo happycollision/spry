@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- PR body generation with commit message content
+- Stack links in PR bodies showing all PRs with GitHub native references (#123 format)
+- PR template support with configurable placement (prepend, afterBody, afterStackLinks, append)
+- User-editable content preservation between Spry markers on sync
+- Content hash tracking to avoid unnecessary PR body updates
+- Alpha warning footer in generated PR bodies
+- New config options: `spry.showStackLinks`, `spry.includePrTemplate`, `spry.prTemplateLocation`
+
 ### Fixed
 
 - CLI help now shows correct binary name (`sp`) and tagline
