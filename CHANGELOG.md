@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- GitHub API retry logic with exponential backoff and jitter
+- Rate limit detection with automatic wait-and-retry
+- Concurrency limiting (max 5 parallel GitHub API calls)
+
 ## [1.0.0-beta.1] - 2026-01-10
 
 ### Added

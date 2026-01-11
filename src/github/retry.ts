@@ -3,6 +3,12 @@ import { $ } from "bun";
 /** Shell command result type */
 type ShellOutput = Awaited<ReturnType<typeof $>>;
 
+/** Command executor function type - for dependency injection in tests */
+export type CommandExecutor = (args: string[]) => Promise<ShellOutput>;
+
+/** Default executor using Bun shell */
+const defaultExecutor: CommandExecutor = (args) => $`${args}`.quiet().nothrow();
+
 /**
  * Error thrown when rate limit is exceeded and all retries exhausted.
  */
@@ -32,13 +38,18 @@ export interface RetryOptions {
   onRetry?: (attempt: number, waitMs: number, error: string) => void;
   /** Callback when rate limited */
   onRateLimit?: (retryAfterSeconds: number) => void;
+  /** Custom command executor (for testing) */
+  executor?: CommandExecutor;
 }
 
-const DEFAULT_OPTIONS: Required<Omit<RetryOptions, "onRetry" | "onRateLimit">> = {
+const DEFAULT_OPTIONS: Required<Omit<RetryOptions, "onRetry" | "onRateLimit" | "executor">> & {
+  executor: CommandExecutor;
+} = {
   maxAttempts: 3,
   baseWaitMs: 1000,
   maxWaitMs: 30000,
   jitter: 0.2,
+  executor: defaultExecutor,
 };
 
 /**
@@ -129,10 +140,11 @@ export async function ghExec(
   options: RetryOptions = {},
 ): Promise<ShellOutput> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
+  const exec = opts.executor;
   let lastError: string = "";
 
   for (let attempt = 0; attempt < opts.maxAttempts; attempt++) {
-    const result = await $`${args}`.quiet().nothrow();
+    const result = await exec(args);
 
     if (result.exitCode === 0) {
       return result;
@@ -170,7 +182,7 @@ export async function ghExec(
   }
 
   // All retries exhausted
-  const result = await $`${args}`.quiet().nothrow();
+  const result = await exec(args);
   return result;
 }
 
