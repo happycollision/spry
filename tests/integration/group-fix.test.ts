@@ -1,3 +1,9 @@
+/**
+ * group --fix command tests - the full story
+ *
+ * This file tests the `sp group --fix` command which repairs invalid
+ * group structures like split groups (non-contiguous commits).
+ */
 import { expect, describe } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../helpers/local-repo.ts";

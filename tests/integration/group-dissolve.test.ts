@@ -1,3 +1,9 @@
+/**
+ * group dissolve command tests - the full story
+ *
+ * This file tests the `sp group dissolve` command which removes group
+ * trailers from commits, converting them back to individual commits.
+ */
 import { expect, describe } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../helpers/local-repo.ts";

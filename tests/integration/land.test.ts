@@ -1,15 +1,122 @@
-import { expect, describe } from "bun:test";
+/**
+ * land command tests - the full story
+ *
+ * This file tells the complete story of the `sp land` command:
+ * 1. Local CLI tests (no network) - basic behavior and validation
+ * 2. GitHub integration tests - PR landing, retargeting
+ * 3. CI-dependent tests - verifying CI requirements before landing
+ *
+ * Tests are organized to generate documentation that explains land from
+ * simple to complex scenarios.
+ */
+import { test, expect, describe } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../helpers/local-repo.ts";
 import { createStoryTest } from "../helpers/story-test.ts";
+import { scenarios } from "../../src/scenario/definitions.ts";
 import { SKIP_GITHUB_TESTS, SKIP_CI_TESTS, runSync, runLand } from "./helpers.ts";
 
-const { test } = createStoryTest("land.test.ts");
+// Create story-enabled test wrapper for documentation generation
+const { test: storyTest } = createStoryTest("land.test.ts");
 
-describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
+// ============================================================================
+// Part 1: Local CLI Tests (no network required)
+// These tests run against local git repos only - fast and reliable
+// ============================================================================
+
+describe("land: local behavior", () => {
+  const repos = repoManager();
+
+  test("reports when stack is empty", async () => {
+    const repo = await repos.create();
+    await scenarios.emptyStack.setup(repo);
+
+    const result = await runLand(repo.path);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("No commits in stack");
+  });
+
+  test("reports when there are commits but no open PRs", async () => {
+    const repo = await repos.create();
+    await scenarios.withSpryIds.setup(repo);
+
+    const result = await runLand(repo.path);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("No open PRs in stack");
+  });
+
+  test("handles validation error for split group", async () => {
+    const repo = await repos.create();
+    await repo.branch("feature");
+
+    // Create a split group (non-contiguous commits with same Spry-Group)
+    await repo.commit({
+      message: "Group commit 1",
+      trailers: {
+        "Spry-Commit-Id": "id111111",
+        "Spry-Group": "grp1",
+        "Spry-Group-Title": "My Group",
+      },
+    });
+    await repo.commit({
+      message: "Interrupting commit",
+      trailers: {
+        "Spry-Commit-Id": "id222222",
+      },
+    });
+    await repo.commit({
+      message: "Group commit 2",
+      trailers: {
+        "Spry-Commit-Id": "id333333",
+        "Spry-Group": "grp1",
+        "Spry-Group-Title": "My Group",
+      },
+    });
+
+    const result = await runLand(repo.path);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Split group");
+  });
+});
+
+// ============================================================================
+// Part 2: GitHub Integration Tests (requires GITHUB_INTEGRATION_TESTS=1)
+// These tests interact with real GitHub API
+// ============================================================================
+
+describe.skipIf(SKIP_GITHUB_TESTS)("land: GitHub integration", () => {
   const repos = repoManager({ github: true });
 
-  test.skipIf(SKIP_CI_TESTS)(
+  storyTest(
+    "No open PRs to land",
+    async (story) => {
+      story.strip(repos.uniqueId);
+      story.narrate(
+        "If you try to land a stack that has no open PRs, sp tells you there's nothing to land.",
+      );
+
+      const repo = await repos.clone({ testName: "no-pr" });
+      await repo.branch("feature/no-pr-test");
+      await repo.commit();
+
+      // Run sync WITHOUT --open (just adds IDs, no PR)
+      const syncResult = await runSync(repo.path, { open: false });
+      expect(syncResult.exitCode).toBe(0);
+
+      // Try to land - should report no open PRs
+      const landResult = await runLand(repo.path);
+      story.log(landResult);
+
+      expect(landResult.exitCode).toBe(0);
+      expect(landResult.stdout).toContain("No open PRs in stack");
+    },
+    { timeout: 60000 },
+  );
+
+  storyTest.skipIf(SKIP_CI_TESTS)(
     "Landing a single PR",
     async (story) => {
       story.strip(repos.uniqueId);
@@ -57,7 +164,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
     { timeout: 200000 },
   );
 
-  test.noStory.skipIf(SKIP_CI_TESTS)(
+  test.skipIf(SKIP_CI_TESTS)(
     "retargets next PR to main after landing, preventing it from being closed",
     async () => {
       const repo = await repos.clone({ testName: "retarget" });
@@ -133,7 +240,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
     { timeout: 400000 },
   );
 
-  test.noStory.skipIf(SKIP_CI_TESTS)(
+  test.skipIf(SKIP_CI_TESTS)(
     "fails to land when PR cannot be fast-forwarded",
     async () => {
       const repo = await repos.clone({ testName: "conflict" });
@@ -174,33 +281,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
     { timeout: 200000 },
   );
 
-  test(
-    "No open PRs to land",
-    async (story) => {
-      story.strip(repos.uniqueId);
-      story.narrate(
-        "If you try to land a stack that has no open PRs, sp tells you there's nothing to land.",
-      );
-
-      const repo = await repos.clone({ testName: "no-pr" });
-      await repo.branch("feature/no-pr-test");
-      await repo.commit();
-
-      // Run sync WITHOUT --open (just adds IDs, no PR)
-      const syncResult = await runSync(repo.path, { open: false });
-      expect(syncResult.exitCode).toBe(0);
-
-      // Try to land - should report no open PRs
-      const landResult = await runLand(repo.path);
-      story.log(landResult);
-
-      expect(landResult.exitCode).toBe(0);
-      expect(landResult.stdout).toContain("No open PRs in stack");
-    },
-    { timeout: 60000 },
-  );
-
-  test.noStory.skipIf(SKIP_CI_TESTS)(
+  test.skipIf(SKIP_CI_TESTS)(
     "fails to land when CI checks are failing",
     async () => {
       const repo = await repos.clone({ testName: "land-ci-fail" });
@@ -227,10 +308,15 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land", () => {
   );
 });
 
-describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
+// ============================================================================
+// Part 3: CI-Dependent Tests - land --all (requires GITHUB_CI_TESTS=1)
+// These tests verify batch landing behavior with CI requirements
+// ============================================================================
+
+describe.skipIf(SKIP_GITHUB_TESTS)("land --all: batch landing", () => {
   const repos = repoManager({ github: true });
 
-  test.noStory.skipIf(SKIP_CI_TESTS)(
+  test.skipIf(SKIP_CI_TESTS)(
     "lands all consecutive ready PRs in a stack",
     async () => {
       const repo = await repos.clone({ testName: "land-all" });
@@ -273,7 +359,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
     { timeout: 300000 },
   );
 
-  test.noStory.skipIf(SKIP_CI_TESTS)(
+  test.skipIf(SKIP_CI_TESTS)(
     "stops at first non-ready PR when using --all",
     async () => {
       const repo = await repos.clone({ testName: "stop" });
@@ -323,7 +409,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
     { timeout: 300000 },
   );
 
-  test.noStory.skipIf(SKIP_CI_TESTS)(
+  test.skipIf(SKIP_CI_TESTS)(
     "snapshots readiness at start and doesn't land PRs that become ready during execution",
     async () => {
       const repo = await repos.clone({ testName: "snapshot" });
@@ -365,7 +451,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: land --all", () => {
     { timeout: 300000 },
   );
 
-  test.noStory.skipIf(SKIP_CI_TESTS)(
+  test.skipIf(SKIP_CI_TESTS)(
     "reports no ready PRs when first PR is not ready",
     async () => {
       const repo = await repos.clone({ testName: "not-ready" });
