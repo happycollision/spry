@@ -15,7 +15,7 @@
     "test:docker:2.38": "./scripts/test-docker.sh test 2.38",
     "docker:shell": "./scripts/test-docker.sh shell",
     "docker:shell:2.38": "./scripts/test-docker.sh shell 2.38",
-    "scenario": "bun run src/scenario/index.ts",
+    "scenario": "bun run build && bun run src/scenario/index.ts",
     "test:github:setup": "bun run scripts/setup-spry-check.ts",
     "test:github": "GITHUB_INTEGRATION_TESTS=1 GITHUB_CI_TESTS=1 bun test tests/integration/",
     "lint": "oxlint --type-aware",

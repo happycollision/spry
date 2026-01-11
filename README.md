@@ -442,6 +442,47 @@ bun run format
 bun run check
 ```
 
+### Docker Development Environment
+
+A Docker environment is provided for testing against the minimum supported Git version (2.40). This is **optional** for local development if your system Git is 2.40+, but useful when:
+
+- You need to verify behavior with the exact minimum supported Git version
+- Investigating discrepancies between local and CI environments
+- Testing Git version error handling
+
+```bash
+# Start a dev shell with git 2.40 (minimum supported)
+bun run docker:shell
+
+# Start a dev shell with git 2.38 (to test unsupported version handling)
+bun run docker:shell:2.38
+
+# Run all tests with git 2.40
+bun run test:docker:2.40
+
+# Run version tests with git 2.38
+bun run test:docker:2.38
+
+# Run both test suites (like CI)
+bun run test:docker
+```
+
+The container automatically installs dependencies and builds `sp` on first run.
+
+### Scenario Runner
+
+The scenario runner spins up temporary git repos with pre-configured states for manual testing. It spawns a shell with `sp` already in your PATH, then cleans up on exit.
+
+```bash
+# Interactive menu to select a scenario
+bun run scenario
+
+# Run a specific scenario by name
+bun run scenario multi-commit-stack
+```
+
+This works both locally and inside the Docker shell, making it easy to test `sp` commands against various repo states with any Git version.
+
 ### Project Structure
 
 ```
