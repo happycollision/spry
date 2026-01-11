@@ -1,5 +1,6 @@
 import { $ } from "bun";
 import { ensureGhInstalled } from "./api.ts";
+import { ghExecWithLimit } from "./retry.ts";
 
 export interface LandResult {
   sha: string;
@@ -125,13 +126,12 @@ export async function findPRByBranch(
 ): Promise<PRInfo | null> {
   await ensureGhInstalled();
 
-  const stateArg = options?.includeAll ? "--state" : "";
-  const stateVal = options?.includeAll ? "all" : "";
+  const args = ["gh", "pr", "list", "--head", branchName, "--json", "number,url,state,title"];
+  if (options?.includeAll) {
+    args.push("--state", "all");
+  }
 
-  const result =
-    await $`gh pr list --head ${branchName} ${stateArg} ${stateVal} --json number,url,state,title`
-      .quiet()
-      .nothrow();
+  const result = await ghExecWithLimit(args);
 
   if (result.exitCode !== 0) {
     return null;
@@ -180,13 +180,12 @@ export async function findPRsByBranches(
   }
 
   // Fetch all PRs in a single call (no --head filter)
-  const stateArg = options?.includeAll ? "--state" : "";
-  const stateVal = options?.includeAll ? "all" : "";
+  const args = ["gh", "pr", "list", "--json", "number,url,state,title,body,headRefName"];
+  if (options?.includeAll) {
+    args.push("--state", "all");
+  }
 
-  const ghResult =
-    await $`gh pr list ${stateArg} ${stateVal} --json number,url,state,title,body,headRefName`
-      .quiet()
-      .nothrow();
+  const ghResult = await ghExecWithLimit(args);
 
   if (ghResult.exitCode !== 0) {
     // Return all nulls on error
@@ -241,7 +240,12 @@ export async function createPR(options: CreatePROptions): Promise<{ number: numb
     args.push("--body=");
   }
 
-  const result = await $`${args}`;
+  const result = await ghExecWithLimit(args);
+
+  if (result.exitCode !== 0) {
+    throw new Error(`Failed to create PR: ${result.stderr.toString()}`);
+  }
+
   // gh pr create outputs the PR URL on success
   const url = result.stdout.toString().trim();
 
@@ -268,10 +272,12 @@ export async function createPR(options: CreatePROptions): Promise<{ number: numb
 export async function getPRChecksStatus(prNumber: number, repo?: string): Promise<ChecksStatus> {
   await ensureGhInstalled();
 
-  const repoArg = repo ? ["--repo", repo] : [];
-  const result = await $`gh pr view ${prNumber} ${repoArg} --json statusCheckRollup`
-    .quiet()
-    .nothrow();
+  const args = ["gh", "pr", "view", String(prNumber), "--json", "statusCheckRollup"];
+  if (repo) {
+    args.push("--repo", repo);
+  }
+
+  const result = await ghExecWithLimit(args);
 
   if (result.exitCode !== 0) {
     const stderr = result.stderr.toString();
@@ -298,8 +304,12 @@ export async function getPRChecksStatus(prNumber: number, repo?: string): Promis
 export async function getPRReviewStatus(prNumber: number, repo?: string): Promise<ReviewDecision> {
   await ensureGhInstalled();
 
-  const repoArg = repo ? ["--repo", repo] : [];
-  const result = await $`gh pr view ${prNumber} ${repoArg} --json reviewDecision`.quiet().nothrow();
+  const args = ["gh", "pr", "view", String(prNumber), "--json", "reviewDecision"];
+  if (repo) {
+    args.push("--repo", repo);
+  }
+
+  const result = await ghExecWithLimit(args);
 
   if (result.exitCode !== 0) {
     const stderr = result.stderr.toString();
@@ -383,10 +393,21 @@ export async function getPRCommentStatus(prNumber: number, repo?: string): Promi
     }
   `;
 
-  const result =
-    await $`gh api graphql -f query=${query} -F owner=${owner} -F repo=${repoName} -F prNumber=${prNumber}`
-      .quiet()
-      .nothrow();
+  const args = [
+    "gh",
+    "api",
+    "graphql",
+    "-f",
+    `query=${query}`,
+    "-F",
+    `owner=${owner}`,
+    "-F",
+    `repo=${repoName}`,
+    "-F",
+    `prNumber=${prNumber}`,
+  ];
+
+  const result = await ghExecWithLimit(args);
 
   if (result.exitCode !== 0) {
     const stderr = result.stderr.toString();
@@ -426,10 +447,12 @@ export async function getPRChecksAndReviewStatus(
 ): Promise<{ checks: ChecksStatus; review: ReviewDecision }> {
   await ensureGhInstalled();
 
-  const repoArg = repo ? ["--repo", repo] : [];
-  const result = await $`gh pr view ${prNumber} ${repoArg} --json statusCheckRollup,reviewDecision`
-    .quiet()
-    .nothrow();
+  const args = ["gh", "pr", "view", String(prNumber), "--json", "statusCheckRollup,reviewDecision"];
+  if (repo) {
+    args.push("--repo", repo);
+  }
+
+  const result = await ghExecWithLimit(args);
 
   if (result.exitCode !== 0) {
     const stderr = result.stderr.toString();
@@ -457,9 +480,8 @@ export async function getPRMergeStatus(prNumber: number): Promise<PRMergeStatus>
   await ensureGhInstalled();
 
   // Get PR status checks and review decision
-  const result = await $`gh pr view ${prNumber} --json statusCheckRollup,reviewDecision`
-    .quiet()
-    .nothrow();
+  const args = ["gh", "pr", "view", String(prNumber), "--json", "statusCheckRollup,reviewDecision"];
+  const result = await ghExecWithLimit(args);
 
   if (result.exitCode !== 0) {
     throw new PRNotFoundError(prNumber);
@@ -492,9 +514,15 @@ export async function landPR(prNumber: number, targetBranch: string = "main"): P
   await ensureGhInstalled();
 
   // Get PR details
-  const prResult = await $`gh pr view ${prNumber} --json headRefName,headRefOid,baseRefName,state`
-    .quiet()
-    .nothrow();
+  const args = [
+    "gh",
+    "pr",
+    "view",
+    String(prNumber),
+    "--json",
+    "headRefName,headRefOid,baseRefName,state",
+  ];
+  const prResult = await ghExecWithLimit(args);
 
   if (prResult.exitCode !== 0) {
     const stderr = prResult.stderr.toString();
@@ -567,7 +595,8 @@ export async function deleteRemoteBranch(branchName: string): Promise<void> {
 export async function getPRBaseBranch(prNumber: number): Promise<string> {
   await ensureGhInstalled();
 
-  const result = await $`gh pr view ${prNumber} --json baseRefName`.quiet().nothrow();
+  const args = ["gh", "pr", "view", String(prNumber), "--json", "baseRefName"];
+  const result = await ghExecWithLimit(args);
 
   if (result.exitCode !== 0) {
     throw new PRNotFoundError(prNumber);
@@ -584,7 +613,8 @@ export async function getPRBaseBranch(prNumber: number): Promise<string> {
 export async function retargetPR(prNumber: number, newBase: string): Promise<void> {
   await ensureGhInstalled();
 
-  const result = await $`gh pr edit ${prNumber} --base ${newBase}`.quiet().nothrow();
+  const args = ["gh", "pr", "edit", String(prNumber), "--base", newBase];
+  const result = await ghExecWithLimit(args);
 
   if (result.exitCode !== 0) {
     throw new Error(
@@ -602,10 +632,12 @@ export async function closePR(prNumber: number, comment?: string): Promise<void>
 
   // Add a comment explaining why the PR is being closed (if provided)
   if (comment) {
-    await $`gh pr comment ${prNumber} --body ${comment}`.quiet().nothrow();
+    const commentArgs = ["gh", "pr", "comment", String(prNumber), "--body", comment];
+    await ghExecWithLimit(commentArgs);
   }
 
-  const result = await $`gh pr close ${prNumber}`.quiet().nothrow();
+  const args = ["gh", "pr", "close", String(prNumber)];
+  const result = await ghExecWithLimit(args);
 
   if (result.exitCode !== 0) {
     const stderr = result.stderr.toString();
@@ -622,7 +654,8 @@ export async function closePR(prNumber: number, comment?: string): Promise<void>
 export async function getPRState(prNumber: number): Promise<"OPEN" | "CLOSED" | "MERGED"> {
   await ensureGhInstalled();
 
-  const result = await $`gh pr view ${prNumber} --json state`.quiet().nothrow();
+  const args = ["gh", "pr", "view", String(prNumber), "--json", "state"];
+  const result = await ghExecWithLimit(args);
 
   if (result.exitCode !== 0) {
     throw new PRNotFoundError(prNumber);
@@ -641,7 +674,8 @@ export async function getPRState(prNumber: number): Promise<"OPEN" | "CLOSED" | 
 export async function getPRBody(prNumber: number): Promise<string> {
   await ensureGhInstalled();
 
-  const result = await $`gh pr view ${prNumber} --json body`.quiet().nothrow();
+  const args = ["gh", "pr", "view", String(prNumber), "--json", "body"];
+  const result = await ghExecWithLimit(args);
 
   if (result.exitCode !== 0) {
     const stderr = result.stderr.toString();
@@ -664,7 +698,8 @@ export async function getPRBody(prNumber: number): Promise<string> {
 export async function updatePRBody(prNumber: number, body: string): Promise<void> {
   await ensureGhInstalled();
 
-  const result = await $`gh pr edit ${prNumber} --body ${body}`.quiet().nothrow();
+  const args = ["gh", "pr", "edit", String(prNumber), "--body", body];
+  const result = await ghExecWithLimit(args);
 
   if (result.exitCode !== 0) {
     const stderr = result.stderr.toString();

@@ -1,4 +1,5 @@
 import { $ } from "bun";
+import { ghExecWithLimit } from "./retry.ts";
 
 export class GitHubAuthError extends Error {
   constructor(message: string) {
@@ -43,7 +44,8 @@ export async function ensureGhInstalled(): Promise<void> {
 export async function getGitHubUsername(): Promise<string> {
   await ensureGhInstalled();
 
-  const result = await $`gh api user --jq .login`.quiet().nothrow();
+  const args = ["gh", "api", "user", "--jq", ".login"];
+  const result = await ghExecWithLimit(args);
 
   if (result.exitCode !== 0) {
     throw new GitHubAuthError(
