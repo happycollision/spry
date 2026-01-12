@@ -223,6 +223,13 @@ export async function findPRsByBranches(
 export async function createPR(options: CreatePROptions): Promise<{ number: number; url: string }> {
   await ensureGhInstalled();
 
+  // Validate PR title before calling GitHub API
+  const { validatePRTitle } = await import("../core/validation.ts");
+  const titleValidation = validatePRTitle(options.title);
+  if (!titleValidation.ok) {
+    throw new Error(titleValidation.error);
+  }
+
   const args = [
     "gh",
     "pr",

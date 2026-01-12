@@ -1,4 +1,5 @@
 import type { PRUnit, CommitInfo } from "../types.ts";
+import { validateIdentifiers } from "./validation.ts";
 
 /**
  * Result of resolving an identifier to a unit.
@@ -150,7 +151,17 @@ export function parseApplySpec(json: string): string[] {
     }
   }
 
-  return parsed as string[];
+  // Validate identifier formats
+  const identifiers = parsed as string[];
+  const validationErrors = validateIdentifiers(identifiers);
+  if (validationErrors.length > 0) {
+    const firstError = validationErrors[0];
+    if (firstError && !firstError.ok) {
+      throw new Error(firstError.error);
+    }
+  }
+
+  return identifiers;
 }
 
 /**
