@@ -112,7 +112,7 @@ export function stripTrailersFromBody(body: string): string {
 
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
-    if (!line) continue; // Skip if undefined (shouldn't happen but satisfies TS)
+    if (line === undefined) continue; // Skip if undefined (shouldn't happen but satisfies TS)
 
     if (line.trim() === "") {
       if (foundBlankLine) {
