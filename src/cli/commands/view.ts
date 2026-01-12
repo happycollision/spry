@@ -137,8 +137,9 @@ async function viewAllPRs(): Promise<void> {
   const username = usernameResult.stdout.toString().trim();
 
   // Get all PRs authored by the current user
+  // Use --limit 500 to handle users with many PRs (gh defaults to 30)
   const result =
-    await $`gh pr list --author ${username} --state all --json number,title,state,headRefName,url --limit 100`
+    await $`gh pr list --author ${username} --state all --json number,title,state,headRefName,url --limit 500`
       .quiet()
       .nothrow();
 

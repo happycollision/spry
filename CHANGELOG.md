@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rate limit detection with automatic wait-and-retry
 - Concurrency limiting (max 5 parallel GitHub API calls)
 
+### Fixed
+
+- GitHub API pagination for large repos (gh pr list now fetches up to 500 PRs)
+
 ## [1.0.0-beta.1] - 2026-01-10
 
 ### Added
