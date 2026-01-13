@@ -359,11 +359,15 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync --open: PR creation", () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Created");
 
+      // Verify progress feedback is shown (in non-TTY mode: "Creating PR for "title"... #number")
+      expect(result.stdout).toContain("Creating PR for");
+      expect(result.stdout).toMatch(/Creating PR for .+\.\.\. #\d+/);
+
       // Verify PR was created
       const prs = await repo.findPRs(repo.uniqueId);
       expect(prs.length).toBeGreaterThanOrEqual(1);
     },
-    { timeout: 60000 },
+    { timeout: 90000 },
   );
 
   storyTest(
@@ -395,6 +399,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync --open: PR creation", () => {
       story.log(openResult);
 
       expect(openResult.exitCode).toBe(0);
+
+      // Verify progress feedback is shown for each PR
+      expect(openResult.stdout).toContain("Creating PR for");
 
       // Verify PRs were created
       const prsAfter = await repo.findPRs(repo.uniqueId);

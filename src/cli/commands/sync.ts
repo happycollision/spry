@@ -395,12 +395,22 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
             showStackLinks: false, // Stack links added in second pass
           });
 
+          if (isTTY()) {
+            process.stdout.write(`Creating PR for "${unitTitle}"...`);
+          } else {
+            process.stdout.write(`Creating PR for "${unitTitle}"... `);
+          }
           const pr = await createPR({
             title: unitTitle,
             head: headBranch,
             base: baseBranch,
             body,
           });
+          if (isTTY()) {
+            process.stdout.write("\r\x1b[K"); // Clear the line
+          } else {
+            console.log(`#${pr.number}`);
+          }
 
           created.push({ ...pr, state: "OPEN", title: unitTitle });
           prsByUnitId.set(unit.id, { prNumber: pr.number, index: unitIndex });
