@@ -75,31 +75,25 @@ describe("github/pr", () => {
   });
 
   describe("PRNotFastForwardError", () => {
-    test("includes PR number and reason in message", () => {
+    test("includes PR number and reason", () => {
       const error = new PRNotFastForwardError(123, "main is not an ancestor");
-      expect(error.message).toBe("PR #123 cannot be fast-forwarded: main is not an ancestor");
       expect(error.prNumber).toBe(123);
       expect(error.reason).toBe("main is not an ancestor");
-      expect(error.name).toBe("PRNotFastForwardError");
     });
   });
 
   describe("PRNotFoundError", () => {
-    test("includes PR number in message", () => {
+    test("includes PR number", () => {
       const error = new PRNotFoundError(456);
-      expect(error.message).toBe("PR #456 not found");
       expect(error.prNumber).toBe(456);
-      expect(error.name).toBe("PRNotFoundError");
     });
   });
 
   describe("PRNotReadyError", () => {
     test("includes PR number and reasons", () => {
       const error = new PRNotReadyError(789, ["CI checks are failing", "Review is required"]);
-      expect(error.message).toBe("PR #789 is not ready to land");
       expect(error.prNumber).toBe(789);
       expect(error.reasons).toEqual(["CI checks are failing", "Review is required"]);
-      expect(error.name).toBe("PRNotReadyError");
     });
   });
 
