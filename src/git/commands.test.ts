@@ -1,6 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../../tests/helpers/local-repo.ts";
+import { scenarios } from "../scenario/definitions.ts";
 import {
   getStackCommits,
   getMergeBase,
@@ -33,12 +34,7 @@ describe("git/commands", () => {
 
     test("returns 'HEAD' in detached HEAD state", async () => {
       const repo = await repos.create();
-
-      // Create a commit and then checkout the commit hash (detached HEAD)
-      await repo.branch("feature");
-      await repo.commit();
-      const headSha = (await $`git -C ${repo.path} rev-parse HEAD`.text()).trim();
-      await $`git -C ${repo.path} checkout ${headSha}`.quiet();
+      await scenarios.detachedHead.setup(repo);
 
       const branch = await getCurrentBranch({ cwd: repo.path });
       expect(branch).toBe("HEAD");
@@ -55,10 +51,7 @@ describe("git/commands", () => {
 
     test("returns true in detached HEAD state", async () => {
       const repo = await repos.create();
-
-      // Checkout a specific commit (detached HEAD)
-      const headSha = (await $`git -C ${repo.path} rev-parse HEAD`.text()).trim();
-      await $`git -C ${repo.path} checkout ${headSha}`.quiet();
+      await scenarios.detachedHead.setup(repo);
 
       const detached = await isDetachedHead({ cwd: repo.path });
       expect(detached).toBe(true);
@@ -74,10 +67,7 @@ describe("git/commands", () => {
 
     test("throws with helpful message in detached HEAD state", async () => {
       const repo = await repos.create();
-
-      // Checkout a specific commit (detached HEAD)
-      const headSha = (await $`git -C ${repo.path} rev-parse HEAD`.text()).trim();
-      await $`git -C ${repo.path} checkout ${headSha}`.quiet();
+      await scenarios.detachedHead.setup(repo);
 
       expect(assertNotDetachedHead({ cwd: repo.path })).rejects.toThrow(
         /Cannot perform this operation in detached HEAD state/,
@@ -86,9 +76,7 @@ describe("git/commands", () => {
 
     test("error message includes remediation steps", async () => {
       const repo = await repos.create();
-
-      const headSha = (await $`git -C ${repo.path} rev-parse HEAD`.text()).trim();
-      await $`git -C ${repo.path} checkout ${headSha}`.quiet();
+      await scenarios.detachedHead.setup(repo);
 
       try {
         await assertNotDetachedHead({ cwd: repo.path });
@@ -111,11 +99,7 @@ describe("git/commands", () => {
 
     test("returns commits in oldest-to-newest order", async () => {
       const repo = await repos.create();
-
-      await repo.branch("feature");
-      await repo.commit();
-      await repo.commit();
-      await repo.commit();
+      await scenarios.multiCommitStack.setup(repo);
 
       const commits = await getStackCommits({ cwd: repo.path });
 
@@ -129,20 +113,13 @@ describe("git/commands", () => {
 
     test("correctly parses commit body with trailers", async () => {
       const repo = await repos.create();
-
-      await repo.branch("feature");
-      await repo.commit({
-        trailers: {
-          "Spry-Commit-Id": "a1b2c3d4",
-          "Co-authored-by": "Someone <someone@example.com>",
-        },
-      });
+      await scenarios.withSpryIds.setup(repo);
 
       const commits = await getStackCommits({ cwd: repo.path });
 
-      expect(commits).toHaveLength(1);
+      expect(commits).toHaveLength(5);
       const [commit] = commits;
-      expect(commit?.body).toContain("Spry-Commit-Id: a1b2c3d4");
+      expect(commit?.body).toContain("Spry-Commit-Id: abc12345");
     });
 
     test("handles commits with special characters in subject", async () => {

@@ -19,6 +19,12 @@
  * - `splitGroup` - Stack with split group (for sync validation testing)
  * - `inconsistentGroupTitle` - Stack with inconsistent group titles (for sync validation testing)
  * - `mixedGroupStack` - Mixed stack with ungrouped + multi-commit group + single-commit group
+ * - `untrackedAfterIgnored` - File added mid-stack then ignored (for plumbing rebase testing)
+ * - `detachedHead` - Detached HEAD state (checked out to commit hash)
+ * - `withStagedChanges` - Staged changes in working tree
+ * - `withUnstagedChanges` - Unstaged changes in working tree
+ * - `withUntrackedFiles` - Untracked files in working tree
+ * - `withMixedChanges` - Mixed staged, unstaged, and untracked changes
  *
  * ## Usage in tests
  * ```ts
@@ -506,6 +512,99 @@ export const scenarios = {
       await Bun.write(join(repo.path, "file6.txt"), "content 6\n");
       await $`git -C ${repo.path} add .`.quiet();
       await $`git -C ${repo.path} commit -m "commit 6"`.quiet();
+    },
+  },
+
+  /**
+   * Detached HEAD state - checked out to a specific commit hash.
+   * Good for testing operations that should fail when not on a branch.
+   */
+  detachedHead: {
+    name: "detached-head",
+    description: "Detached HEAD state (checked out to commit hash)",
+    repoType: "both",
+    setup: async (repo: ScenarioRepo) => {
+      await repo.branch("feature");
+      await repo.commit({ message: "Feature commit" });
+      // Get the commit hash and checkout to it directly (detached HEAD)
+      const headSha = (await $`git -C ${repo.path} rev-parse HEAD`.text()).trim();
+      await $`git -C ${repo.path} checkout ${headSha}`.quiet();
+    },
+  },
+
+  /**
+   * Staged changes in working tree - file added but not committed.
+   * For testing dirty working tree detection and operations that require clean state.
+   */
+  withStagedChanges: {
+    name: "with-staged-changes",
+    description: "Staged changes in working tree",
+    repoType: "both",
+    setup: async (repo: ScenarioRepo) => {
+      await repo.branch("feature");
+      await repo.commit({ message: "Base commit" });
+      // Create a new file and stage it but don't commit
+      await Bun.write(join(repo.path, "staged.txt"), "Staged content\n");
+      await $`git -C ${repo.path} add staged.txt`.quiet();
+    },
+  },
+
+  /**
+   * Unstaged changes in working tree - tracked file modified but not staged.
+   * For testing dirty working tree detection.
+   */
+  withUnstagedChanges: {
+    name: "with-unstaged-changes",
+    description: "Unstaged changes in working tree",
+    repoType: "both",
+    setup: async (repo: ScenarioRepo) => {
+      await repo.branch("feature");
+      await repo.commitFiles({ "tracked.txt": "Original content\n" }, { message: "Add tracked file" });
+      // Modify the tracked file but don't stage it
+      await Bun.write(join(repo.path, "tracked.txt"), "Modified content\n");
+    },
+  },
+
+  /**
+   * Untracked files in working tree - new file not yet added to git.
+   * For testing dirty working tree detection.
+   */
+  withUntrackedFiles: {
+    name: "with-untracked-files",
+    description: "Untracked files in working tree",
+    repoType: "both",
+    setup: async (repo: ScenarioRepo) => {
+      await repo.branch("feature");
+      await repo.commit({ message: "Base commit" });
+      // Create a new file but don't add it
+      await Bun.write(join(repo.path, "untracked.txt"), "Untracked content\n");
+    },
+  },
+
+  /**
+   * Mixed dirty working tree - combination of staged, unstaged, and untracked changes.
+   * For testing comprehensive dirty state handling.
+   */
+  withMixedChanges: {
+    name: "with-mixed-changes",
+    description: "Mixed staged, unstaged, and untracked changes",
+    repoType: "both",
+    setup: async (repo: ScenarioRepo) => {
+      await repo.branch("feature");
+      await repo.commitFiles(
+        {
+          "file1.txt": "Original 1\n",
+          "file2.txt": "Original 2\n",
+        },
+        { message: "Add base files" },
+      );
+      // Staged change
+      await Bun.write(join(repo.path, "staged.txt"), "Staged content\n");
+      await $`git -C ${repo.path} add staged.txt`.quiet();
+      // Unstaged change
+      await Bun.write(join(repo.path, "file1.txt"), "Modified 1\n");
+      // Untracked file
+      await Bun.write(join(repo.path, "untracked.txt"), "Untracked content\n");
     },
   },
 } satisfies Record<string, ScenarioDefinition>;

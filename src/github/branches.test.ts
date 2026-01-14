@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../../tests/helpers/local-repo.ts";
+import { scenarios } from "../scenario/definitions.ts";
 import { getBranchName, pushBranch, type BranchNameConfig } from "./branches.ts";
 
 const repos = repoManager();
@@ -21,12 +22,12 @@ describe("github/branches", () => {
   describe("pushBranch", () => {
     test("pushes a commit to a new branch", async () => {
       const repo = await repos.create();
-      await repo.branch("feature");
+      await scenarios.singleCommit.setup(repo);
 
-      const commitHash = await repo.commit();
+      const commitHash = await $`git -C ${repo.path} rev-parse HEAD`.text();
 
       // Push to a new branch in origin
-      await pushBranch(commitHash, "spry/testuser/test123", false, { cwd: repo.path });
+      await pushBranch(commitHash.trim(), "spry/testuser/test123", false, { cwd: repo.path });
 
       // Verify the branch exists in origin
       const result = await $`git -C ${repo.originPath} branch --list spry/testuser/test123`.text();
@@ -35,10 +36,10 @@ describe("github/branches", () => {
 
     test("updates an existing branch", async () => {
       const repo = await repos.create();
-      await repo.branch("feature");
+      await scenarios.singleCommit.setup(repo);
 
-      const firstCommit = await repo.commit();
-      await pushBranch(firstCommit, "spry/testuser/update123", false, { cwd: repo.path });
+      const firstCommit = await $`git -C ${repo.path} rev-parse HEAD`.text();
+      await pushBranch(firstCommit.trim(), "spry/testuser/update123", false, { cwd: repo.path });
 
       const secondCommit = await repo.commit();
       await pushBranch(secondCommit, "spry/testuser/update123", true, { cwd: repo.path });
@@ -50,10 +51,10 @@ describe("github/branches", () => {
 
     test("force push overwrites divergent history", async () => {
       const repo = await repos.create();
-      await repo.branch("feature");
+      await scenarios.singleCommit.setup(repo);
 
-      const commit1 = await repo.commit();
-      await pushBranch(commit1, "spry/testuser/force123", false, { cwd: repo.path });
+      const commit1 = await $`git -C ${repo.path} rev-parse HEAD`.text();
+      await pushBranch(commit1.trim(), "spry/testuser/force123", false, { cwd: repo.path });
 
       // Create a different commit (simulating a rebase)
       await $`git -C ${repo.path} reset --hard HEAD~1`.quiet();

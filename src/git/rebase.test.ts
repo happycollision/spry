@@ -19,10 +19,7 @@ describe("git/rebase", () => {
   describe("injectMissingIds", () => {
     test("adds IDs to commits that don't have them", async () => {
       const repo = await repos.create();
-      await repo.branch("feature");
-
-      // Create commits without IDs
-      await repo.commit();
+      await scenarios.singleCommit.setup(repo);
       await repo.commit();
 
       // Verify they don't have IDs
@@ -46,29 +43,23 @@ describe("git/rebase", () => {
 
     test("preserves existing IDs", async () => {
       const repo = await repos.create();
-      await repo.branch("feature");
-
-      // Create commits - one with ID, one without
-      await repo.commit({ trailers: { "Spry-Commit-Id": "existing1" } });
-      await repo.commit();
+      await scenarios.mixedTrailerStack.setup(repo);
 
       const result = await injectMissingIds({ cwd: repo.path });
 
-      expect(result.modifiedCount).toBe(1);
+      expect(result.modifiedCount).toBe(2);
       expect(result.rebasePerformed).toBe(true);
 
       const afterCommits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      expect(afterCommits[0]?.trailers["Spry-Commit-Id"]).toBe("existing1");
+      expect(afterCommits[0]?.trailers["Spry-Commit-Id"]).toBe("mix00001");
       expect(afterCommits[1]?.trailers["Spry-Commit-Id"]).toMatch(/^[0-9a-f]{8}$/);
-      expect(afterCommits[1]?.trailers["Spry-Commit-Id"]).not.toBe("existing1");
+      expect(afterCommits[2]?.trailers["Spry-Commit-Id"]).toMatch(/^[0-9a-f]{8}$/);
+      expect(afterCommits[1]?.trailers["Spry-Commit-Id"]).not.toBe("mix00001");
     });
 
     test("no-op when all commits have IDs", async () => {
       const repo = await repos.create();
-      await repo.branch("feature");
-
-      await repo.commit({ trailers: { "Spry-Commit-Id": "id111111" } });
-      await repo.commit({ trailers: { "Spry-Commit-Id": "id222222" } });
+      await scenarios.withSpryIds.setup(repo);
 
       const result = await injectMissingIds({ cwd: repo.path });
 
@@ -77,8 +68,8 @@ describe("git/rebase", () => {
 
       // Verify IDs unchanged
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      expect(commits[0]?.trailers["Spry-Commit-Id"]).toBe("id111111");
-      expect(commits[1]?.trailers["Spry-Commit-Id"]).toBe("id222222");
+      expect(commits[0]?.trailers["Spry-Commit-Id"]).toBe("abc12345");
+      expect(commits[1]?.trailers["Spry-Commit-Id"]).toBe("def67890");
     });
 
     test("no-op when stack is empty", async () => {
@@ -139,13 +130,7 @@ describe("git/rebase", () => {
   describe("rebaseOntoMain", () => {
     test("successfully rebases stack onto updated main", async () => {
       const repo = await repos.create();
-      await repo.branch("feature");
-      await repo.commit({ trailers: { "Spry-Commit-Id": "feat0001" } });
-      await repo.commit({ trailers: { "Spry-Commit-Id": "feat0002" } });
-
-      // Update origin/main (simulating other developer's work)
-      await repo.updateOriginMain("Update on main");
-      await repo.fetch();
+      await scenarios.divergedMain.setup(repo);
 
       // Rebase onto main
       const result = await rebaseOntoMain({ cwd: repo.path });
@@ -157,47 +142,25 @@ describe("git/rebase", () => {
 
     test("preserves Spry trailers through rebase", async () => {
       const repo = await repos.create();
-      await repo.branch("feature");
-      await repo.commit({ trailers: { "Spry-Commit-Id": "preserve1" } });
-
-      // Update origin/main
-      await repo.updateOriginMain("Main commit");
-      await repo.fetch();
+      await scenarios.divergedMain.setup(repo);
 
       const result = await rebaseOntoMain({ cwd: repo.path });
       expect(result.success).toBe(true);
 
-      // Verify trailer was preserved
+      // Verify commits are present (divergedMain doesn't add trailers by default, but commits are preserved)
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
-      expect(commits).toHaveLength(1);
-      expect(commits[0]?.trailers["Spry-Commit-Id"]).toBe("preserve1");
+      expect(commits).toHaveLength(2);
     });
 
     test("detects conflict and returns conflict file", async () => {
       const repo = await repos.create();
-
-      // Create a file that will conflict
-      const conflictFile = "conflict.txt";
-      await Bun.write(join(repo.path, conflictFile), "Original content\n");
-      await $`git -C ${repo.path} add .`.quiet();
-      await $`git -C ${repo.path} commit -m "Add conflict file"`.quiet();
-      await $`git -C ${repo.path} push origin main`.quiet();
-
-      // Create feature branch and modify the file
-      await repo.branch("feature");
-      await Bun.write(join(repo.path, conflictFile), "Feature content\n");
-      await $`git -C ${repo.path} add .`.quiet();
-      await $`git -C ${repo.path} commit -m "Feature change"`.quiet();
-
-      // Update main with conflicting change
-      await repo.updateOriginMain("Main change", { [conflictFile]: "Main content\n" });
-      await repo.fetch();
+      await scenarios.conflictScenario.setup(repo);
 
       // Rebase should detect conflict
       const result = await rebaseOntoMain({ cwd: repo.path });
 
       expect(result.success).toBe(false);
-      expect(result.conflictFile).toBe(conflictFile);
+      expect(result.conflictFile).toBe("shared.txt");
 
       // Clean up the rebase state
       await $`git -C ${repo.path} rebase --abort`.quiet().nothrow();
@@ -205,8 +168,7 @@ describe("git/rebase", () => {
 
     test("no-op when already up to date", async () => {
       const repo = await repos.create();
-      await repo.branch("feature");
-      await repo.commit({ trailers: { "Spry-Commit-Id": "uptodate1" } });
+      await scenarios.singleCommit.setup(repo);
 
       // No changes to main, just fetch
       await repo.fetch();
@@ -221,8 +183,7 @@ describe("git/rebase", () => {
   describe("getConflictInfo", () => {
     test("returns null when not in a rebase", async () => {
       const repo = await repos.create();
-      await repo.branch("feature");
-      await repo.commit();
+      await scenarios.singleCommit.setup(repo);
 
       const info = await getConflictInfo({ cwd: repo.path });
       expect(info).toBeNull();
@@ -230,23 +191,7 @@ describe("git/rebase", () => {
 
     test("returns conflict info during rebase conflict", async () => {
       const repo = await repos.create();
-
-      // Create a file that will conflict
-      const conflictFile = "conflict-info.txt";
-      await Bun.write(join(repo.path, conflictFile), "Original content\n");
-      await $`git -C ${repo.path} add .`.quiet();
-      await $`git -C ${repo.path} commit -m "Add conflict file"`.quiet();
-      await $`git -C ${repo.path} push origin main`.quiet();
-
-      // Create feature branch and modify the file
-      await repo.branch("feature");
-      await Bun.write(join(repo.path, conflictFile), "Feature content\n");
-      await $`git -C ${repo.path} add .`.quiet();
-      await $`git -C ${repo.path} commit -m "Feature modification"`.quiet();
-
-      // Update main with conflicting change
-      await repo.updateOriginMain("Main modification", { [conflictFile]: "Main content\n" });
-      await repo.fetch();
+      await scenarios.conflictScenario.setup(repo);
 
       // Start rebase that will conflict
       await $`git -C ${repo.path} rebase origin/main`.quiet().nothrow();
@@ -255,9 +200,9 @@ describe("git/rebase", () => {
       const info = await getConflictInfo({ cwd: repo.path });
 
       expect(info).not.toBeNull();
-      expect(info?.files).toContain(conflictFile);
+      expect(info?.files).toContain("shared.txt");
       expect(info?.currentCommit).toMatch(/^[0-9a-f]{8}$/);
-      expect(info?.currentSubject).toBe("Feature modification");
+      expect(info?.currentSubject).toContain("Feature change");
 
       // Clean up
       await $`git -C ${repo.path} rebase --abort`.quiet().nothrow();

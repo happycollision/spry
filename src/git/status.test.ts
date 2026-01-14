@@ -1,6 +1,7 @@
 import { test, expect, describe, setDefaultTimeout } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../../tests/helpers/local-repo.ts";
+import { scenarios } from "../scenario/definitions.ts";
 import { getWorkingTreeStatus, requireCleanWorkingTree, DirtyWorkingTreeError } from "./status.ts";
 import { join } from "node:path";
 
@@ -24,7 +25,7 @@ describe("git/status", () => {
 
     test("detects untracked files", async () => {
       const repo = await repos.create();
-      await Bun.write(join(repo.path, "untracked.ts"), "// untracked");
+      await scenarios.withUntrackedFiles.setup(repo);
 
       const status = await getWorkingTreeStatus({ cwd: repo.path });
 
@@ -36,8 +37,7 @@ describe("git/status", () => {
 
     test("detects staged changes", async () => {
       const repo = await repos.create();
-      await Bun.write(join(repo.path, "staged.ts"), "// staged");
-      await $`git -C ${repo.path} add staged.ts`.quiet();
+      await scenarios.withStagedChanges.setup(repo);
 
       const status = await getWorkingTreeStatus({ cwd: repo.path });
 
@@ -49,8 +49,7 @@ describe("git/status", () => {
 
     test("detects unstaged changes to tracked file", async () => {
       const repo = await repos.create();
-      // Modify existing tracked file
-      await Bun.write(join(repo.path, "README.md"), "# Modified");
+      await scenarios.withUnstagedChanges.setup(repo);
 
       const status = await getWorkingTreeStatus({ cwd: repo.path });
 
@@ -62,11 +61,7 @@ describe("git/status", () => {
 
     test("detects both staged and unstaged changes", async () => {
       const repo = await repos.create();
-      // Stage a new file
-      await Bun.write(join(repo.path, "staged.ts"), "// staged");
-      await $`git -C ${repo.path} add staged.ts`.quiet();
-      // Modify tracked file without staging
-      await Bun.write(join(repo.path, "README.md"), "# Modified");
+      await scenarios.withMixedChanges.setup(repo);
 
       const status = await getWorkingTreeStatus({ cwd: repo.path });
 
@@ -86,7 +81,7 @@ describe("git/status", () => {
 
     test("passes with only untracked files", async () => {
       const repo = await repos.create();
-      await Bun.write(join(repo.path, "untracked.ts"), "// untracked");
+      await scenarios.withUntrackedFiles.setup(repo);
 
       // Should not throw - untracked files don't affect rebase
       await requireCleanWorkingTree({ cwd: repo.path });
@@ -94,8 +89,7 @@ describe("git/status", () => {
 
     test("throws DirtyWorkingTreeError with staged changes", async () => {
       const repo = await repos.create();
-      await Bun.write(join(repo.path, "staged.ts"), "// staged");
-      await $`git -C ${repo.path} add staged.ts`.quiet();
+      await scenarios.withStagedChanges.setup(repo);
 
       try {
         await requireCleanWorkingTree({ cwd: repo.path });
@@ -107,7 +101,7 @@ describe("git/status", () => {
 
     test("throws DirtyWorkingTreeError with unstaged changes", async () => {
       const repo = await repos.create();
-      await Bun.write(join(repo.path, "README.md"), "# Modified");
+      await scenarios.withUnstagedChanges.setup(repo);
 
       try {
         await requireCleanWorkingTree({ cwd: repo.path });
@@ -119,9 +113,7 @@ describe("git/status", () => {
 
     test("error message describes the problem", async () => {
       const repo = await repos.create();
-      await Bun.write(join(repo.path, "staged.ts"), "// staged");
-      await $`git -C ${repo.path} add staged.ts`.quiet();
-      await Bun.write(join(repo.path, "README.md"), "# Modified");
+      await scenarios.withMixedChanges.setup(repo);
 
       try {
         await requireCleanWorkingTree({ cwd: repo.path });
