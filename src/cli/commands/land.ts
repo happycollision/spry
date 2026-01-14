@@ -222,7 +222,7 @@ export async function landCommand(options: LandCommandOptions = {}): Promise<voi
     if (error instanceof PRNotFastForwardError) {
       console.error(`✗ PR #${error.prNumber} is not ready to land:`);
       console.error(`  • ${error.reason}`);
-      console.error("\nRun 'spry view' to see status.");
+      console.error("\nRun 'sp view' to see status.");
       process.exit(1);
     }
 
@@ -236,7 +236,7 @@ export async function landCommand(options: LandCommandOptions = {}): Promise<voi
       for (const reason of error.reasons) {
         console.error(`  • ${reason}`);
       }
-      console.error("\nRun 'spry view' to see status.");
+      console.error("\nRun 'sp view' to see status.");
       process.exit(1);
     }
 

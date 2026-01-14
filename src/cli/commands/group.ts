@@ -162,7 +162,7 @@ export async function dissolveCommand(
       console.log(`  ${group.id}: "${group.title}" (${group.commits.length} commits)`);
     }
     console.log("");
-    console.log("Usage: spry group dissolve <group-id>");
+    console.log("Usage: sp group dissolve <group-id>");
     return;
   }
 

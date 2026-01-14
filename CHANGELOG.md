@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Show progress feedback ("Creating PR for... #number") when opening PRs for the first time
 
+### Fixed
+
+- User-facing messages now reference `sp` instead of `spry` for command suggestions
+
 ## [1.0.0-beta.2] - 2026-01-12
 
 ### Added
