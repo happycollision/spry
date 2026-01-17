@@ -12,7 +12,7 @@
  * ## What it creates
  * - A bare "origin" repo in /tmp/spry-test-origin-*
  * - A working clone in /tmp/spry-test-*
- * - Initial commit on main, pushed to origin
+ * - Initial commit on default branch (configurable, defaults to "main"), pushed to origin
  * - Git config with test user identity
  *
  * ## Usage
@@ -58,6 +58,8 @@ export interface CommitOptions {
 export interface CreateRepoOptions {
   /** Short name for this scenario/test, used as prefix in commit messages */
   scenarioName?: string;
+  /** Default branch name (default: "main") */
+  defaultBranch?: string;
 }
 
 /** A local git repository with a bare origin */
@@ -68,6 +70,8 @@ export interface LocalRepo {
   originPath: string;
   /** Unique identifier for this scenario/test run */
   readonly uniqueId: string;
+  /** Default branch name (e.g., "main", "master", "develop") */
+  readonly defaultBranch: string;
 
   /** Create a commit with auto-generated file */
   commit(options?: CommitOptions): Promise<string>;
@@ -87,7 +91,7 @@ export interface LocalRepo {
   /** Get current branch name */
   currentBranch(): Promise<string>;
 
-  /** Update origin/main with a new commit (simulates another developer's work) */
+  /** Update origin's default branch with a new commit (simulates another developer's work) */
   updateOriginMain(message: string, files?: Record<string, string>): Promise<void>;
 
   /** Clean up the repo (removes both working and origin directories) */
@@ -187,27 +191,31 @@ export async function createLocalRepo(
     ctx.scenarioName = options.scenarioName;
   }
 
+  const defaultBranch = options?.defaultBranch ?? "main";
+
   // Create the "origin" bare repository first
   const originPath = await mkdtemp(join(tmpdir(), "spry-test-origin-"));
   await $`git init --bare ${originPath}`.quiet();
+  // Set the default branch in the bare repo
+  await $`git -C ${originPath} symbolic-ref HEAD refs/heads/${defaultBranch}`.quiet();
 
   // Create the working repository
   const path = await mkdtemp(join(tmpdir(), "spry-test-"));
-  await $`git init ${path}`.quiet();
+  await $`git init --initial-branch=${defaultBranch} ${path}`.quiet();
   await $`git -C ${path} config user.email "test@example.com"`.quiet();
   await $`git -C ${path} config user.name "Test User"`.quiet();
 
   // Add origin remote pointing to the bare repo
   await $`git -C ${path} remote add origin ${originPath}`.quiet();
 
-  // Create initial commit on main
+  // Create initial commit on default branch
   const readmePath = join(path, "README.md");
   await Bun.write(readmePath, "# Test Repo\n");
   await $`git -C ${path} add .`.quiet();
   await $`git -C ${path} commit -m "Initial commit"`.quiet();
 
-  // Push main to origin so origin/main exists
-  await $`git -C ${path} push -u origin main`.quiet();
+  // Push to origin so origin/<defaultBranch> exists
+  await $`git -C ${path} push -u origin ${defaultBranch}`.quiet();
 
   const methods = createRepoMethods({
     path,
@@ -221,6 +229,7 @@ export async function createLocalRepo(
   return {
     path,
     originPath,
+    defaultBranch,
     ...methods,
 
     async updateOriginMain(message: string, files?: Record<string, string>): Promise<void> {
@@ -235,13 +244,13 @@ export async function createLocalRepo(
             await Bun.write(join(tempWorktree, filename), content);
           }
         } else {
-          const filename = `main-update-${Date.now()}.txt`;
+          const filename = `${defaultBranch}-update-${Date.now()}.txt`;
           await Bun.write(join(tempWorktree, filename), `Update: ${message}\n`);
         }
 
         await $`git -C ${tempWorktree} add .`.quiet();
         await $`git -C ${tempWorktree} commit -m ${message}`.quiet();
-        await $`git -C ${tempWorktree} push origin main`.quiet();
+        await $`git -C ${tempWorktree} push origin ${defaultBranch}`.quiet();
       } finally {
         await rm(tempWorktree, { recursive: true, force: true });
       }

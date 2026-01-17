@@ -419,6 +419,8 @@ sp clean            # Delete orphaned branches
 ## Limitations
 
 - **No concurrent operation support**: Don't run multiple `sp` commands simultaneously in the same local clone. Not sure why anyone would do this anyway.
+- **Remote must be named "origin"**: Spry assumes the GitHub remote is named `origin`. Custom remote names (e.g., `upstream`, `github`) are not supported.
+- **Default branch auto-detected**: The default branch is auto-detected from origin (usually `main` or `master`). Override with `git config spry.defaultBranch <branch>` if needed.
 
 ## Development
 

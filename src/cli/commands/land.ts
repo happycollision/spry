@@ -16,6 +16,7 @@ import {
   PRNotReadyError,
 } from "../../github/pr.ts";
 import { requireGitHubOrigin, NonGitHubOriginError } from "../../github/api.ts";
+import { getSpryConfig } from "../../git/config.ts";
 import type { PRUnit, EnrichedPRUnit } from "../../types.ts";
 import type { PRMergeStatus } from "../../github/pr.ts";
 
@@ -77,10 +78,11 @@ type EnrichedUnitWithPR = EnrichedPRUnit & { pr: NonNullable<EnrichedPRUnit["pr"
 async function landSinglePR(
   unit: EnrichedUnitWithPR,
   config: Awaited<ReturnType<typeof getBranchNameConfig>>,
+  defaultBranch: string,
 ): Promise<string> {
   console.log(`Merging PR #${unit.pr.number} (${resolveUnitTitle(unit)})...`);
 
-  await landPR(unit.pr.number);
+  await landPR(unit.pr.number, defaultBranch);
 
   // Verify PR is actually merged on GitHub before proceeding (wait up to 30s)
   const isMerged = await waitForPRState(unit.pr.number, "MERGED", 30000);
@@ -88,7 +90,7 @@ async function landSinglePR(
     throw new Error(`PR #${unit.pr.number} was not marked as merged by GitHub after landing`);
   }
 
-  console.log(`✓ Merged PR #${unit.pr.number} to main`);
+  console.log(`✓ Merged PR #${unit.pr.number} to ${defaultBranch}`);
 
   return getBranchName(unit.id, config);
 }
@@ -114,6 +116,7 @@ export async function landCommand(options: LandCommandOptions = {}): Promise<voi
 
     const enrichedUnits = await enrichUnitsWithPRInfo(result.units);
     const config = await getBranchNameConfig();
+    const { defaultBranch } = await getSpryConfig();
 
     // Get all open PRs (bottom of stack is first in array)
     const openPRs = enrichedUnits.filter((u): u is EnrichedUnitWithPR => u.pr?.state === "OPEN");
@@ -154,25 +157,25 @@ export async function landCommand(options: LandCommandOptions = {}): Promise<voi
           break;
         }
 
-        // Before merging, retarget this PR to main if needed (after first merge)
+        // Before merging, retarget this PR to default branch if needed (after first merge)
         if (mergedBranches.length > 0) {
           const currentBase = await getPRBaseBranch(unit.pr.number);
-          if (currentBase !== "main") {
-            console.log(`Retargeting PR #${unit.pr.number} to main...`);
-            await retargetPR(unit.pr.number, "main");
+          if (currentBase !== defaultBranch) {
+            console.log(`Retargeting PR #${unit.pr.number} to ${defaultBranch}...`);
+            await retargetPR(unit.pr.number, defaultBranch);
           }
         }
 
-        // Before merging, also retarget the NEXT PR to main (so it doesn't get closed when we delete this branch)
+        // Before merging, also retarget the NEXT PR to default branch (so it doesn't get closed when we delete this branch)
         if (nextUnit) {
           const nextBase = await getPRBaseBranch(nextUnit.pr.number);
-          if (nextBase !== "main") {
-            console.log(`Retargeting PR #${nextUnit.pr.number} to main...`);
-            await retargetPR(nextUnit.pr.number, "main");
+          if (nextBase !== defaultBranch) {
+            console.log(`Retargeting PR #${nextUnit.pr.number} to ${defaultBranch}...`);
+            await retargetPR(nextUnit.pr.number, defaultBranch);
           }
         }
 
-        const branchName = await landSinglePR(unit, config);
+        const branchName = await landSinglePR(unit, config, defaultBranch);
         mergedBranches.push(branchName);
 
         console.log(""); // Blank line between PRs
@@ -205,16 +208,16 @@ export async function landCommand(options: LandCommandOptions = {}): Promise<voi
       }
 
       // Land the PR
-      const branchName = await landSinglePR(bottomPR, config);
+      const branchName = await landSinglePR(bottomPR, config, defaultBranch);
 
-      // If there's a next PR in the stack, retarget it to main before deleting this branch
+      // If there's a next PR in the stack, retarget it to default branch before deleting this branch
       // This prevents the next PR from being closed when its base branch is deleted
       const nextPR = openPRs[1];
       if (nextPR) {
         const nextBase = await getPRBaseBranch(nextPR.pr.number);
-        if (nextBase !== "main") {
-          console.log(`Retargeting PR #${nextPR.pr.number} to main...`);
-          await retargetPR(nextPR.pr.number, "main");
+        if (nextBase !== defaultBranch) {
+          console.log(`Retargeting PR #${nextPR.pr.number} to ${defaultBranch}...`);
+          await retargetPR(nextPR.pr.number, defaultBranch);
         }
       }
 

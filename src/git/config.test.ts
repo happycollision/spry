@@ -102,6 +102,60 @@ describe("git/config", () => {
 
       expect(detectDefaultBranch()).rejects.toThrow("Could not detect default branch");
     });
+
+    test("detects develop branch from origin", async () => {
+      const repo = await repos.create();
+      process.chdir(repo.path);
+
+      // Rename main to develop
+      await $`git -C ${repo.originPath} branch -m main develop`.quiet();
+      await $`git -C ${repo.originPath} symbolic-ref HEAD refs/heads/develop`.quiet();
+      await $`git fetch origin`.quiet();
+      await $`git branch -m main develop`.quiet();
+      await $`git branch -u origin/develop develop`.quiet();
+
+      const branch = await detectDefaultBranch();
+
+      expect(branch).toBe("develop");
+    });
+
+    test("detects trunk branch from origin (SVN migration repos)", async () => {
+      const repo = await repos.create();
+      process.chdir(repo.path);
+
+      // Rename main to trunk
+      await $`git -C ${repo.originPath} branch -m main trunk`.quiet();
+      await $`git -C ${repo.originPath} symbolic-ref HEAD refs/heads/trunk`.quiet();
+      await $`git fetch origin`.quiet();
+      await $`git branch -m main trunk`.quiet();
+      await $`git branch -u origin/trunk trunk`.quiet();
+
+      const branch = await detectDefaultBranch();
+
+      expect(branch).toBe("trunk");
+    });
+
+    test("detects default branch from repo created with custom default branch", async () => {
+      // Use the new defaultBranch option to create a repo with "master" as default
+      const repo = await repos.create({ defaultBranch: "master" });
+      process.chdir(repo.path);
+
+      const branch = await detectDefaultBranch();
+
+      expect(branch).toBe("master");
+      expect(repo.defaultBranch).toBe("master");
+    });
+
+    test("detects default branch from repo created with develop branch", async () => {
+      // Use the new defaultBranch option to create a repo with "develop" as default
+      const repo = await repos.create({ defaultBranch: "develop" });
+      process.chdir(repo.path);
+
+      const branch = await detectDefaultBranch();
+
+      expect(branch).toBe("develop");
+      expect(repo.defaultBranch).toBe("develop");
+    });
   });
 
   describe("getDefaultBranchRef", () => {

@@ -30,6 +30,8 @@ interface TestContext extends ScenarioContext {
 export interface CreateRepoOptions {
   /** Short name for this test, used as prefix in commit messages */
   testName?: string;
+  /** Default branch name (default: "main") */
+  defaultBranch?: string;
 }
 
 /**
@@ -41,7 +43,10 @@ async function createLocalRepo(ctx: TestContext, options?: CreateRepoOptions): P
   if (options?.testName) {
     ctx.scenarioName = options.testName;
   }
-  return createLocalRepoCore(ctx, { scenarioName: options?.testName });
+  return createLocalRepoCore(ctx, {
+    scenarioName: options?.testName,
+    defaultBranch: options?.defaultBranch,
+  });
 }
 
 // ============================================================================
