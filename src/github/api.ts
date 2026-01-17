@@ -22,6 +22,13 @@ export class ConfigurationError extends Error {
   }
 }
 
+export class NonGitHubOriginError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NonGitHubOriginError";
+  }
+}
+
 /**
  * Check if the gh CLI is installed.
  */
@@ -90,4 +97,60 @@ export async function getDefaultBranch(): Promise<string> {
       "Please set it manually:\n" +
       "  git config spry.defaultBranch main",
   );
+}
+
+let cachedOriginUrl: string | null = null;
+
+/**
+ * Check if a remote URL is a GitHub repository.
+ */
+export function isGitHubUrl(url: string): boolean {
+  return /github\.com[:/]/.test(url);
+}
+
+/**
+ * Get the origin remote URL.
+ * Result is memoized for the lifetime of the process.
+ */
+async function getOriginUrl(): Promise<string> {
+  if (cachedOriginUrl !== null) {
+    return cachedOriginUrl;
+  }
+
+  const result = await $`git remote get-url origin`.quiet().nothrow();
+  if (result.exitCode !== 0) {
+    throw new ConfigurationError(
+      "No 'origin' remote found. Spry requires a git repository with an 'origin' remote.",
+    );
+  }
+
+  cachedOriginUrl = result.stdout.toString().trim();
+  return cachedOriginUrl;
+}
+
+/**
+ * Check if the origin remote is a GitHub repository.
+ * Returns false if origin is not set or is not on github.com.
+ */
+export async function isGitHubOrigin(): Promise<boolean> {
+  try {
+    const url = await getOriginUrl();
+    return isGitHubUrl(url);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Require that the origin is a GitHub repository.
+ * Throws a descriptive error if it's not.
+ */
+export async function requireGitHubOrigin(): Promise<void> {
+  const url = await getOriginUrl();
+
+  if (!isGitHubUrl(url)) {
+    throw new NonGitHubOriginError(
+      `This command requires a GitHub repository, but origin is not on github.com: ${url}`,
+    );
+  }
 }

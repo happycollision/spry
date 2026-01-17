@@ -37,14 +37,15 @@ describe("land: local behavior", () => {
     expect(result.stdout).toContain("No commits in stack");
   });
 
-  test("reports when there are commits but no open PRs", async () => {
+  test("requires GitHub for repos with commits (to check for PRs)", async () => {
     const repo = await repos.create();
     await scenarios.withSpryIds.setup(repo);
 
     const result = await runLand(repo.path);
 
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("No open PRs in stack");
+    // Local repos can't check for PRs - GitHub is required
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("requires a GitHub repository");
   });
 
   test("handles validation error for split group", async () => {

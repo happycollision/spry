@@ -8,6 +8,8 @@ import {
   DependencyError,
   GitHubAuthError,
   ConfigurationError,
+  requireGitHubOrigin,
+  NonGitHubOriginError,
 } from "../../github/api.ts";
 import { getBranchNameConfig, getBranchName, pushBranch } from "../../github/branches.ts";
 import { getSpryConfig, isTempCommit } from "../../git/config.ts";
@@ -138,6 +140,11 @@ async function cleanupMergedPRs(
 
 export async function syncCommand(options: SyncOptions = {}): Promise<void> {
   try {
+    // If --open is requested, verify this is a GitHub repository
+    if (options.open) {
+      await requireGitHubOrigin();
+    }
+
     // Check for ongoing rebase conflict
     const conflict = await getConflictInfo();
     if (conflict) {
@@ -557,6 +564,11 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       console.error("    git stash        # Temporarily save changes");
       console.error("    sp sync          # Run sync");
       console.error("    git stash pop    # Restore changes");
+      process.exit(1);
+    }
+
+    if (error instanceof NonGitHubOriginError) {
+      console.error(`✗ ${error.message}`);
       process.exit(1);
     }
 

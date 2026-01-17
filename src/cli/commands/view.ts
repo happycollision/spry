@@ -8,7 +8,7 @@ import {
   getPRChecksAndReviewStatus,
   getPRCommentStatus,
 } from "../../github/pr.ts";
-import { ensureGhInstalled } from "../../github/api.ts";
+import { ensureGhInstalled, isGitHubOrigin } from "../../github/api.ts";
 import type { PRUnit, EnrichedPRUnit, PRStatus } from "../../types.ts";
 
 export interface ViewOptions {
@@ -170,9 +170,13 @@ export async function viewCommand(options: ViewOptions = {}): Promise<void> {
       process.exit(1);
     }
 
+    // Only fetch PR info if origin is a GitHub repository
+    const useGitHub = await isGitHubOrigin();
     const enrichedUnits = options.mock
       ? enrichUnitsWithMockPRInfo(result.units)
-      : await enrichUnitsWithPRInfo(result.units);
+      : useGitHub
+        ? await enrichUnitsWithPRInfo(result.units)
+        : result.units;
     const commitCount = commits.length;
     console.log(await formatStackView(enrichedUnits, branchName, commitCount));
   } catch (error) {

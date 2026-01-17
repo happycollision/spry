@@ -15,6 +15,7 @@ import {
   PRNotFoundError,
   PRNotReadyError,
 } from "../../github/pr.ts";
+import { requireGitHubOrigin, NonGitHubOriginError } from "../../github/api.ts";
 import type { PRUnit, EnrichedPRUnit } from "../../types.ts";
 import type { PRMergeStatus } from "../../github/pr.ts";
 
@@ -107,6 +108,9 @@ export async function landCommand(options: LandCommandOptions = {}): Promise<voi
       console.error(formatValidationError(result));
       process.exit(1);
     }
+
+    // GitHub is required for fetching PR info and landing
+    await requireGitHubOrigin();
 
     const enrichedUnits = await enrichUnitsWithPRInfo(result.units);
     const config = await getBranchNameConfig();
@@ -237,6 +241,11 @@ export async function landCommand(options: LandCommandOptions = {}): Promise<voi
         console.error(`  • ${reason}`);
       }
       console.error("\nRun 'sp view' to see status.");
+      process.exit(1);
+    }
+
+    if (error instanceof NonGitHubOriginError) {
+      console.error(`✗ ${error.message}`);
       process.exit(1);
     }
 
