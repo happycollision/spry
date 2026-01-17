@@ -174,6 +174,47 @@ describe("sync: local behavior", () => {
     await $`git -C ${repo.path} rebase --abort`.quiet().nothrow();
   });
 
+  test("warns about conflicts instead of rebasing when rebase would conflict", async () => {
+    const repo = await repos.create();
+
+    // Create a file that will conflict
+    const conflictFile = "conflict.txt";
+    await Bun.write(join(repo.path, conflictFile), "Original content\n");
+    await $`git -C ${repo.path} add .`.quiet();
+    await $`git -C ${repo.path} commit -m "Add conflict file"`.quiet();
+    await $`git -C ${repo.path} push origin main`.quiet();
+
+    // Create feature branch and modify the file
+    await repo.branch("feature");
+    await Bun.write(join(repo.path, conflictFile), "Feature content\n");
+    await $`git -C ${repo.path} add .`.quiet();
+    await $`git -C ${repo.path} commit -m "Feature change"`.quiet();
+
+    // Update main with conflicting change (but don't rebase yet!)
+    await repo.updateOriginMain("Main change", { [conflictFile]: "Main content\n" });
+
+    // Run sync - should warn about conflicts but NOT start a rebase
+    const result = await runSync(repo.path);
+
+    // Should succeed (exit 0) - we just warned, didn't fail
+    expect(result.exitCode).toBe(0);
+
+    // Should warn about the conflict
+    expect(result.stdout).toContain("would cause conflicts");
+    expect(result.stdout).toContain(conflictFile);
+    expect(result.stdout).toContain("git rebase origin/main");
+
+    // Should NOT be in a rebase state
+    const rebaseInProgress = await $`git -C ${repo.path} rev-parse --git-path rebase-merge`
+      .text()
+      .then((p) => Bun.file(join(repo.path, p.trim())).exists());
+    expect(rebaseInProgress).toBe(false);
+
+    // Verify we're still on the feature branch with our commit intact
+    const currentBranch = await repo.currentBranch();
+    expect(currentBranch).toContain("feature");
+  });
+
   test("does not push branches without --open flag", async () => {
     const repo = await repos.create();
 

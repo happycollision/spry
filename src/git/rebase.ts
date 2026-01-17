@@ -101,6 +101,63 @@ export interface RebaseResult {
   conflictFile?: string;
 }
 
+export interface RebaseConflictPrediction {
+  /** Whether the rebase would succeed without conflicts */
+  wouldSucceed: boolean;
+  /** Number of commits that would be rebased */
+  commitCount: number;
+  /** If there would be a conflict, info about it */
+  conflictInfo?: {
+    /** The commit hash that would conflict */
+    commitHash: string;
+    /** Files involved in the conflict */
+    files: string[];
+  };
+}
+
+/**
+ * Check if rebasing onto origin/main would cause conflicts WITHOUT actually rebasing.
+ * Uses git merge-tree to simulate the rebase.
+ *
+ * @returns Prediction of whether rebase would succeed
+ */
+export async function predictRebaseConflicts(
+  options: GitOptions = {},
+): Promise<RebaseConflictPrediction> {
+  const defaultBranchRef = await getDefaultBranchRef();
+
+  // Get commits in stack
+  const commits = await getStackCommits(options);
+  const commitCount = commits.length;
+
+  if (commitCount === 0) {
+    return { wouldSucceed: true, commitCount: 0 };
+  }
+
+  // Get the target to rebase onto
+  const onto = await getFullSha(defaultBranchRef, options);
+
+  // Get commit hashes in order
+  const commitHashes = commits.map((c) => c.hash);
+
+  // Use rebasePlumbing in a "simulation" - it uses merge-tree which doesn't modify anything
+  const result = await rebasePlumbing(onto, commitHashes, options);
+
+  if (result.ok) {
+    return { wouldSucceed: true, commitCount };
+  }
+
+  // Would conflict
+  return {
+    wouldSucceed: false,
+    commitCount,
+    conflictInfo: {
+      commitHash: result.conflictCommit,
+      files: result.conflictInfo?.split("\n").filter((f) => f.trim()) ?? [],
+    },
+  };
+}
+
 /**
  * Rebase the current stack onto the latest origin/main.
  * Uses git plumbing when possible, falling back to traditional

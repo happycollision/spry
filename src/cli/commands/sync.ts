@@ -4,6 +4,7 @@ import {
   getConflictInfo,
   formatConflictError,
   rebaseOntoMain,
+  predictRebaseConflicts,
 } from "../../git/rebase.ts";
 import { getStackCommitsWithTrailers } from "../../git/commands.ts";
 import {
@@ -189,26 +190,52 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       // "on-main-branch" and "up-to-date" are silent skips
     }
 
-    // If stack is behind origin/main, rebase onto it
+    // If stack is behind origin/main, check for conflicts then rebase
     if (behindMain) {
-      console.log(`Rebasing onto latest (${commitsBehind} commit(s) behind)...`);
-      const rebaseResult = await rebaseOntoMain();
-      if (!rebaseResult.success) {
-        // Rebase failed with conflict - getConflictInfo will detect this on next run
-        console.error("");
-        console.error(`✗ Rebase conflict in: ${rebaseResult.conflictFile}`);
-        console.error("");
-        console.error("To resolve:");
-        console.error("  1. Edit the conflicting files");
-        console.error("  2. git add <fixed files>");
-        console.error("  3. git rebase --continue");
-        console.error("  4. sp sync");
-        console.error("");
-        console.error("To abort:");
-        console.error("  git rebase --abort");
-        process.exit(1);
+      // First, predict if rebase would cause conflicts (without actually rebasing)
+      const prediction = await predictRebaseConflicts();
+
+      if (!prediction.wouldSucceed) {
+        // Would conflict - warn the user instead of starting a rebase
+        console.log("");
+        console.log(
+          `⚠ Stack is ${commitsBehind} commit(s) behind, but rebasing would cause conflicts:`,
+        );
+        if (prediction.conflictInfo?.files.length) {
+          for (const file of prediction.conflictInfo.files.slice(0, 5)) {
+            console.log(`   • ${file}`);
+          }
+          if (prediction.conflictInfo.files.length > 5) {
+            console.log(`   • ...and ${prediction.conflictInfo.files.length - 5} more`);
+          }
+        }
+        console.log("");
+        console.log("To rebase manually when ready:");
+        console.log("  git fetch && git rebase origin/main");
+        console.log("");
+        // Continue with sync (don't exit) - user can still push existing branches
+      } else {
+        // No conflicts predicted - safe to rebase
+        console.log(`Rebasing onto latest (${commitsBehind} commit(s) behind)...`);
+        const rebaseResult = await rebaseOntoMain();
+        if (!rebaseResult.success) {
+          // Rebase failed with conflict - this shouldn't happen if prediction worked
+          // but handle it gracefully anyway
+          console.error("");
+          console.error(`✗ Rebase conflict in: ${rebaseResult.conflictFile}`);
+          console.error("");
+          console.error("To resolve:");
+          console.error("  1. Edit the conflicting files");
+          console.error("  2. git add <fixed files>");
+          console.error("  3. git rebase --continue");
+          console.error("  4. sp sync");
+          console.error("");
+          console.error("To abort:");
+          console.error("  git rebase --abort");
+          process.exit(1);
+        }
+        console.log(`✓ Rebased ${rebaseResult.commitCount} commit(s) onto latest`);
       }
-      console.log(`✓ Rebased ${rebaseResult.commitCount} commit(s) onto latest`);
     }
 
     // Fetch group titles and stack settings from remote at start of sync
