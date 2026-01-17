@@ -1,6 +1,17 @@
 import { requireCleanWorkingTree, DirtyWorkingTreeError } from "../../git/status.ts";
-import { injectMissingIds, getConflictInfo, formatConflictError } from "../../git/rebase.ts";
+import {
+  injectMissingIds,
+  getConflictInfo,
+  formatConflictError,
+  rebaseOntoMain,
+} from "../../git/rebase.ts";
 import { getStackCommitsWithTrailers } from "../../git/commands.ts";
+import {
+  isStackBehindMain,
+  getCommitsBehind,
+  getLocalMainStatus,
+  fastForwardLocalMain,
+} from "../../git/behind.ts";
 import { parseStack } from "../../core/stack.ts";
 import { formatValidationError } from "../output.ts";
 import {
@@ -154,6 +165,48 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
 
     // Check for uncommitted changes
     await requireCleanWorkingTree();
+
+    // Fetch from remote to get latest state
+    // isStackBehindMain fetches as a side effect
+    const behindMain = await isStackBehindMain();
+    const commitsBehind = behindMain ? await getCommitsBehind() : 0;
+
+    // Try to fast-forward local main if it's behind origin
+    const localMainStatus = await getLocalMainStatus();
+    if (localMainStatus.canFastForward) {
+      await fastForwardLocalMain();
+      const config = await getSpryConfig();
+      console.log(
+        `✓ Fast-forwarded local ${config.defaultBranch} (${localMainStatus.commitsBehind} commit(s))`,
+      );
+    } else if (localMainStatus.isBehind && !localMainStatus.canFastForward) {
+      const config = await getSpryConfig();
+      console.log(
+        `⚠ Local ${config.defaultBranch} is ${localMainStatus.commitsBehind} commit(s) behind but has ${localMainStatus.commitsAhead} local commit(s)`,
+      );
+    }
+
+    // If stack is behind origin/main, rebase onto it
+    if (behindMain) {
+      console.log(`Rebasing onto latest (${commitsBehind} commit(s) behind)...`);
+      const rebaseResult = await rebaseOntoMain();
+      if (!rebaseResult.success) {
+        // Rebase failed with conflict - getConflictInfo will detect this on next run
+        console.error("");
+        console.error(`✗ Rebase conflict in: ${rebaseResult.conflictFile}`);
+        console.error("");
+        console.error("To resolve:");
+        console.error("  1. Edit the conflicting files");
+        console.error("  2. git add <fixed files>");
+        console.error("  3. git rebase --continue");
+        console.error("  4. sp sync");
+        console.error("");
+        console.error("To abort:");
+        console.error("  git rebase --abort");
+        process.exit(1);
+      }
+      console.log(`✓ Rebased ${rebaseResult.commitCount} commit(s) onto latest`);
+    }
 
     // Fetch group titles and stack settings from remote at start of sync
     await Promise.all([fetchGroupTitles(), fetchStackSettings()]);

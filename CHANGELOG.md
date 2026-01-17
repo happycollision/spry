@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Configurable remote name via `spry.remote` config option (no longer hardcoded to 'origin')
 - Smart remote auto-detection: uses single remote if only one exists (persists to config), falls back to 'origin' if present among multiple, or prompts user to configure
+- `sp sync` now automatically fetches from remote and rebases the current stack onto `origin/main` if behind
+- `sp sync` now fast-forwards the local main branch if it's behind origin (without checking it out)
 
 ### Changed
 
