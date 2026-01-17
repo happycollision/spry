@@ -38,6 +38,11 @@ Default to using Bun instead of Node.js.
 
 Use `bun test` to run tests.
 
+If you change code that needs github integration, run the integration tests via either `test:github` or `test:ci`. 
+
+If using a machine with and older Git than is supported, use the `:docker` alias for all `bun run` commands. (See package.json).
+
+
 ```ts#index.test.ts
 import { test, expect } from "bun:test";
 
