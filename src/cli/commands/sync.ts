@@ -8,6 +8,7 @@ import {
 } from "../../git/rebase.ts";
 import { getStackCommitsWithTrailers } from "../../git/commands.ts";
 import {
+  fetchRemote,
   isStackBehindMain,
   getCommitsBehind,
   getLocalMainStatus,
@@ -168,7 +169,7 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
     await requireCleanWorkingTree();
 
     // Fetch from remote to get latest state
-    // isStackBehindMain fetches as a side effect
+    await fetchRemote();
     const behindMain = await isStackBehindMain();
     const commitsBehind = behindMain ? await getCommitsBehind() : 0;
 

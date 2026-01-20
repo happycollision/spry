@@ -111,21 +111,30 @@ export async function fastForwardLocalMain(options: GitOptions = {}): Promise<Fa
 }
 
 /**
- * Check if the stack is behind the default branch on the remote.
- * Returns true if there are commits on remote/defaultBranch that aren't in the current branch.
+ * Fetch latest refs from the configured remote.
+ * Call this before checking if stack is behind to ensure fresh data.
  */
-export async function isStackBehindMain(options: GitOptions = {}): Promise<boolean> {
+export async function fetchRemote(options: GitOptions = {}): Promise<void> {
   const { cwd } = options;
   const config = await getSpryConfig();
-  const defaultBranchRef = await getDefaultBranchRef();
 
-  // Fetch latest from remote
   const fetchCmd = cwd
     ? $`git -C ${cwd} fetch ${config.remote}`.quiet().nothrow()
     : $`git fetch ${config.remote}`.quiet().nothrow();
   await fetchCmd;
+}
 
-  // Count commits that are on origin/main but not on HEAD
+/**
+ * Check if the stack is behind the default branch on the remote.
+ * Returns true if there are commits on remote/defaultBranch that aren't in the current branch.
+ *
+ * NOTE: This checks against cached remote refs. Call fetchRemote() first if you need fresh data.
+ */
+export async function isStackBehindMain(options: GitOptions = {}): Promise<boolean> {
+  const { cwd } = options;
+  const defaultBranchRef = await getDefaultBranchRef();
+
+  // Count commits that are on remote default branch but not on HEAD
   const result = cwd
     ? await $`git -C ${cwd} rev-list HEAD..${defaultBranchRef} --count`.text()
     : await $`git rev-list HEAD..${defaultBranchRef} --count`.text();
@@ -135,7 +144,7 @@ export async function isStackBehindMain(options: GitOptions = {}): Promise<boole
 
 /**
  * Get the number of commits the stack is behind the remote default branch.
- * Does NOT fetch - call isStackBehindMain() first if you need fresh data.
+ * Does NOT fetch - call fetchRemote() first if you need fresh data.
  */
 export async function getCommitsBehind(options: GitOptions = {}): Promise<number> {
   const { cwd } = options;

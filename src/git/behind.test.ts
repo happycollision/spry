@@ -3,6 +3,7 @@ import { $ } from "bun";
 import { repoManager } from "../../tests/helpers/local-repo.ts";
 import { scenarios } from "../scenario/definitions.ts";
 import {
+  fetchRemote,
   isStackBehindMain,
   getCommitsBehind,
   getLocalMainStatus,
@@ -16,6 +17,7 @@ describe("git/behind", () => {
     test("returns false when stack is up to date", async () => {
       const repo = await repos.create();
       await scenarios.singleCommit.setup(repo);
+      await fetchRemote({ cwd: repo.path });
 
       const result = await isStackBehindMain({ cwd: repo.path });
       expect(result).toBe(false);
@@ -25,6 +27,7 @@ describe("git/behind", () => {
       const repo = await repos.create();
       await scenarios.singleCommit.setup(repo);
       await repo.updateOriginMain("Commit from main");
+      await fetchRemote({ cwd: repo.path });
 
       const result = await isStackBehindMain({ cwd: repo.path });
       expect(result).toBe(true);
@@ -33,6 +36,7 @@ describe("git/behind", () => {
     test("returns false when stack is ahead but not behind", async () => {
       const repo = await repos.create();
       await scenarios.multiCommitStack.setup(repo);
+      await fetchRemote({ cwd: repo.path });
 
       // Stack is ahead of main but not behind
       const result = await isStackBehindMain({ cwd: repo.path });
