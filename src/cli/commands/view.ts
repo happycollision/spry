@@ -9,6 +9,7 @@ import {
   getPRCommentStatus,
 } from "../../github/pr.ts";
 import { ensureGhInstalled, isGitHubOrigin } from "../../github/api.ts";
+import { readGroupTitles } from "../../git/group-titles.ts";
 import type { PRUnit, EnrichedPRUnit, PRStatus } from "../../types.ts";
 
 export interface ViewOptions {
@@ -158,12 +159,13 @@ export async function viewCommand(options: ViewOptions = {}): Promise<void> {
       return;
     }
 
-    const [commits, branchName] = await Promise.all([
+    const [commits, branchName, groupTitles] = await Promise.all([
       getStackCommitsWithTrailers(),
       getCurrentBranch(),
+      readGroupTitles(),
     ]);
 
-    const result = parseStack(commits);
+    const result = parseStack(commits, groupTitles);
 
     if (!result.ok) {
       console.error(formatValidationError(result));
