@@ -280,6 +280,29 @@ describe("sync: local behavior", () => {
     // The current behavior is to just report "No commits in stack"
     expect(result.stdout).toContain("No commits in stack");
   });
+
+  test("works with non-origin remote name (upstream)", async () => {
+    // Create repo with 'upstream' as the remote name instead of 'origin'
+    const repo = await repos.create({ remoteName: "upstream" });
+
+    // Create feature branch with commits
+    await repo.branch("feature");
+    await repo.commit({ message: "First commit" });
+    await repo.commit({ message: "Second commit" });
+
+    // Run sync - should auto-detect the single remote
+    const result = await runSync(repo.path);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Adding IDs to 2 commit(s)");
+    expect(result.stdout).toContain("Added Spry-Commit-Id to 2 commit(s)");
+
+    // Verify the remote was auto-detected and persisted to config
+    const configuredRemote = (
+      await $`git -C ${repo.path} config --get spry.remote`.text()
+    ).trim();
+    expect(configuredRemote).toBe("upstream");
+  });
 });
 
 // ============================================================================
