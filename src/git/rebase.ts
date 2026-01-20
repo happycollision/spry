@@ -164,7 +164,9 @@ export async function predictRebaseConflicts(
 }
 
 /**
- * Rebase the current stack onto the latest origin/main.
+ * Rebase the current stack onto the latest remote default branch.
+ * "Main" in the function name refers to the configured default branch (main, master, develop, etc.)
+ *
  * Uses git plumbing when possible, falling back to traditional
  * rebase on conflict for user conflict resolution.
  *

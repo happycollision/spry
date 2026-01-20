@@ -3,19 +3,25 @@ import type { GitOptions } from "./commands.ts";
 import { getCurrentBranch } from "./commands.ts";
 import { getDefaultBranchRef, getSpryConfig } from "./config.ts";
 
+/**
+ * Status of the local default branch relative to the remote.
+ * "Main" in the name refers to the configured default branch (main, master, develop, etc.)
+ */
 export interface LocalMainStatus {
-  /** Whether local main is behind remote */
+  /** Whether local default branch is behind remote */
   isBehind: boolean;
   /** Number of commits behind */
   commitsBehind: number;
-  /** Whether local main can be fast-forwarded (no local commits ahead) */
+  /** Whether local default branch can be fast-forwarded (no local commits ahead) */
   canFastForward: boolean;
-  /** Number of commits local main is ahead (if any) */
+  /** Number of commits local default branch is ahead (if any) */
   commitsAhead: number;
 }
 
 /**
- * Check the status of local main relative to remote main.
+ * Check the status of the local default branch relative to the remote.
+ * "Main" in the function name refers to the configured default branch (main, master, develop, etc.)
+ *
  * Does NOT fetch - caller should fetch first if fresh data is needed.
  */
 export async function getLocalMainStatus(options: GitOptions = {}): Promise<LocalMainStatus> {
@@ -62,14 +68,16 @@ export interface FastForwardResult {
 }
 
 /**
- * Fast-forward the local main branch to match remote main.
- * Does NOT checkout main - updates the ref directly.
- * Only succeeds if local main is strictly behind remote (no divergence).
+ * Fast-forward the local default branch to match the remote.
+ * "Main" in the function name refers to the configured default branch (main, master, develop, etc.)
+ *
+ * Does NOT checkout the branch - updates the ref directly.
+ * Only succeeds if local is strictly behind remote (no divergence).
  *
  * Skips (returns performed: false) when:
  * - Already up-to-date
- * - Currently on the main branch (would desync worktree)
- * - Local main has diverged (has local commits not on remote)
+ * - Currently on the default branch (would desync worktree)
+ * - Local has diverged (has local commits not on remote)
  *
  * @returns Result indicating whether fast-forward was performed and why it was skipped
  */
@@ -126,6 +134,8 @@ export async function fetchRemote(options: GitOptions = {}): Promise<void> {
 
 /**
  * Check if the stack is behind the default branch on the remote.
+ * "Main" in the function name refers to the configured default branch (main, master, develop, etc.)
+ *
  * Returns true if there are commits on remote/defaultBranch that aren't in the current branch.
  *
  * NOTE: This checks against cached remote refs. Call fetchRemote() first if you need fresh data.
