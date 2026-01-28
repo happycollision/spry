@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-beta.4] - 2026-01-28
+
 ### Fixed
 
 - Group titles now display correctly in `sp view` (were showing fallback subjects instead of stored titles)
