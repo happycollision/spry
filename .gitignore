@@ -35,9 +35,6 @@ docker/.env
 # Finder (MacOS) folder config
 .DS_Store
 
-# beads issue tracker data
-.beads/issues.jsonl
-
 *.ignore.*
 *.ignore/
 # Claude Code - ignore local settings, keep shared settings

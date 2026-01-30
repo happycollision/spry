@@ -1,17 +1,3 @@
-## Issue Tracking
-
-This project uses **bd (beads)** for issue tracking.
-Run `bd prime` for workflow context, or install hooks (`bd hooks install`) for auto-injection.
-
-**Quick reference:**
-
-- `bd ready` - Find unblocked work
-- `bd create "Title" --type task --priority 2` - Create issue
-- `bd close <id>` - Complete work
-- `bd sync` - Sync with git (run at session end)
-
-For full workflow details: `bd prime`
-
 ## Bun
 
 Default to using Bun instead of Node.js.
@@ -38,9 +24,7 @@ Default to using Bun instead of Node.js.
 
 Use `bun test` to run tests ONLY after you have checked the version of Git that is installed. If it is less than 2.40, use the `<command>:docker` alias for all `bun run` commands that have a docker alias. (See package.json).
 
-If you change code that needs github integration, run the integration tests via either `test:github` (skips CI dependent tests for speed) or `test:ci` (runs all github tests). 
-
-
+If you change code that needs github integration, run the integration tests via either `test:github` (skips CI dependent tests for speed) or `test:ci` (runs all github tests).
 
 ```ts#index.test.ts
 import { test, expect } from "bun:test";
