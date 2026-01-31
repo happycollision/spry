@@ -33,7 +33,7 @@
 
 import { $ } from "bun";
 import { join } from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
 // ============================================================================
@@ -62,6 +62,18 @@ export interface CreateRepoOptions {
   defaultBranch?: string;
   /** Remote name (default: "origin") */
   remoteName?: string;
+}
+
+/** Information about a git worktree */
+export interface WorktreeInfo {
+  /** Path to the worktree */
+  path: string;
+  /** Branch checked out in this worktree (empty string if detached HEAD) */
+  branch: string;
+  /** HEAD commit SHA */
+  head: string;
+  /** Whether this is the main worktree */
+  isMain: boolean;
 }
 
 /** A local git repository with a bare origin */
@@ -97,6 +109,15 @@ export interface LocalRepo {
 
   /** Update origin's default branch with a new commit (simulates another developer's work) */
   updateOriginMain(message: string, files?: Record<string, string>): Promise<void>;
+
+  /** Create a worktree for an existing branch */
+  createWorktree(branch: string, worktreePath?: string): Promise<WorktreeInfo>;
+
+  /** List all worktrees for this repository */
+  listWorktrees(): Promise<WorktreeInfo[]>;
+
+  /** Remove a worktree */
+  removeWorktree(worktreePath: string): Promise<void>;
 
   /** Clean up the repo (removes both working and origin directories) */
   cleanup(): Promise<void>;
@@ -199,6 +220,9 @@ export async function createLocalRepo(
   const defaultBranch = options?.defaultBranch ?? "main";
   const remoteName = options?.remoteName ?? "origin";
 
+  // Track worktree paths for cleanup
+  const worktreePaths: string[] = [];
+
   // Create the "origin" bare repository first
   const originPath = await mkdtemp(join(tmpdir(), "spry-test-origin-"));
   await $`git init --bare ${originPath}`.quiet();
@@ -228,10 +252,64 @@ export async function createLocalRepo(
     ctx,
     remoteName,
     cleanupFn: async () => {
+      // Remove worktrees first (must be done before removing main repo)
+      for (const wtPath of worktreePaths) {
+        await $`git -C ${path} worktree remove --force ${wtPath}`.quiet().nothrow();
+        await rm(wtPath, { recursive: true, force: true });
+      }
       await rm(path, { recursive: true, force: true });
       await rm(originPath, { recursive: true, force: true });
     },
   });
+
+  /**
+   * Parse `git worktree list --porcelain` output into WorktreeInfo objects.
+   */
+  async function parseWorktreeList(): Promise<WorktreeInfo[]> {
+    const output = (await $`git -C ${path} worktree list --porcelain`.text()).trim();
+    if (!output) return [];
+
+    const worktrees: WorktreeInfo[] = [];
+    const entries = output.split("\n\n");
+
+    // Resolve the main repo path to handle symlinks (e.g., /tmp -> /private/tmp on macOS)
+    const resolvedMainPath = await realpath(path);
+
+    for (const entry of entries) {
+      const lines = entry.split("\n");
+      let wtPath = "";
+      let head = "";
+      let branch = "";
+      let isMain = false;
+
+      for (const line of lines) {
+        if (line.startsWith("worktree ")) {
+          wtPath = line.slice("worktree ".length);
+          // Main worktree is the one at the repo path (compare resolved paths)
+          try {
+            const resolvedWtPath = await realpath(wtPath);
+            isMain = resolvedWtPath === resolvedMainPath;
+          } catch {
+            // If realpath fails, fall back to direct comparison
+            isMain = wtPath === path;
+          }
+        } else if (line.startsWith("HEAD ")) {
+          head = line.slice("HEAD ".length);
+        } else if (line.startsWith("branch ")) {
+          // Branch is refs/heads/branchname, extract just the branch name
+          branch = line.slice("branch refs/heads/".length);
+        } else if (line === "detached") {
+          branch = "";
+        }
+      }
+
+      if (wtPath) {
+        worktrees.push({ path: wtPath, head, branch, isMain });
+      }
+    }
+
+    return worktrees;
+  }
 
   return {
     path,
@@ -262,6 +340,35 @@ export async function createLocalRepo(
         await $`git -C ${tempWorktree} push origin ${defaultBranch}`.quiet();
       } finally {
         await rm(tempWorktree, { recursive: true, force: true });
+      }
+    },
+
+    async createWorktree(branch: string, worktreePath?: string): Promise<WorktreeInfo> {
+      const wtPath = worktreePath ?? (await mkdtemp(join(tmpdir(), "spry-test-worktree-")));
+      worktreePaths.push(wtPath);
+
+      await $`git -C ${path} worktree add ${wtPath} ${branch}`.quiet();
+
+      // Get the HEAD of the new worktree
+      const head = (await $`git -C ${wtPath} rev-parse HEAD`.text()).trim();
+
+      return {
+        path: wtPath,
+        branch,
+        head,
+        isMain: false,
+      };
+    },
+
+    async listWorktrees(): Promise<WorktreeInfo[]> {
+      return parseWorktreeList();
+    },
+
+    async removeWorktree(worktreePath: string): Promise<void> {
+      await $`git -C ${path} worktree remove --force ${worktreePath}`.quiet();
+      const idx = worktreePaths.indexOf(worktreePath);
+      if (idx !== -1) {
+        worktreePaths.splice(idx, 1);
       }
     },
   };

@@ -1,6 +1,6 @@
 import { $ } from "bun";
 import type { GitOptions } from "./commands.ts";
-import { getCurrentBranch } from "./commands.ts";
+import { getCurrentBranch, isBranchCheckedOutInWorktree } from "./commands.ts";
 import { getDefaultBranchRef, getSpryConfig } from "./config.ts";
 
 /**
@@ -64,7 +64,7 @@ export interface FastForwardResult {
   /** Whether fast-forward was performed */
   performed: boolean;
   /** Reason for skipping (if not performed) */
-  skippedReason?: "up-to-date" | "on-main-branch" | "diverged";
+  skippedReason?: "up-to-date" | "on-main-branch" | "in-worktree" | "diverged";
 }
 
 /**
@@ -77,6 +77,7 @@ export interface FastForwardResult {
  * Skips (returns performed: false) when:
  * - Already up-to-date
  * - Currently on the default branch (would desync worktree)
+ * - Default branch is checked out in another worktree (would desync that worktree)
  * - Local has diverged (has local commits not on remote)
  *
  * @returns Result indicating whether fast-forward was performed and why it was skipped
@@ -91,6 +92,12 @@ export async function fastForwardLocalMain(options: GitOptions = {}): Promise<Fa
   const currentBranch = await getCurrentBranch(options);
   if (currentBranch === localMain) {
     return { performed: false, skippedReason: "on-main-branch" };
+  }
+
+  // Skip if main is checked out in any worktree - updating ref would desync that worktree
+  const mainInWorktree = await isBranchCheckedOutInWorktree(localMain, options);
+  if (mainInWorktree) {
+    return { performed: false, skippedReason: "in-worktree" };
   }
 
   const status = await getLocalMainStatus(options);
