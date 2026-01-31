@@ -60,6 +60,8 @@ import type { LocalRepo } from "./core.ts";
 export interface ScenarioRepo {
   path: string;
   uniqueId: string;
+  /** Default branch name (e.g., "main", "master", "develop") */
+  defaultBranch: string;
   commit(options?: { message?: string; trailers?: Record<string, string> }): Promise<string>;
   commitFiles(
     files: Record<string, string>,
@@ -228,7 +230,7 @@ export const scenarios = {
       await repo.branch("feature-a");
       await repo.commit({ message: "Feature A work" });
 
-      await repo.checkout("main");
+      await repo.checkout(repo.defaultBranch);
       await repo.branch("feature-b");
       await repo.commit({ message: "Feature B work" });
       await repo.commit({ message: "More Feature B work" });
@@ -559,7 +561,10 @@ export const scenarios = {
     repoType: "both",
     setup: async (repo: ScenarioRepo) => {
       await repo.branch("feature");
-      await repo.commitFiles({ "tracked.txt": "Original content\n" }, { message: "Add tracked file" });
+      await repo.commitFiles(
+        { "tracked.txt": "Original content\n" },
+        { message: "Add tracked file" },
+      );
       // Modify the tracked file but don't stage it
       await Bun.write(join(repo.path, "tracked.txt"), "Modified content\n");
     },

@@ -88,6 +88,49 @@ describe("sync: worktree behavior", () => {
     expect(mainStatusAfter.trim()).toBe("");
   });
 
+  test("main checked out in clean worktree - fast-forward updates both ref and working directory", async () => {
+    const repo = await repos.create();
+
+    // Create a feature branch
+    const featureBranch = await repo.branch("feature");
+    await repo.commit({ message: "Feature commit" });
+
+    // Go back to main and create a worktree for the feature branch
+    await repo.checkout("main");
+    const worktree = await repo.createWorktree(featureBranch);
+
+    // Update origin/main (simulates another developer pushing)
+    await repo.updateOriginMain("Remote commit on main");
+    await repo.fetch();
+
+    // Get the remote SHA before sync
+    const remoteSha = (await $`git -C ${repo.path} rev-parse origin/main`.text()).trim();
+
+    // Verify main is behind origin/main
+    const localMainBefore = (await $`git -C ${repo.path} rev-parse main`.text()).trim();
+    expect(localMainBefore).not.toBe(remoteSha);
+
+    // Main worktree should be clean
+    const mainStatusBefore = await $`git -C ${repo.path} status --porcelain`.text();
+    expect(mainStatusBefore.trim()).toBe("");
+
+    // Run sync from the feature worktree
+    const result = await runSync(worktree.path);
+    expect(result.exitCode).toBe(0);
+
+    // Verify main ref was updated
+    const localMainAfter = (await $`git -C ${repo.path} rev-parse main`.text()).trim();
+    expect(localMainAfter).toBe(remoteSha);
+
+    // Verify main worktree is still clean AND has the new files
+    const mainStatusAfter = await $`git -C ${repo.path} status --porcelain`.text();
+    expect(mainStatusAfter.trim()).toBe("");
+
+    // Verify the HEAD in main worktree matches the new SHA
+    const mainHead = (await $`git -C ${repo.path} rev-parse HEAD`.text()).trim();
+    expect(mainHead).toBe(remoteSha);
+  });
+
   test("feature branch in another worktree - plumbing rebase should not dirty worktree", async () => {
     const repo = await repos.create();
 

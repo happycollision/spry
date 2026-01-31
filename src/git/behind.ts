@@ -1,6 +1,6 @@
 import { $ } from "bun";
 import type { GitOptions } from "./commands.ts";
-import { getCurrentBranch, isBranchCheckedOutInWorktree } from "./commands.ts";
+import { getCurrentBranch, getBranchWorktree, hasUncommittedChanges } from "./commands.ts";
 import { getDefaultBranchRef, getSpryConfig } from "./config.ts";
 
 /**
@@ -94,10 +94,19 @@ export async function fastForwardLocalMain(options: GitOptions = {}): Promise<Fa
     return { performed: false, skippedReason: "on-main-branch" };
   }
 
-  // Skip if main is checked out in any worktree - updating ref would desync that worktree
-  const mainInWorktree = await isBranchCheckedOutInWorktree(localMain, options);
-  if (mainInWorktree) {
-    return { performed: false, skippedReason: "in-worktree" };
+  // Check if main is checked out in any worktree
+  const worktreeInfo = await getBranchWorktree(localMain, options);
+
+  if (worktreeInfo.checkedOut && worktreeInfo.worktreePath) {
+    // Main is in a worktree - check if it's clean
+    const isDirty = await hasUncommittedChanges({ cwd: worktreeInfo.worktreePath });
+
+    if (isDirty) {
+      // Worktree has uncommitted changes - can't safely fast-forward
+      return { performed: false, skippedReason: "in-worktree" };
+    }
+
+    // Worktree is clean - we can proceed with fast-forward and update working directory
   }
 
   const status = await getLocalMainStatus(options);
@@ -120,6 +129,11 @@ export async function fastForwardLocalMain(options: GitOptions = {}): Promise<Fa
     await $`git -C ${cwd} update-ref refs/heads/${localMain} ${remoteSha}`.quiet();
   } else {
     await $`git update-ref refs/heads/${localMain} ${remoteSha}`.quiet();
+  }
+
+  // If main was in a worktree, update that worktree's working directory
+  if (worktreeInfo.checkedOut && worktreeInfo.worktreePath) {
+    await $`git -C ${worktreeInfo.worktreePath} reset --hard ${remoteSha}`.quiet();
   }
 
   return { performed: true };

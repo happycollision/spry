@@ -80,3 +80,226 @@ bun run test:local:docker
 - **Worktree dirty bug: FIXED** - Main worktree stays clean after sync from feature worktree
 - **Feature branch worktree: PASSES** - Plumbing rebase doesn't affect other feature branches
 - **All 36 local tests pass**
+
+---
+
+## Follow-up Work
+
+### Phase 4: Audit for hardcoded "main" references [DONE]
+
+Ensure no runtime code hardcodes "main" as the default branch name.
+
+**Finding**: Only 1 issue in runtime code:
+
+- `src/scenario/definitions.ts:231` - `await repo.checkout("main")` should use `repo.defaultBranch`
+
+**Fix**: Change line 231 from:
+
+```typescript
+await repo.checkout("main");
+```
+
+to:
+
+```typescript
+await repo.checkout(repo.defaultBranch);
+```
+
+Note: `src/scenario/core.ts:220` has `"main"` as a fallback default value which is appropriate - it's a configurable default, not a hardcoded assumption.
+
+### Phase 5: Smart fast-forward for clean worktrees [DONE]
+
+**Problem**: Currently we skip fast-forward entirely when main is in a worktree. But if the worktree is clean, it's safe to fast-forward using the normal method that updates the working directory.
+
+**Current behavior** (in `src/git/behind.ts:97-101`):
+
+```typescript
+// Skip if main is checked out in any worktree - updating ref would desync that worktree
+const mainInWorktree = await isBranchCheckedOutInWorktree(localMain, options);
+if (mainInWorktree) {
+  return { performed: false, skippedReason: "in-worktree" };
+}
+```
+
+**New behavior**: If worktree is clean, do the fast-forward AND update the working directory.
+
+#### Implementation Details
+
+**Step 1: Add `getBranchWorktree()` in `src/git/commands.ts`**
+
+Add after the existing `isBranchCheckedOutInWorktree()` function (around line 182):
+
+```typescript
+/**
+ * Result of checking if a branch is in a worktree.
+ */
+export interface WorktreeCheckResult {
+  /** Whether the branch is checked out in any worktree */
+  checkedOut: boolean;
+  /** Path to the worktree (if checked out) */
+  worktreePath?: string;
+}
+
+/**
+ * Check if a branch is checked out in any worktree and return its path.
+ *
+ * @param branch - Branch name (without refs/heads/ prefix)
+ * @returns Object with checkedOut boolean and optional worktreePath
+ */
+export async function getBranchWorktree(
+  branch: string,
+  options: GitOptions = {},
+): Promise<WorktreeCheckResult> {
+  const { cwd } = options;
+
+  const result = cwd
+    ? await $`git -C ${cwd} worktree list --porcelain`.text()
+    : await $`git worktree list --porcelain`.text();
+
+  const output = result.trim();
+  if (!output) return { checkedOut: false };
+
+  const targetRef = `refs/heads/${branch}`;
+  const entries = output.split("\n\n");
+
+  for (const entry of entries) {
+    const lines = entry.split("\n");
+    let worktreePath = "";
+    let branchRef = "";
+
+    for (const line of lines) {
+      if (line.startsWith("worktree ")) {
+        worktreePath = line.slice("worktree ".length);
+      } else if (line.startsWith("branch ")) {
+        branchRef = line.slice("branch ".length);
+      }
+    }
+
+    if (branchRef === targetRef && worktreePath) {
+      return { checkedOut: true, worktreePath };
+    }
+  }
+
+  return { checkedOut: false };
+}
+```
+
+**Step 2: Update `fastForwardLocalMain()` in `src/git/behind.ts`**
+
+Change the import (line 3):
+
+```typescript
+import { getCurrentBranch, getBranchWorktree, hasUncommittedChanges } from "./commands.ts";
+```
+
+Replace the worktree check section (lines 97-101) with:
+
+```typescript
+// Check if main is checked out in any worktree
+const worktreeInfo = await getBranchWorktree(localMain, options);
+
+if (worktreeInfo.checkedOut && worktreeInfo.worktreePath) {
+  // Main is in a worktree - check if it's clean
+  const isDirty = await hasUncommittedChanges({ cwd: worktreeInfo.worktreePath });
+
+  if (isDirty) {
+    // Worktree has uncommitted changes - can't safely fast-forward
+    return { performed: false, skippedReason: "in-worktree" };
+  }
+
+  // Worktree is clean - proceed with fast-forward below, but we'll need to update
+  // the working directory too (flag this for later in the function)
+}
+```
+
+Then after updating the ref (around line 116), add working directory update:
+
+```typescript
+// Update the local main ref directly
+if (cwd) {
+  await $`git -C ${cwd} update-ref refs/heads/${localMain} ${remoteSha}`.quiet();
+} else {
+  await $`git update-ref refs/heads/${localMain} ${remoteSha}`.quiet();
+}
+
+// If main was in a worktree, update that worktree's working directory
+if (worktreeInfo.checkedOut && worktreeInfo.worktreePath) {
+  await $`git -C ${worktreeInfo.worktreePath} reset --hard ${remoteSha}`.quiet();
+}
+```
+
+**Step 3: Add test in `tests/integration/worktree.test.ts`**
+
+Add after the "main checked out in another worktree - shows working directory status" test:
+
+```typescript
+test("main checked out in clean worktree - fast-forward updates both ref and working directory", async () => {
+  const repo = await repos.create();
+
+  // Create a feature branch
+  const featureBranch = await repo.branch("feature");
+  await repo.commit({ message: "Feature commit" });
+
+  // Go back to main and create a worktree for the feature branch
+  await repo.checkout("main");
+  const worktree = await repo.createWorktree(featureBranch);
+
+  // Update origin/main (simulates another developer pushing)
+  await repo.updateOriginMain("Remote commit on main");
+  await repo.fetch();
+
+  // Get the remote SHA before sync
+  const remoteSha = (await $`git -C ${repo.path} rev-parse origin/main`.text()).trim();
+
+  // Verify main is behind origin/main
+  const localMainBefore = (await $`git -C ${repo.path} rev-parse main`.text()).trim();
+  expect(localMainBefore).not.toBe(remoteSha);
+
+  // Main worktree should be clean
+  const mainStatusBefore = await $`git -C ${repo.path} status --porcelain`.text();
+  expect(mainStatusBefore.trim()).toBe("");
+
+  // Run sync from the feature worktree
+  const result = await runSync(worktree.path);
+  expect(result.exitCode).toBe(0);
+
+  // Verify main ref was updated
+  const localMainAfter = (await $`git -C ${repo.path} rev-parse main`.text()).trim();
+  expect(localMainAfter).toBe(remoteSha);
+
+  // Verify main worktree is still clean AND has the new files
+  const mainStatusAfter = await $`git -C ${repo.path} status --porcelain`.text();
+  expect(mainStatusAfter.trim()).toBe("");
+
+  // Verify the HEAD in main worktree matches the new SHA
+  const mainHead = (await $`git -C ${repo.path} rev-parse HEAD`.text()).trim();
+  expect(mainHead).toBe(remoteSha);
+});
+```
+
+#### Files to modify
+
+- `src/git/commands.ts` - Add `getBranchWorktree()` and export `WorktreeCheckResult`
+- `src/git/behind.ts` - Update imports and `fastForwardLocalMain()` logic
+- `src/scenario/definitions.ts:231` - Fix hardcoded "main"
+- `tests/integration/worktree.test.ts` - Add clean worktree fast-forward test
+
+#### Existing utilities to use
+
+- `hasUncommittedChanges()` in `src/git/commands.ts:81-87` - checks if worktree is dirty
+- `git worktree list --porcelain` output format (used in existing code):
+
+  ```
+  worktree /path/to/worktree
+  HEAD <sha>
+  branch refs/heads/branch-name
+
+  worktree /path/to/another
+  ...
+  ```
+
+#### Verification
+
+```bash
+bun run test:local:docker
+```
