@@ -262,6 +262,42 @@ describe("sync: local behavior", () => {
     expect(result.stdout).toContain("local commit(s)");
     // Should still rebase the feature branch onto origin/main
     expect(result.stdout).toContain("Rebased");
+
+    // Verify feature branch is now on top of origin/main (ancestry check)
+    const mergeBase = (await $`git -C ${repo.path} merge-base HEAD origin/main`.text()).trim();
+    const originMain = (await $`git -C ${repo.path} rev-parse origin/main`.text()).trim();
+    expect(mergeBase).toBe(originMain);
+  });
+
+  test("fast-forwards local main when syncing from feature branch", async () => {
+    const repo = await repos.create();
+
+    // Create feature branch with commits
+    await repo.branch("feature");
+    await repo.commit({ message: "Feature commit" });
+
+    // Update origin/main (simulates another developer pushing)
+    await repo.updateOriginMain("Remote commit on main");
+    await repo.fetch();
+
+    // Verify local main is behind origin/main before sync
+    const localMainBefore = (await $`git -C ${repo.path} rev-parse main`.text()).trim();
+    const originMainBefore = (await $`git -C ${repo.path} rev-parse origin/main`.text()).trim();
+    expect(localMainBefore).not.toBe(originMainBefore);
+
+    // Run sync from feature branch
+    const result = await runSync(repo.path);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Fast-forwarded local main");
+
+    // Verify local main was fast-forwarded to origin/main
+    const localMainAfter = (await $`git -C ${repo.path} rev-parse main`.text()).trim();
+    const originMainAfter = (await $`git -C ${repo.path} rev-parse origin/main`.text()).trim();
+    expect(localMainAfter).toBe(originMainAfter);
+
+    // Verify feature branch is on top of origin/main
+    const mergeBase = (await $`git -C ${repo.path} merge-base HEAD origin/main`.text()).trim();
+    expect(mergeBase).toBe(originMainAfter);
   });
 
   test("skips fast-forward when on the main branch (would dirty worktree)", async () => {
@@ -308,9 +344,7 @@ describe("sync: local behavior", () => {
     expect(result.stdout).toContain("Added Spry-Commit-Id to 2 commit(s)");
 
     // Verify the remote was auto-detected and persisted to config
-    const configuredRemote = (
-      await $`git -C ${repo.path} config --get spry.remote`.text()
-    ).trim();
+    const configuredRemote = (await $`git -C ${repo.path} config --get spry.remote`.text()).trim();
     expect(configuredRemote).toBe("upstream");
   });
 });

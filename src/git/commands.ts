@@ -141,3 +141,95 @@ export async function getStackCommitsWithTrailers(
 
   return commitsWithTrailers;
 }
+
+/**
+ * Check if a branch is checked out in any worktree.
+ *
+ * This is important for operations that use `git update-ref` to update a branch.
+ * If a branch is checked out in another worktree, updating its ref via plumbing
+ * commands will leave that worktree's working directory out of sync (dirty state).
+ *
+ * @param branch - Branch name (without refs/heads/ prefix)
+ * @returns true if the branch is checked out in any worktree
+ */
+export async function isBranchCheckedOutInWorktree(
+  branch: string,
+  options: GitOptions = {},
+): Promise<boolean> {
+  const { cwd } = options;
+
+  // Use `git worktree list --porcelain` to get all worktrees
+  const result = cwd
+    ? await $`git -C ${cwd} worktree list --porcelain`.text()
+    : await $`git worktree list --porcelain`.text();
+
+  const output = result.trim();
+  if (!output) return false;
+
+  const targetRef = `refs/heads/${branch}`;
+  const entries = output.split("\n\n");
+
+  for (const entry of entries) {
+    const lines = entry.split("\n");
+    for (const line of lines) {
+      if (line.startsWith("branch ") && line.slice("branch ".length) === targetRef) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Result of checking if a branch is in a worktree.
+ */
+export interface WorktreeCheckResult {
+  /** Whether the branch is checked out in any worktree */
+  checkedOut: boolean;
+  /** Path to the worktree (if checked out) */
+  worktreePath?: string;
+}
+
+/**
+ * Check if a branch is checked out in any worktree and return its path.
+ *
+ * @param branch - Branch name (without refs/heads/ prefix)
+ * @returns Object with checkedOut boolean and optional worktreePath
+ */
+export async function getBranchWorktree(
+  branch: string,
+  options: GitOptions = {},
+): Promise<WorktreeCheckResult> {
+  const { cwd } = options;
+
+  const result = cwd
+    ? await $`git -C ${cwd} worktree list --porcelain`.text()
+    : await $`git worktree list --porcelain`.text();
+
+  const output = result.trim();
+  if (!output) return { checkedOut: false };
+
+  const targetRef = `refs/heads/${branch}`;
+  const entries = output.split("\n\n");
+
+  for (const entry of entries) {
+    const lines = entry.split("\n");
+    let worktreePath = "";
+    let branchRef = "";
+
+    for (const line of lines) {
+      if (line.startsWith("worktree ")) {
+        worktreePath = line.slice("worktree ".length);
+      } else if (line.startsWith("branch ")) {
+        branchRef = line.slice("branch ".length);
+      }
+    }
+
+    if (branchRef === targetRef && worktreePath) {
+      return { checkedOut: true, worktreePath };
+    }
+  }
+
+  return { checkedOut: false };
+}
