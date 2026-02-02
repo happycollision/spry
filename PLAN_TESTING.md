@@ -113,7 +113,9 @@ For `sync --all`, we need a scenario with multiple branches in various states:
  * - feature-uptodate: Spry branch, already on origin/main
  * - feature-behind: Spry branch, needs rebase (no conflict)
  * - feature-conflict: Spry branch, would conflict on rebase
- * - feature-nospy: Non-Spry branch (no Spry-Commit-Id trailers)
+ * - feature-nospry: Non-Spry branch (no Spry-Commit-Id trailers)
+ * - feature-mixed: Spry branch with some commits missing IDs
+ * - feature-split: Spry branch with split group (malformed)
  *
  * Leaves repo on feature-behind branch.
  * REQUIRES: LocalRepo (uses updateOriginMain)
@@ -128,12 +130,14 @@ multiSpryBranches: {
 
 ### Branch States Created
 
-| Branch             | Spry-Tracked | State              | Expected Sync Result |
-| ------------------ | ------------ | ------------------ | -------------------- |
-| `feature-uptodate` | Yes          | On origin/main     | Skip (up-to-date)    |
-| `feature-behind`   | Yes          | Behind origin/main | Rebase succeeds      |
-| `feature-conflict` | Yes          | Behind, conflicts  | Skip (conflict)      |
-| `feature-nospy`    | No           | Behind origin/main | Not processed        |
+| Branch             | Spry-Tracked | State                   | Expected Sync Result               |
+| ------------------ | ------------ | ----------------------- | ---------------------------------- |
+| `feature-uptodate` | Yes          | On origin/main          | Skip (up-to-date)                  |
+| `feature-behind`   | Yes          | Behind origin/main      | Rebase succeeds                    |
+| `feature-conflict` | Yes          | Behind, conflicts       | Skip (conflict)                    |
+| `feature-nospry`   | No           | Behind origin/main      | Not processed                      |
+| `feature-mixed`    | Yes          | Has commits missing IDs | IDs injected, then rebase succeeds |
+| `feature-split`    | Yes          | Has split group         | Skip (split-group)                 |
 
 ### Setup Sequence
 
@@ -143,11 +147,15 @@ multiSpryBranches: {
 4. Add Spry commit
 5. Create `feature-conflict` branch from main
 6. Add Spry commit that modifies `conflict.txt`
-7. Create `feature-nospy` branch from main
+7. Create `feature-nospry` branch from main
 8. Add commit WITHOUT Spry-Commit-Id
-9. Update origin/main with change to `conflict.txt`
-10. Fetch to update origin/main ref
-11. Checkout `feature-behind` as the "current" branch
+9. Create `feature-mixed` branch from main
+10. Add Spry commit WITH ID, then add commit WITHOUT ID (mixed)
+11. Create `feature-split` branch from main
+12. Add commit in group A, add interrupting commit, add another commit in group A (split)
+13. Update origin/main with change to `conflict.txt`
+14. Fetch to update origin/main ref
+15. Checkout `feature-behind` as the "current" branch
 
 ---
 
@@ -174,10 +182,17 @@ describe("sync --all: local behavior", () => {
   test("identifies Spry-tracked branches");
   test("excludes non-Spry branches");
   test("detects branches in worktrees");
+  test("detects branches with missing Spry-Commit-Ids (hasMissingIds)");
 
-  // Phase 2 tests: conflict prediction
+  // Phase 2 tests: validation and conflict prediction
+  test("validateBranchStack detects split groups");
+  test("validateBranchStack passes valid branches");
   test("predicts conflicts for specific branch");
   test("detects up-to-date branches");
+
+  // Phase 3 tests: branch-aware APIs
+  test("getStackCommitsWithTrailers works on non-current branch");
+  test("injectMissingIds works on non-current branch");
 
   // Phase 3-4 tests: plumbing rebase
   test("rebases branch not in worktree");
@@ -188,6 +203,8 @@ describe("sync --all: local behavior", () => {
   test("syncs all Spry branches");
   test("skips current branch");
   test("reports results correctly");
+  test("injects missing IDs before rebasing (mixed commits)");
+  test("skips branch with split group");
 
   // Phase 6 tests: CLI
   test("--all flag works");
@@ -220,11 +237,11 @@ GITHUB_INTEGRATION_TESTS=1 bun run test:github
 
 Each phase has its own sub-plan document:
 
-1. **[SUB_PLAN_PHASE_1.md](./SUB_PLAN_PHASE_1.md)** - `listSpryLocalBranches()` - Discovering Spry branches
-2. **[SUB_PLAN_PHASE_2.md](./SUB_PLAN_PHASE_2.md)** - `predictRebaseConflictsForBranch()` - Conflict prediction
-3. **[SUB_PLAN_PHASE_3.md](./SUB_PLAN_PHASE_3.md)** - `rebaseBranchPlumbing()` - Plumbing rebase
+1. **[SUB_PLAN_PHASE_1.md](./SUB_PLAN_PHASE_1.md)** - `listSpryLocalBranches()` - Discovering Spry branches (includes `hasMissingIds` detection)
+2. **[SUB_PLAN_PHASE_2.md](./SUB_PLAN_PHASE_2.md)** - `validateBranchStack()` + `predictRebaseConflictsForBranch()` - Validation and conflict prediction
+3. **[SUB_PLAN_PHASE_3.md](./SUB_PLAN_PHASE_3.md)** - Branch-aware APIs + `rebaseBranchPlumbing()` - Core infrastructure
 4. **[SUB_PLAN_PHASE_4.md](./SUB_PLAN_PHASE_4.md)** - Worktree-aware rebase
-5. **[SUB_PLAN_PHASE_5.md](./SUB_PLAN_PHASE_5.md)** - `syncAllCommand()` - Orchestration
+5. **[SUB_PLAN_PHASE_5.md](./SUB_PLAN_PHASE_5.md)** - `syncAllCommand()` - Orchestration (validation, ID injection, rebase)
 6. **[SUB_PLAN_PHASE_6.md](./SUB_PLAN_PHASE_6.md)** - CLI integration
 
 Each phase builds on the previous and proves a specific capability works before moving on.

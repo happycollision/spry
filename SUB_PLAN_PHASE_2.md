@@ -1,6 +1,6 @@
-# Phase 2: Conflict Prediction - `predictRebaseConflictsForBranch()`
+# Phase 2: Validation and Conflict Prediction
 
-**Goal:** Prove we can predict whether rebasing a specific branch would cause conflicts, without being on that branch.
+**Goal:** Prove we can validate stack structure AND predict conflicts for any branch, without checking it out.
 
 **Status:** Not Started
 
@@ -9,6 +9,114 @@
 ---
 
 ## Why This Phase?
+
+For `sync --all`, we need to check multiple branches without checking them out. This includes:
+
+1. **Stack validation** - Detect malformed groups (split groups) that would block sync
+2. **Conflict prediction** - Detect if rebasing would cause merge conflicts
+
+Both checks must work on non-current branches.
+
+---
+
+## Part A: Stack Validation - `validateBranchStack()`
+
+### Why Validate?
+
+A branch may have a "split group" - commits with the same `Spry-Group` ID that aren't contiguous. This is a structural error that the user must fix before syncing. We should skip such branches with a clear error message.
+
+### Interface
+
+**File:** `src/git/rebase.ts`
+
+```typescript
+export interface BranchValidationResult {
+  valid: boolean;
+  error?: "split-group";
+  splitGroupInfo?: {
+    groupId: string;
+    groupTitle?: string;
+    interruptingCommits: string[];
+  };
+}
+
+/**
+ * Validate that a branch's commit stack is structurally valid.
+ * Checks for split groups (non-contiguous group commits).
+ * Works on any branch, not just the current one.
+ */
+export async function validateBranchStack(
+  branch: string,
+  options: GitOptions = {},
+): Promise<BranchValidationResult>
+```
+
+### Implementation
+
+```typescript
+export async function validateBranchStack(
+  branch: string,
+  options: GitOptions = {},
+): Promise<BranchValidationResult> {
+  // Get commits for branch (branch-aware)
+  const commits = await getStackCommitsWithTrailers({ ...options, branch });
+
+  if (commits.length === 0) {
+    return { valid: true };
+  }
+
+  // Get group titles
+  const groupTitles = await getGroupTitles(options);
+
+  // Use existing parseStack() - it's already branch-agnostic
+  const result = parseStack(commits, groupTitles);
+
+  if (result.ok) {
+    return { valid: true };
+  }
+
+  // result.error === "split-group"
+  return {
+    valid: false,
+    error: "split-group",
+    splitGroupInfo: {
+      groupId: result.group.id,
+      groupTitle: result.group.title,
+      interruptingCommits: result.interruptingCommits,
+    },
+  };
+}
+```
+
+### Test Cases for Validation
+
+#### Test: Detects split group on non-current branch
+
+**Setup:**
+
+- Use `multiSpryBranches` scenario (includes `feature-split` with split group)
+- Stay on a different branch
+
+**Assert:**
+
+- `validateBranchStack("feature-split-...")` returns `valid: false`
+- `error` is `"split-group"`
+- `splitGroupInfo` contains group ID and interrupting commits
+
+#### Test: Valid branch passes validation
+
+**Setup:**
+
+- Use `multiSpryBranches` scenario
+- Check `feature-behind` branch (valid structure)
+
+**Assert:**
+
+- `validateBranchStack("feature-behind-...")` returns `valid: true`
+
+---
+
+## Part B: Conflict Prediction - `predictRebaseConflictsForBranch()`
 
 The existing `predictRebaseConflicts()` only works for the **current branch** (uses `HEAD`). For `sync --all`, we need to check multiple branches without checking them out.
 
@@ -194,6 +302,52 @@ Actually, `feature-uptodate` was created before the origin update, so it will be
 **File:** `tests/integration/sync-all.test.ts`
 
 ```typescript
+describe("sync --all: Phase 2 - validateBranchStack", () => {
+  const repos = repoManager();
+
+  test("detects split group on non-current branch", async () => {
+    const repo = await repos.create();
+    await scenarios.multiSpryBranches.setup(repo);
+
+    const result = await validateBranchStack(
+      `feature-split-${repo.uniqueId}`,
+      { cwd: repo.path },
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe("split-group");
+    expect(result.splitGroupInfo?.groupId).toBe("groupA");
+    expect(result.splitGroupInfo?.interruptingCommits.length).toBeGreaterThan(0);
+  });
+
+  test("valid branch passes validation", async () => {
+    const repo = await repos.create();
+    await scenarios.multiSpryBranches.setup(repo);
+
+    const result = await validateBranchStack(
+      `feature-behind-${repo.uniqueId}`,
+      { cwd: repo.path },
+    );
+
+    expect(result.valid).toBe(true);
+  });
+
+  test("does not change current branch", async () => {
+    const repo = await repos.create();
+    await scenarios.multiSpryBranches.setup(repo);
+
+    const branchBefore = await repo.currentBranch();
+
+    await validateBranchStack(
+      `feature-split-${repo.uniqueId}`,
+      { cwd: repo.path },
+    );
+
+    const branchAfter = await repo.currentBranch();
+    expect(branchAfter).toBe(branchBefore);
+  });
+});
+
 describe("sync --all: Phase 2 - predictRebaseConflictsForBranch", () => {
   const repos = repoManager();
 
@@ -247,10 +401,12 @@ describe("sync --all: Phase 2 - predictRebaseConflictsForBranch", () => {
 
 ## Definition of Done
 
+- [ ] `validateBranchStack()` function implemented in `src/git/rebase.ts`
 - [ ] `predictRebaseConflictsForBranch()` function implemented in `src/git/rebase.ts`
 - [ ] All Phase 2 tests pass
-- [ ] Function correctly predicts conflicts without checkout
-- [ ] Function does not modify current branch or working directory
+- [ ] `validateBranchStack()` correctly detects split groups without checkout
+- [ ] `predictRebaseConflictsForBranch()` correctly predicts conflicts without checkout
+- [ ] Neither function modifies current branch or working directory
 
 ---
 

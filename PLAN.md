@@ -30,6 +30,8 @@ Add `sp sync --all` flag that syncs every Spry-tracked local branch:
 - Use git plumbing for branches not in worktrees (no checkout needed)
 - Pre-check for conflicts on each branch and SKIP any that would conflict
 - Handle branches checked out in worktrees specially (need working directory update)
+- **Inject missing Spry-Commit-Ids** for branches with mixed commits (some with IDs, some without)
+- **Validate stack structure** and skip branches with malformed groups (split groups)
 - Report all successful rebases and all skipped rebases
 - **NEVER** get into a failed rebase state
 
@@ -37,14 +39,14 @@ Add `sp sync --all` flag that syncs every Spry-tracked local branch:
 
 ## Phase Overview
 
-| Phase | Name                                                       | Purpose                                     | Status      |
-| ----- | ---------------------------------------------------------- | ------------------------------------------- | ----------- |
-| 1     | [listSpryLocalBranches()](./SUB_PLAN_PHASE_1.md)           | Discover which branches are Spry-tracked    | Not Started |
-| 2     | [predictRebaseConflictsForBranch()](./SUB_PLAN_PHASE_2.md) | Check if rebasing any branch would conflict | Not Started |
-| 3     | [rebaseBranchPlumbing()](./SUB_PLAN_PHASE_3.md)            | Rebase branches not in worktrees            | Not Started |
-| 4     | [Worktree-aware rebase](./SUB_PLAN_PHASE_4.md)             | Handle branches in worktrees                | Not Started |
-| 5     | [syncAllCommand()](./SUB_PLAN_PHASE_5.md)                  | Wire everything together                    | Not Started |
-| 6     | [CLI integration](./SUB_PLAN_PHASE_6.md)                   | Add --all flag to CLI                       | Not Started |
+| Phase | Name                                                      | Purpose                                                     | Status      |
+| ----- | --------------------------------------------------------- | ----------------------------------------------------------- | ----------- |
+| 1     | [listSpryLocalBranches()](./SUB_PLAN_PHASE_1.md)          | Discover Spry branches + detect `hasMissingIds`             | Not Started |
+| 2     | [Validation + Conflict Prediction](./SUB_PLAN_PHASE_2.md) | Validate stack structure (split groups) + predict conflicts | Not Started |
+| 3     | [Branch-Aware APIs + Plumbing](./SUB_PLAN_PHASE_3.md)     | Branch-aware APIs + rebase branches not in worktrees        | Not Started |
+| 4     | [Worktree-aware rebase](./SUB_PLAN_PHASE_4.md)            | Handle branches in worktrees                                | Not Started |
+| 5     | [syncAllCommand()](./SUB_PLAN_PHASE_5.md)                 | Orchestrate: validate, inject IDs, rebase                   | Not Started |
+| 6     | [CLI integration](./SUB_PLAN_PHASE_6.md)                  | Add --all flag to CLI                                       | Not Started |
 
 Each phase builds on the previous. Complete them in order.
 
@@ -75,32 +77,34 @@ Git 2.40+ is required for `git merge-tree --write-tree --merge-base`. The versio
 
 ```
 $ sp sync --all
-Syncing 5 Spry branch(es)...
+Syncing 7 Spry branch(es)...
 
 ✓ feature-auth: rebased 3 commits onto origin/main
 ✓ feature-api: rebased 5 commits onto origin/main (worktree updated)
+✓ feature-mixed: rebased 2 commits onto origin/main
 ⊘ feature-ui: skipped (up-to-date)
 ⊘ feature-db: skipped (would conflict in: src/db/schema.ts)
 ⊘ feature-wip: skipped (worktree has uncommitted changes)
 ⊘ feature-current: skipped (current branch - run 'sp sync' without --all)
+⊘ feature-broken: skipped (split group "myGroup" - run 'sp group --fix' on that branch)
 
-Rebased: 2 branch(es)
-Skipped: 4 branch(es) (1 up-to-date, 1 conflict, 1 dirty, 1 current)
+Rebased: 3 branch(es)
+Skipped: 4 branch(es) (1 up-to-date, 1 conflict, 1 dirty, 1 current, 1 split-group)
 ```
 
 ---
 
 ## Files to Create/Modify
 
-| File                                 | Changes                                                           |
-| ------------------------------------ | ----------------------------------------------------------------- |
-| `src/git/commands.ts`                | Add `listSpryLocalBranches()`                                     |
-| `src/git/rebase.ts`                  | Add `predictRebaseConflictsForBranch()`, `rebaseBranchPlumbing()` |
-| `src/cli/commands/sync.ts`           | Add `syncAllCommand()`, update `syncCommand()`                    |
-| `src/cli/index.ts`                   | Add `--all` flag                                                  |
-| `src/scenario/definitions.ts`        | Add `multiSpryBranches` scenario                                  |
-| `tests/integration/sync-all.test.ts` | New test file                                                     |
-| `tests/integration/helpers.ts`       | Update `runSync()` helper                                         |
+| File                                 | Changes                                                                                                                            |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `src/git/commands.ts`                | Add `listSpryLocalBranches()`, extend `getStackCommitsWithTrailers()` for branch                                                   |
+| `src/git/rebase.ts`                  | Add `validateBranchStack()`, `predictRebaseConflictsForBranch()`, `rebaseBranchPlumbing()`, extend `injectMissingIds()` for branch |
+| `src/cli/commands/sync.ts`           | Add `syncAllCommand()`, update `syncCommand()`                                                                                     |
+| `src/cli/index.ts`                   | Add `--all` flag                                                                                                                   |
+| `src/scenario/definitions.ts`        | Add `multiSpryBranches` scenario (with `feature-mixed`, `feature-split`)                                                           |
+| `tests/integration/sync-all.test.ts` | New test file (includes mixed commits and split group tests)                                                                       |
+| `tests/integration/helpers.ts`       | Update `runSync()` helper                                                                                                          |
 
 ---
 
@@ -160,3 +164,32 @@ These are already implemented and available:
 2. **One Phase at a Time:** Complete each phase before starting the next
 3. **Use Scenarios:** Create the `multiSpryBranches` scenario in Phase 1
 4. **Verify with Docker:** Use `bun run test:docker` since local git may be too old
+
+---
+
+## Key Considerations: Mixed Commits and Validation
+
+### Mixed Commits (Some With IDs, Some Without)
+
+Branches may have commits where some have `Spry-Commit-Id` trailers and some don't (if user created commits after last sync). The `sync --all` command must:
+
+1. Detect branches with missing IDs (`hasMissingIds` in `SpryBranchInfo`)
+2. Inject missing IDs using `injectMissingIds({ branch })` BEFORE rebasing
+3. This requires branch-aware versions of `getStackCommitsWithTrailers()` and `injectMissingIds()`
+
+### Malformed Groups (Split Groups)
+
+Branches may have "split groups" - commits with the same `Spry-Group` ID that aren't contiguous. This is a structural error. The `sync --all` command must:
+
+1. Validate each branch's stack using `validateBranchStack()`
+2. Skip branches with split groups (reason: `"split-group"`)
+3. Report clear error message directing user to `sp group --fix`
+
+### Processing Order
+
+For each branch:
+
+1. **Validate** - Check for split groups (skip if invalid)
+2. **Inject IDs** - If `hasMissingIds`, inject them
+3. **Predict conflicts** - Test if rebase would conflict (skip if would conflict)
+4. **Rebase** - Perform the rebase via plumbing

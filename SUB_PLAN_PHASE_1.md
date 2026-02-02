@@ -33,6 +33,8 @@ export interface SpryBranchInfo {
   inWorktree: boolean;
   /** Path to worktree if checked out */
   worktreePath?: string;
+  /** Whether any commits in stack are missing Spry-Commit-Id (needs ID injection) */
+  hasMissingIds: boolean;
 }
 
 /**
@@ -148,6 +150,26 @@ Use existing `getDefaultBranchRef()` to get `origin/main` or equivalent.
 
 - `commitCount: 3` in result
 
+### Test 6: Detects branches with missing IDs
+
+**Setup:**
+
+- Create branch with one Spry commit and one commit without Spry-Commit-Id
+
+**Assert:**
+
+- Branch in result with `hasMissingIds: true`
+
+### Test 7: Branch with all IDs has hasMissingIds false
+
+**Setup:**
+
+- Create branch where all commits have Spry-Commit-Id
+
+**Assert:**
+
+- Branch in result with `hasMissingIds: false`
+
 ---
 
 ## Scenario to Add
@@ -202,8 +224,35 @@ multiSpryBranches: {
     await repo.checkout(repo.defaultBranch);
 
     // Branch 4: NOT Spry-tracked (no trailer)
-    await repo.branch("feature-nospy");
+    await repo.branch("feature-nospry");
     await repo.commit({ message: "Plain commit without Spry-Commit-Id" });
+
+    await repo.checkout(repo.defaultBranch);
+
+    // Branch 5: Spry-tracked but has commits missing IDs (mixed)
+    await repo.branch("feature-mixed");
+    await repo.commit({
+      message: "Commit with ID",
+      trailers: { "Spry-Commit-Id": "mix00001" },
+    });
+    await repo.commit({ message: "Commit without ID" }); // No Spry-Commit-Id!
+
+    await repo.checkout(repo.defaultBranch);
+
+    // Branch 6: Spry-tracked but has split group (malformed)
+    await repo.branch("feature-split");
+    await repo.commit({
+      message: "Group A part 1",
+      trailers: { "Spry-Commit-Id": "splt0001", "Spry-Group": "groupA" },
+    });
+    await repo.commit({
+      message: "Interrupting commit",
+      trailers: { "Spry-Commit-Id": "splt0002" },
+    });
+    await repo.commit({
+      message: "Group A part 2",
+      trailers: { "Spry-Commit-Id": "splt0003", "Spry-Group": "groupA" },
+    });
 
     // Update origin/main with conflicting content
     await repo.updateOriginMain("Upstream change", {
@@ -245,7 +294,7 @@ describe("sync --all: Phase 1 - listSpryLocalBranches", () => {
     expect(names).toContain(expect.stringContaining("feature-conflict"));
 
     // Should NOT include non-Spry branch
-    expect(names).not.toContain(expect.stringContaining("feature-nospy"));
+    expect(names).not.toContain(expect.stringContaining("feature-nospry"));
 
     // Should NOT include main
     expect(names).not.toContain("main");
@@ -284,6 +333,23 @@ describe("sync --all: Phase 1 - listSpryLocalBranches", () => {
     expect(wtBranch!.inWorktree).toBe(true);
     expect(wtBranch!.worktreePath).toBe(worktree.path);
   });
+
+  test("detects branches with missing Spry-Commit-Ids", async () => {
+    const repo = await repos.create();
+    await scenarios.multiSpryBranches.setup(repo);
+
+    const branches = await listSpryLocalBranches({ cwd: repo.path });
+
+    // feature-mixed has one commit with ID and one without
+    const mixedBranch = branches.find(b => b.name.includes("feature-mixed"));
+    expect(mixedBranch).toBeDefined();
+    expect(mixedBranch!.hasMissingIds).toBe(true);
+
+    // feature-behind has all commits with IDs
+    const behindBranch = branches.find(b => b.name.includes("feature-behind"));
+    expect(behindBranch).toBeDefined();
+    expect(behindBranch!.hasMissingIds).toBe(false);
+  });
 });
 ```
 
@@ -296,6 +362,7 @@ describe("sync --all: Phase 1 - listSpryLocalBranches", () => {
 - [ ] All Phase 1 tests pass
 - [ ] Function correctly identifies Spry vs non-Spry branches
 - [ ] Function correctly detects worktree status
+- [ ] Function correctly detects `hasMissingIds` for branches with mixed commits
 
 ---
 

@@ -13,9 +13,11 @@
 Combines all previous phases into the main orchestration function:
 
 1. **Discover** - Find all Spry branches (Phase 1)
-2. **Analyze** - For each branch, determine if it can be rebased (Phase 2)
-3. **Execute** - Rebase branches that can be rebased (Phases 3-4)
-4. **Report** - Show what happened
+2. **Validate** - For each branch, check for malformed groups (Phase 2)
+3. **Inject IDs** - For branches with missing IDs, inject them (Phase 3)
+4. **Analyze** - Predict conflicts for valid branches (Phase 2)
+5. **Execute** - Rebase branches that can be rebased (Phases 3-4)
+6. **Report** - Show what happened
 
 ---
 
@@ -30,12 +32,17 @@ export interface SyncAllResult {
     branch: string;
     commitCount: number;
     wasInWorktree: boolean;
+    idsInjected?: number;  // NEW: count of IDs injected before rebase
   }>;
   /** Branches that were skipped */
   skipped: Array<{
     branch: string;
-    reason: "up-to-date" | "conflict" | "dirty-worktree" | "current-branch";
+    reason: "up-to-date" | "conflict" | "dirty-worktree" | "current-branch" | "split-group";  // split-group NEW
     conflictFiles?: string[];
+    splitGroupInfo?: {  // NEW: info about split group if reason is split-group
+      groupId: string;
+      groupTitle?: string;
+    };
   }>;
 }
 
@@ -94,7 +101,7 @@ export async function syncAllCommand(options: SyncOptions = {}): Promise<SyncAll
   const rebased: SyncAllResult["rebased"] = [];
   const skipped: SyncAllResult["skipped"] = [];
 
-  // Phase 1: Filter out branches we can skip early (current, up-to-date, dirty worktree)
+  // Step 1: Filter out branches we can skip early (current, up-to-date, dirty worktree)
   const eligibleBranches: typeof spryBranches = [];
 
   for (const branch of spryBranches) {
@@ -123,14 +130,49 @@ export async function syncAllCommand(options: SyncOptions = {}): Promise<SyncAll
     eligibleBranches.push(branch);
   }
 
-  // Phase 2: Predict conflicts in parallel for all eligible branches
-  const predictions = await Promise.all(
-    eligibleBranches.map(b => predictRebaseConflictsForBranch(b.name, target, options))
+  // Step 2: Validate stack structure (check for split groups)
+  // Run in parallel since validations are independent
+  const validations = await Promise.all(
+    eligibleBranches.map(b => validateBranchStack(b.name, options))
   );
 
-  // Phase 3: Rebase branches that won't conflict (sequentially to avoid ref races)
+  // Filter out invalid branches
+  const validBranches: typeof eligibleBranches = [];
   for (let i = 0; i < eligibleBranches.length; i++) {
     const branch = eligibleBranches[i]!;
+    const validation = validations[i]!;
+
+    if (!validation.valid) {
+      skipped.push({
+        branch: branch.name,
+        reason: "split-group",
+        splitGroupInfo: {
+          groupId: validation.splitGroupInfo!.groupId,
+          groupTitle: validation.splitGroupInfo?.groupTitle,
+        },
+      });
+      continue;
+    }
+
+    validBranches.push(branch);
+  }
+
+  // Step 3: Inject missing IDs for branches that need them
+  // Must be done before conflict prediction (IDs affect commit hashes)
+  for (const branch of validBranches) {
+    if (branch.hasMissingIds) {
+      await injectMissingIds({ ...options, branch: branch.name });
+    }
+  }
+
+  // Step 4: Predict conflicts in parallel for all valid branches
+  const predictions = await Promise.all(
+    validBranches.map(b => predictRebaseConflictsForBranch(b.name, target, options))
+  );
+
+  // Step 5: Rebase branches that won't conflict (sequentially to avoid ref races)
+  for (let i = 0; i < validBranches.length; i++) {
+    const branch = validBranches[i]!;
     const prediction = predictions[i]!;
 
     if (!prediction.wouldSucceed) {
@@ -155,6 +197,7 @@ export async function syncAllCommand(options: SyncOptions = {}): Promise<SyncAll
         branch: branch.name,
         commitCount: result.commitCount,
         wasInWorktree: branch.inWorktree,
+        idsInjected: branch.hasMissingIds ? 1 : undefined,  // Simplified; actual count from injectMissingIds
       });
     }
   }
@@ -192,6 +235,10 @@ function reportSyncAllResults(
       case "current-branch":
         console.log(`⊘ ${s.branch}: skipped (current branch - run 'sp sync' without --all)`);
         break;
+      case "split-group":
+        const groupInfo = s.splitGroupInfo?.groupTitle ?? s.splitGroupInfo?.groupId ?? "unknown";
+        console.log(`⊘ ${s.branch}: skipped (split group "${groupInfo}" - run 'sp group --fix' on that branch)`);
+        break;
     }
   }
 
@@ -201,6 +248,7 @@ function reportSyncAllResults(
   const conflicts = skipped.filter(s => s.reason === "conflict").length;
   const dirty = skipped.filter(s => s.reason === "dirty-worktree").length;
   const current = skipped.filter(s => s.reason === "current-branch").length;
+  const splitGroups = skipped.filter(s => s.reason === "split-group").length;
 
   console.log(`Rebased: ${rebased.length} branch(es)`);
   if (skipped.length > 0) {
@@ -209,6 +257,7 @@ function reportSyncAllResults(
     if (conflicts > 0) parts.push(`${conflicts} conflict`);
     if (dirty > 0) parts.push(`${dirty} dirty`);
     if (current > 0) parts.push(`${current} current`);
+    if (splitGroups > 0) parts.push(`${splitGroups} split-group`);
     console.log(`Skipped: ${skipped.length} branch(es) (${parts.join(", ")})`);
   }
 }
@@ -237,7 +286,9 @@ async function isBranchBehindTarget(branch: string, target: string): Promise<boo
 - `feature-behind` is rebased
 - `feature-conflict` is skipped with conflict reason
 - `feature-uptodate` is skipped (or rebased if behind)
-- `feature-nospy` is not processed (not Spry-tracked)
+- `feature-nospry` is not processed (not Spry-tracked)
+- `feature-mixed` has IDs injected then rebased
+- `feature-split` is skipped with split-group reason
 
 ### Test 2: Skips current branch
 
@@ -295,6 +346,30 @@ async function isBranchBehindTarget(branch: string, target: string): Promise<boo
 
 - All marked as up-to-date
 - No rebase operations performed
+
+### Test 7: Injects missing IDs before rebasing
+
+**Setup:**
+
+- Branch with one commit with ID and one without (mixed)
+- Update origin/main
+
+**Assert:**
+
+- Branch is rebased successfully
+- All commits now have Spry-Commit-Id
+
+### Test 8: Skips branch with split group
+
+**Setup:**
+
+- Branch with a split group (non-contiguous group commits)
+- Update origin/main
+
+**Assert:**
+
+- Branch is skipped with "split-group" reason
+- Skip info includes group ID
 
 ---
 
@@ -385,6 +460,43 @@ describe("sync --all: Phase 5 - syncAllCommand orchestration", () => {
     expect(result.rebased).toHaveLength(0);
     expect(result.skipped).toHaveLength(0);
   });
+
+  test("injects missing IDs before rebasing", async () => {
+    const repo = await repos.create();
+    await scenarios.multiSpryBranches.setup(repo);
+
+    const result = await syncAllCommand({ cwd: repo.path });
+
+    // feature-mixed should be rebased (IDs were injected first)
+    const mixedRebased = result.rebased.find(r =>
+      r.branch.includes("feature-mixed")
+    );
+    expect(mixedRebased).toBeDefined();
+
+    // Verify all commits on feature-mixed now have IDs
+    const commits = await getStackCommitsWithTrailers({
+      cwd: repo.path,
+      branch: mixedRebased!.branch,
+    });
+    for (const commit of commits) {
+      expect(commit.trailers["Spry-Commit-Id"]).toBeDefined();
+    }
+  });
+
+  test("skips branch with split group", async () => {
+    const repo = await repos.create();
+    await scenarios.multiSpryBranches.setup(repo);
+
+    const result = await syncAllCommand({ cwd: repo.path });
+
+    // feature-split should be skipped with split-group reason
+    const splitSkip = result.skipped.find(s =>
+      s.branch.includes("feature-split")
+    );
+    expect(splitSkip).toBeDefined();
+    expect(splitSkip?.reason).toBe("split-group");
+    expect(splitSkip?.splitGroupInfo?.groupId).toBe("groupA");
+  });
 });
 ```
 
@@ -393,17 +505,19 @@ describe("sync --all: Phase 5 - syncAllCommand orchestration", () => {
 ## Output Format
 
 ```
-Syncing 5 Spry branch(es)...
+Syncing 7 Spry branch(es)...
 
 ✓ feature-auth: rebased 3 commits onto origin/main
 ✓ feature-api: rebased 5 commits onto origin/main (worktree updated)
+✓ feature-mixed: rebased 2 commits onto origin/main
 ⊘ feature-ui: skipped (up-to-date)
 ⊘ feature-db: skipped (would conflict in: src/db/schema.ts)
 ⊘ feature-wip: skipped (worktree has uncommitted changes)
 ⊘ feature-current: skipped (current branch - run 'sp sync' without --all)
+⊘ feature-split: skipped (split group "groupA" - run 'sp group --fix' on that branch)
 
-Rebased: 2 branch(es)
-Skipped: 4 branch(es) (1 up-to-date, 1 conflict, 1 dirty, 1 current)
+Rebased: 3 branch(es)
+Skipped: 4 branch(es) (1 up-to-date, 1 conflict, 1 dirty, 1 current, 1 split-group)
 ```
 
 ---
@@ -413,8 +527,10 @@ Skipped: 4 branch(es) (1 up-to-date, 1 conflict, 1 dirty, 1 current)
 - [ ] `syncAllCommand()` function implemented in `src/cli/commands/sync.ts`
 - [ ] Helper function `isBranchBehindTarget()` implemented
 - [ ] Reporting function `reportSyncAllResults()` implemented
-- [ ] All Phase 5 tests pass
-- [ ] All skip cases handled correctly
+- [ ] Stack validation integrated (calls `validateBranchStack()`)
+- [ ] ID injection integrated (calls `injectMissingIds()` for branches with `hasMissingIds`)
+- [ ] All Phase 5 tests pass (including mixed commits and split group tests)
+- [ ] All skip cases handled correctly (including "split-group")
 - [ ] Output format matches specification
 
 ---
