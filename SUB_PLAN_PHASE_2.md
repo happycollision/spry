@@ -2,7 +2,7 @@
 
 **Goal:** Add optional `branch` parameter to existing functions, convert to result types where appropriate. This enables `syncAllCommand()` to reuse the same logic as `syncCommand()`.
 
-**Status:** Not Started
+**Status:** Complete
 
 **Depends on:** Phase 1
 
@@ -617,16 +617,16 @@ export function parseConflictOutput(output: string): { files: string[]; lines: s
 
 ## Definition of Done
 
-- [ ] `getStackCommitsForBranch()` helper implemented
-- [ ] `getStackCommitsWithTrailers()` extended with optional `branch` parameter
-- [ ] `injectMissingIds()` extended with optional `branch` parameter and returns result type
-- [ ] `predictRebaseConflicts()` extended with optional `branch` and `onto` parameters
-- [ ] `rebaseOntoMain()` extended with optional `branch`, `onto`, `worktreePath` parameters and returns result type
-- [ ] `parseConflictOutput()` exported from `conflict-predict.ts`
-- [ ] `syncAllCommand()` updated with up-to-date and dirty-worktree checks
-- [ ] All Phase 2 tests pass
-- [ ] Existing tests still pass (backwards compatibility)
-- [ ] Full CI test run passes: `bun run test:ci`
+- [x] `getStackCommitsForBranch()` helper implemented
+- [x] `getStackCommitsWithTrailers()` extended with optional `branch` parameter
+- [x] `injectMissingIds()` extended with optional `branch` parameter and returns result type
+- [x] `predictRebaseConflicts()` extended with optional `branch` and `onto` parameters
+- [x] `rebaseOntoMain()` extended with optional `branch`, `onto`, `worktreePath` parameters and returns result type
+- [x] `parseConflictOutput()` exported from `conflict-predict.ts`
+- [x] `syncAllCommand()` updated with up-to-date and dirty-worktree checks
+- [x] All Phase 2 tests pass
+- [x] Existing tests still pass (backwards compatibility)
+- [x] Full CI test run passes: `bun run test:docker`
 
 ---
 

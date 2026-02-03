@@ -55,20 +55,10 @@ export async function getMergeBase(options: GitOptions = {}): Promise<string> {
 }
 
 /**
- * Get all commits in the stack (between merge-base and HEAD).
- * Returns commits in oldest-to-newest order (bottom of stack first).
+ * Parse git log output into CommitInfo objects.
+ * Shared between getStackCommits() and getStackCommitsForBranch().
  */
-export async function getStackCommits(options: GitOptions = {}): Promise<CommitInfo[]> {
-  const { cwd } = options;
-  const mergeBase = await getMergeBase(options);
-
-  // Get commits with null-byte separators for reliable parsing
-  // %H = hash, %s = subject, %B = full body (includes subject)
-  // Using %x00 for null bytes between fields, %x01 as record separator
-  const result = cwd
-    ? await $`git -C ${cwd} log --reverse --format=%H%x00%s%x00%B%x01 ${mergeBase}..HEAD`.text()
-    : await $`git log --reverse --format=%H%x00%s%x00%B%x01 ${mergeBase}..HEAD`.text();
-
+function parseCommitLog(result: string): CommitInfo[] {
   if (!result.trim()) {
     return [];
   }
@@ -91,6 +81,43 @@ export async function getStackCommits(options: GitOptions = {}): Promise<CommitI
   }
 
   return commits;
+}
+
+/**
+ * Get all commits in the stack (between merge-base and HEAD).
+ * Returns commits in oldest-to-newest order (bottom of stack first).
+ */
+export async function getStackCommits(options: GitOptions = {}): Promise<CommitInfo[]> {
+  const { cwd } = options;
+  const mergeBase = await getMergeBase(options);
+
+  // Get commits with null-byte separators for reliable parsing
+  // %H = hash, %s = subject, %B = full body (includes subject)
+  // Using %x00 for null bytes between fields, %x01 as record separator
+  const result = cwd
+    ? await $`git -C ${cwd} log --reverse --format=%H%x00%s%x00%B%x01 ${mergeBase}..HEAD`.text()
+    : await $`git log --reverse --format=%H%x00%s%x00%B%x01 ${mergeBase}..HEAD`.text();
+
+  return parseCommitLog(result);
+}
+
+/**
+ * Get commits between origin/main and a specific branch.
+ * Unlike getStackCommits(), this works on any branch, not just HEAD.
+ * Returns commits in oldest-to-newest order (bottom of stack first).
+ */
+export async function getStackCommitsForBranch(
+  branch: string,
+  options: GitOptions = {},
+): Promise<CommitInfo[]> {
+  const defaultBranchRef = await getDefaultBranchRef(options);
+  const { cwd } = options;
+
+  const result = cwd
+    ? await $`git -C ${cwd} log --reverse --format=%H%x00%s%x00%B%x01 ${defaultBranchRef}..${branch}`.text()
+    : await $`git log --reverse --format=%H%x00%s%x00%B%x01 ${defaultBranchRef}..${branch}`.text();
+
+  return parseCommitLog(result);
 }
 
 /**
@@ -141,11 +168,18 @@ export async function assertNotDetachedHead(options: GitOptions = {}): Promise<v
 /**
  * Get all commits in the stack with their trailers parsed.
  * Returns commits in oldest-to-newest order (bottom of stack first).
+ *
+ * @param options.branch - Optional branch name. If provided, gets commits for that branch instead of HEAD.
  */
 export async function getStackCommitsWithTrailers(
-  options: GitOptions = {},
+  options: GitOptions & { branch?: string } = {},
 ): Promise<CommitWithTrailers[]> {
-  const commits = await getStackCommits(options);
+  const { branch, ...gitOptions } = options;
+
+  // Get commits for specified branch or HEAD
+  const commits = branch
+    ? await getStackCommitsForBranch(branch, gitOptions)
+    : await getStackCommits(gitOptions);
 
   const commitsWithTrailers: CommitWithTrailers[] = await Promise.all(
     commits.map(async (commit) => {

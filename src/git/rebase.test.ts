@@ -31,8 +31,11 @@ describe("git/rebase", () => {
       // Inject IDs
       const result = await injectMissingIds({ cwd: repo.path });
 
-      expect(result.modifiedCount).toBe(2);
-      expect(result.rebasePerformed).toBe(true);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.modifiedCount).toBe(2);
+        expect(result.rebasePerformed).toBe(true);
+      }
 
       // Verify they now have IDs
       const afterCommits = await getStackCommitsWithTrailers({ cwd: repo.path });
@@ -47,8 +50,11 @@ describe("git/rebase", () => {
 
       const result = await injectMissingIds({ cwd: repo.path });
 
-      expect(result.modifiedCount).toBe(2);
-      expect(result.rebasePerformed).toBe(true);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.modifiedCount).toBe(2);
+        expect(result.rebasePerformed).toBe(true);
+      }
 
       const afterCommits = await getStackCommitsWithTrailers({ cwd: repo.path });
       expect(afterCommits[0]?.trailers["Spry-Commit-Id"]).toBe("mix00001");
@@ -63,8 +69,11 @@ describe("git/rebase", () => {
 
       const result = await injectMissingIds({ cwd: repo.path });
 
-      expect(result.modifiedCount).toBe(0);
-      expect(result.rebasePerformed).toBe(false);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.modifiedCount).toBe(0);
+        expect(result.rebasePerformed).toBe(false);
+      }
 
       // Verify IDs unchanged
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
@@ -78,8 +87,11 @@ describe("git/rebase", () => {
 
       const result = await injectMissingIds({ cwd: repo.path });
 
-      expect(result.modifiedCount).toBe(0);
-      expect(result.rebasePerformed).toBe(false);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.modifiedCount).toBe(0);
+        expect(result.rebasePerformed).toBe(false);
+      }
     });
   });
 
@@ -135,9 +147,10 @@ describe("git/rebase", () => {
       // Rebase onto main
       const result = await rebaseOntoMain({ cwd: repo.path });
 
-      expect(result.success).toBe(true);
-      expect(result.commitCount).toBe(2);
-      expect(result.conflictFile).toBeUndefined();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.commitCount).toBe(2);
+      }
     });
 
     test("preserves Spry trailers through rebase", async () => {
@@ -145,7 +158,7 @@ describe("git/rebase", () => {
       await scenarios.divergedMain.setup(repo);
 
       const result = await rebaseOntoMain({ cwd: repo.path });
-      expect(result.success).toBe(true);
+      expect(result.ok).toBe(true);
 
       // Verify commits are present (divergedMain doesn't add trailers by default, but commits are preserved)
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
@@ -159,8 +172,10 @@ describe("git/rebase", () => {
       // Rebase should detect conflict
       const result = await rebaseOntoMain({ cwd: repo.path });
 
-      expect(result.success).toBe(false);
-      expect(result.conflictFile).toBe("shared.txt");
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.conflictFile).toBe("shared.txt");
+      }
 
       // Clean up the rebase state
       await $`git -C ${repo.path} rebase --abort`.quiet().nothrow();
@@ -175,8 +190,10 @@ describe("git/rebase", () => {
 
       const result = await rebaseOntoMain({ cwd: repo.path });
 
-      expect(result.success).toBe(true);
-      expect(result.commitCount).toBe(1);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.commitCount).toBe(1);
+      }
     });
   });
 
@@ -301,7 +318,10 @@ describe("git/rebase", () => {
 
       // Inject IDs - this performs a rebase
       const result = await injectMissingIds({ cwd: repo.path });
-      expect(result.rebasePerformed).toBe(true);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.rebasePerformed).toBe(true);
+      }
 
       // Verify order is preserved (fixup! commit should NOT have moved)
       const afterCommits = await getStackCommitsWithTrailers({ cwd: repo.path });
@@ -350,7 +370,7 @@ describe("git/rebase", () => {
 
       // Rebase onto main
       const result = await rebaseOntoMain({ cwd: repo.path });
-      expect(result.success).toBe(true);
+      expect(result.ok).toBe(true);
 
       // Verify order is preserved
       const afterCommits = await getStackCommitsWithTrailers({ cwd: repo.path });

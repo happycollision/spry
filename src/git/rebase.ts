@@ -4,8 +4,10 @@ import type { GitOptions } from "./commands.ts";
 import {
   getStackCommits,
   getStackCommitsWithTrailers,
+  getStackCommitsForBranch,
   getCurrentBranch,
-  assertNotDetachedHead,
+  isDetachedHead,
+  getBranchWorktree,
 } from "./commands.ts";
 import { getDefaultBranchRef } from "./config.ts";
 import { generateCommitId } from "../core/id.ts";
@@ -17,58 +19,90 @@ import {
   finalizeRewrite,
   rebasePlumbing,
   getFullSha,
+  updateRef,
 } from "./plumbing.ts";
+import { parseConflictOutput } from "./conflict-predict.ts";
 
-export interface InjectIdsResult {
-  /** Number of commits that were modified */
-  modifiedCount: number;
-  /** Whether a rebase was performed */
-  rebasePerformed: boolean;
-}
+/**
+ * Result of injecting missing IDs into commits.
+ */
+export type InjectIdsResult =
+  | { ok: true; modifiedCount: number; rebasePerformed: boolean }
+  | { ok: false; reason: "detached-head" };
 
 /**
  * Inject Spry-Commit-Id trailers into commits that don't have them.
  * Uses git plumbing commands (no working directory modifications).
  *
- * @returns Information about the operation
+ * @param options.branch - Optional branch name. If provided, operates on that branch instead of current.
+ * @returns Result indicating success with modification count, or failure with reason
  */
-export async function injectMissingIds(options: GitOptions = {}): Promise<InjectIdsResult> {
-  // Ensure we're on a branch (not detached HEAD)
-  await assertNotDetachedHead(options);
+export async function injectMissingIds(
+  options: GitOptions & { branch?: string } = {},
+): Promise<InjectIdsResult> {
+  const { branch: branchParam, ...gitOptions } = options;
+  const branch = branchParam ?? (await getCurrentBranch(gitOptions));
 
-  // Get commits with trailers parsed
-  const commits = await getStackCommitsWithTrailers(options);
+  // Check for detached HEAD
+  if (!branchParam) {
+    // Operating on current branch - check current worktree
+    const detached = await isDetachedHead(gitOptions);
+    if (detached) {
+      return { ok: false, reason: "detached-head" };
+    }
+  } else {
+    // Operating on specific branch - check if it's in a worktree with detached HEAD
+    const worktreeInfo = await getBranchWorktree(branch, gitOptions);
+    if (worktreeInfo.checkedOut && worktreeInfo.worktreePath) {
+      const detached = await isDetachedHead({ cwd: worktreeInfo.worktreePath });
+      if (detached) {
+        return { ok: false, reason: "detached-head" };
+      }
+    }
+  }
+
+  // Get commits with trailers parsed (branch-aware)
+  const commits = await getStackCommitsWithTrailers({ ...gitOptions, branch });
 
   // Find commits without IDs
   const needsId = commits.filter((c) => !c.trailers["Spry-Commit-Id"]);
 
   if (needsId.length === 0) {
-    return { modifiedCount: 0, rebasePerformed: false };
+    return { ok: true, modifiedCount: 0, rebasePerformed: false };
   }
 
   // Build the rewrites map: original hash -> new message with ID
   const rewrites = new Map<string, string>();
   for (const commit of needsId) {
     const newId = generateCommitId();
-    const originalMessage = await getCommitMessage(commit.hash, options);
+    const originalMessage = await getCommitMessage(commit.hash, gitOptions);
     const newMessage = await addTrailers(originalMessage, { "Spry-Commit-Id": newId });
     rewrites.set(commit.hash, newMessage);
   }
 
   // Get all commit hashes in order for the chain rewrite
   const allHashes = commits.map((c) => c.hash);
-
-  // Get current branch and tip for finalization
-  const branch = await getCurrentBranch(options);
   const oldTip = asserted(allHashes.at(-1));
 
   // Rewrite the commit chain using plumbing
-  const result = await rewriteCommitChain(allHashes, rewrites, options);
+  const result = await rewriteCommitChain(allHashes, rewrites, gitOptions);
 
-  // Finalize: update branch ref and reset if needed (won't reset for message-only changes)
-  await finalizeRewrite(branch, oldTip, result.newTip, options);
+  // Finalize based on context
+  if (branchParam) {
+    // Non-current branch: just update ref
+    await updateRef(`refs/heads/${branch}`, result.newTip, oldTip, gitOptions);
 
-  return { modifiedCount: needsId.length, rebasePerformed: true };
+    // If in worktree, also update working directory
+    const worktreeInfo = await getBranchWorktree(branch, gitOptions);
+    if (worktreeInfo.checkedOut && worktreeInfo.worktreePath) {
+      await $`git -C ${worktreeInfo.worktreePath} reset --hard ${result.newTip}`.quiet();
+    }
+  } else {
+    // Current branch: use finalizeRewrite
+    await finalizeRewrite(branch, oldTip, result.newTip, gitOptions);
+  }
+
+  return { ok: true, modifiedCount: needsId.length, rebasePerformed: true };
 }
 
 /**
@@ -92,14 +126,12 @@ export async function countCommitsMissingIds(options: GitOptions = {}): Promise<
   return commits.filter((c) => !c.trailers["Spry-Commit-Id"]).length;
 }
 
-export interface RebaseResult {
-  /** Whether the rebase completed successfully */
-  success: boolean;
-  /** Number of commits that were rebased */
-  commitCount: number;
-  /** If there was a conflict, the first conflicting file */
-  conflictFile?: string;
-}
+/**
+ * Result of a rebase operation.
+ */
+export type RebaseResult =
+  | { ok: true; commitCount: number; newTip: string }
+  | { ok: false; reason: "detached-head" | "conflict"; conflictFile?: string };
 
 export interface RebaseConflictPrediction {
   /** Whether the rebase would succeed without conflicts */
@@ -122,23 +154,29 @@ export interface RebaseConflictPrediction {
  * May create orphaned commit objects on success path, but these are harmless and
  * will be cleaned up by git gc.
  *
+ * @param options.branch - Optional branch name. If provided, checks that branch instead of HEAD.
+ * @param options.onto - Optional target to rebase onto. Defaults to origin/main.
  * @returns Prediction of whether rebase would succeed
  */
 export async function predictRebaseConflicts(
-  options: GitOptions = {},
+  options: GitOptions & { branch?: string; onto?: string } = {},
 ): Promise<RebaseConflictPrediction> {
-  const defaultBranchRef = await getDefaultBranchRef();
+  const { branch, onto: ontoParam, ...gitOptions } = options;
+  const onto = ontoParam ?? (await getDefaultBranchRef());
 
-  // Get commits in stack
-  const commits = await getStackCommits(options);
+  // Get commits for specified branch or HEAD
+  const commits = branch
+    ? await getStackCommitsForBranch(branch, gitOptions)
+    : await getStackCommits(gitOptions);
+
   const commitCount = commits.length;
 
   if (commitCount === 0) {
     return { wouldSucceed: true, commitCount: 0 };
   }
 
-  // Get the target to rebase onto
-  const onto = await getFullSha(defaultBranchRef, options);
+  // Get the target SHA
+  const ontoSha = await getFullSha(onto, gitOptions);
 
   // Get commit hashes in order
   const commitHashes = commits.map((c) => c.hash);
@@ -146,96 +184,129 @@ export async function predictRebaseConflicts(
   // rebasePlumbing creates git objects but doesn't update refs or working directory.
   // If it detects a conflict, it returns early without any side effects.
   // On success, orphaned commit objects are created but harmless (gc will clean them).
-  const result = await rebasePlumbing(onto, commitHashes, options);
+  const result = await rebasePlumbing(ontoSha, commitHashes, gitOptions);
 
   if (result.ok) {
     return { wouldSucceed: true, commitCount };
   }
 
-  // Would conflict
+  // Would conflict - parse conflict info to extract file names
+  const { files } = parseConflictOutput(result.conflictInfo ?? "");
+
   return {
     wouldSucceed: false,
     commitCount,
     conflictInfo: {
       commitHash: result.conflictCommit,
-      files: result.conflictInfo?.split("\n").filter((f) => f.trim()) ?? [],
+      files,
     },
   };
 }
 
 /**
- * Rebase the current stack onto the latest remote default branch.
+ * Rebase a stack onto the latest remote default branch.
  * "Main" in the function name refers to the configured default branch (main, master, develop, etc.)
  *
  * Uses git plumbing when possible, falling back to traditional
- * rebase on conflict for user conflict resolution.
+ * rebase on conflict for user conflict resolution (current branch only).
  *
- * @returns Result indicating success or conflict details
+ * @param options.branch - Optional branch name. If provided, rebases that branch instead of current.
+ * @param options.onto - Optional target to rebase onto. Defaults to origin/main.
+ * @param options.worktreePath - Optional worktree path if the branch is checked out in a worktree.
+ * @returns Result indicating success with new tip, or failure with reason
  */
-export async function rebaseOntoMain(options: GitOptions = {}): Promise<RebaseResult> {
-  // Ensure we're on a branch (not detached HEAD)
-  await assertNotDetachedHead(options);
+export async function rebaseOntoMain(
+  options: GitOptions & {
+    branch?: string;
+    onto?: string;
+    worktreePath?: string;
+  } = {},
+): Promise<RebaseResult> {
+  const { branch: branchParam, onto: ontoParam, worktreePath, ...gitOptions } = options;
+  const { cwd } = gitOptions;
+  const branch = branchParam ?? (await getCurrentBranch(gitOptions));
+  const onto = ontoParam ?? (await getDefaultBranchRef());
 
-  const { cwd } = options;
-  const defaultBranchRef = await getDefaultBranchRef();
+  // Check for detached HEAD
+  if (!branchParam) {
+    const detached = await isDetachedHead(gitOptions);
+    if (detached) {
+      return { ok: false, reason: "detached-head" };
+    }
+  } else if (worktreePath) {
+    const detached = await isDetachedHead({ cwd: worktreePath });
+    if (detached) {
+      return { ok: false, reason: "detached-head" };
+    }
+  }
 
-  // Count commits in stack before rebase
-  const commits = await getStackCommits(options);
+  // Get commits for specified branch or HEAD
+  const commits = branchParam
+    ? await getStackCommitsForBranch(branch, gitOptions)
+    : await getStackCommits(gitOptions);
+
   const commitCount = commits.length;
 
   if (commitCount === 0) {
-    return { success: true, commitCount: 0 };
+    const currentTip = await getFullSha(branch, gitOptions);
+    return { ok: true, commitCount: 0, newTip: currentTip };
   }
 
-  // Get the target to rebase onto
-  const onto = await getFullSha(defaultBranchRef, options);
-
-  // Get commit hashes in order
+  // Get the target SHA
+  const ontoSha = await getFullSha(onto, gitOptions);
   const commitHashes = commits.map((c) => c.hash);
 
-  // Try plumbing rebase first
-  const result = await rebasePlumbing(onto, commitHashes, options);
+  // Try plumbing rebase
+  const result = await rebasePlumbing(ontoSha, commitHashes, gitOptions);
 
-  if (result.ok) {
-    // Success! Finalize the rewrite
-    const branch = await getCurrentBranch(options);
-    const oldTip = asserted(commitHashes.at(-1));
-    await finalizeRewrite(branch, oldTip, result.newTip, options);
-    return { success: true, commitCount };
-  }
+  if (!result.ok) {
+    // For non-current branches, we don't fall back to traditional rebase
+    // Just report the conflict
+    if (branchParam) {
+      const { files } = parseConflictOutput(result.conflictInfo ?? "");
+      return { ok: false, reason: "conflict", conflictFile: files[0] };
+    }
 
-  // Plumbing rebase detected a conflict
-  // Fall back to traditional rebase so user can resolve conflicts interactively
-  // Use --no-autosquash to prevent fixup!/amend! commits from being auto-reordered
-  // Use --no-verify to skip pre-commit and commit-msg hooks during rebase
-  const traditionalResult = cwd
-    ? await $`git -C ${cwd} rebase --no-autosquash --no-verify ${defaultBranchRef}`
-        .quiet()
-        .nothrow()
-    : await $`git rebase --no-autosquash --no-verify ${defaultBranchRef}`.quiet().nothrow();
+    // For current branch, fall back to traditional rebase for user resolution
+    const traditionalResult = cwd
+      ? await $`git -C ${cwd} rebase --no-autosquash --no-verify ${onto}`.quiet().nothrow()
+      : await $`git rebase --no-autosquash --no-verify ${onto}`.quiet().nothrow();
 
-  if (traditionalResult.exitCode === 0) {
-    return { success: true, commitCount };
-  }
+    if (traditionalResult.exitCode === 0) {
+      const newTip = await getFullSha("HEAD", gitOptions);
+      return { ok: true, commitCount, newTip };
+    }
 
-  // Check for conflict - look for unmerged files
-  const statusResult = cwd
-    ? await $`git -C ${cwd} status --porcelain`.text()
-    : await $`git status --porcelain`.text();
+    // Check for conflict file
+    const statusResult = cwd
+      ? await $`git -C ${cwd} status --porcelain`.text()
+      : await $`git status --porcelain`.text();
 
-  // UU = both modified (conflict), AA = both added, etc.
-  const conflictMatch = statusResult.match(/^(?:UU|AA|DD|AU|UA|DU|UD) (.+)$/m);
+    const conflictMatch = statusResult.match(/^(?:UU|AA|DD|AU|UA|DU|UD) (.+)$/m);
 
-  if (conflictMatch?.[1]) {
     return {
-      success: false,
-      commitCount,
-      conflictFile: conflictMatch[1],
+      ok: false,
+      reason: "conflict",
+      conflictFile: conflictMatch?.[1],
     };
   }
 
-  // Unknown failure - throw with stderr
-  throw new Error(`Rebase failed: ${traditionalResult.stderr.toString()}`);
+  // Success - finalize
+  const oldTip = asserted(commitHashes.at(-1));
+
+  if (worktreePath) {
+    // Branch in worktree: update ref + reset worktree
+    await updateRef(`refs/heads/${branch}`, result.newTip, oldTip, gitOptions);
+    await $`git -C ${worktreePath} reset --hard ${result.newTip}`.quiet();
+  } else if (branchParam) {
+    // Non-current branch: just update ref
+    await updateRef(`refs/heads/${branch}`, result.newTip, oldTip, gitOptions);
+  } else {
+    // Current branch: use finalizeRewrite
+    await finalizeRewrite(branch, oldTip, result.newTip, gitOptions);
+  }
+
+  return { ok: true, commitCount, newTip: result.newTip };
 }
 
 export interface ConflictInfo {

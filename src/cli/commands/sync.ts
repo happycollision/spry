@@ -1,3 +1,4 @@
+import { $ } from "bun";
 import { requireCleanWorkingTree, DirtyWorkingTreeError } from "../../git/status.ts";
 import {
   injectMissingIds,
@@ -10,6 +11,7 @@ import {
   getStackCommitsWithTrailers,
   listSpryLocalBranches,
   getCurrentBranch,
+  hasUncommittedChanges,
 } from "../../git/commands.ts";
 import {
   fetchRemote,
@@ -242,7 +244,7 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
         // No conflicts predicted - safe to rebase
         console.log(`Rebasing onto latest (${commitsBehind} commit(s) behind)...`);
         const rebaseResult = await rebaseOntoMain();
-        if (!rebaseResult.success) {
+        if (!rebaseResult.ok) {
           // Rebase failed with conflict - this shouldn't happen if prediction worked
           // but handle it gracefully anyway
           console.error("");
@@ -279,6 +281,10 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
       // Add IDs via rebase
       console.log(`Adding IDs to ${missingCount} commit(s)...`);
       const result = await injectMissingIds();
+      if (!result.ok) {
+        console.error("✗ Error: Cannot add IDs in detached HEAD state");
+        process.exit(1);
+      }
       console.log(`✓ Added Spry-Commit-Id to ${result.modifiedCount} commit(s)`);
 
       // Re-fetch commits after rebase (hashes changed)
@@ -722,13 +728,14 @@ export interface SyncAllResult {
 
 /**
  * Sync all Spry-tracked branches in the repository.
- * Phase 1: Syncs current branch, stubs for other branches.
+ * Phase 2: Adds up-to-date and dirty-worktree checks for non-current branches.
  */
 export async function syncAllCommand(_options: SyncOptions = {}): Promise<SyncAllResult> {
   // Fetch from remote to get latest state
   await fetchRemote();
 
   const currentBranch = await getCurrentBranch();
+  const target = await getDefaultBranchRef();
   const spryBranches = await listSpryLocalBranches();
 
   if (spryBranches.length === 0) {
@@ -771,11 +778,32 @@ export async function syncAllCommand(_options: SyncOptions = {}): Promise<SyncAl
           conflictFiles: result.conflictFiles,
         });
       }
-    } else {
-      // Phase 1: Other branches not yet implemented
-      console.log(`⊘ ${branch.name}: skipped (sync not yet implemented)`);
-      skipped.push({ branch: branch.name, reason: "up-to-date" }); // placeholder
+      continue;
     }
+
+    // Non-current branch handling
+
+    // Check if behind target
+    const isBehind = await isBranchBehindTarget(branch.name, target);
+    if (!isBehind) {
+      console.log(`✓ ${branch.name}: up to date`);
+      skipped.push({ branch: branch.name, reason: "up-to-date" });
+      continue;
+    }
+
+    // Check dirty worktree
+    if (branch.inWorktree && branch.worktreePath) {
+      const isDirty = await hasUncommittedChanges({ cwd: branch.worktreePath });
+      if (isDirty) {
+        console.log(`⊘ ${branch.name}: skipped (worktree has uncommitted changes)`);
+        skipped.push({ branch: branch.name, reason: "dirty-worktree" });
+        continue;
+      }
+    }
+
+    // Phase 2: Still stub the actual rebase (done in Phase 4)
+    console.log(`⊘ ${branch.name}: skipped (rebase not yet implemented)`);
+    skipped.push({ branch: branch.name, reason: "up-to-date" }); // placeholder
   }
 
   // Summary
@@ -788,6 +816,14 @@ export async function syncAllCommand(_options: SyncOptions = {}): Promise<SyncAl
   }
 
   return { rebased, skipped };
+}
+
+/**
+ * Check if a branch is behind the target (has commits to rebase onto).
+ */
+async function isBranchBehindTarget(branch: string, target: string): Promise<boolean> {
+  const behindCount = (await $`git rev-list --count ${branch}..${target}`.text()).trim();
+  return parseInt(behindCount, 10) > 0;
 }
 
 /**
@@ -866,7 +902,7 @@ async function syncCurrentBranchForAll(): Promise<CurrentBranchSyncResult> {
 
     // No conflicts predicted - safe to rebase
     const rebaseResult = await rebaseOntoMain();
-    if (!rebaseResult.success) {
+    if (!rebaseResult.ok) {
       // Rebase failed with conflict (shouldn't happen if prediction worked)
       return {
         rebased: false,
@@ -881,7 +917,16 @@ async function syncCurrentBranchForAll(): Promise<CurrentBranchSyncResult> {
     const commits = await getStackCommitsWithTrailers();
     const missingCount = commits.filter((c) => !c.trailers["Spry-Commit-Id"]).length;
     if (missingCount > 0) {
-      await injectMissingIds();
+      const injectResult = await injectMissingIds();
+      if (!injectResult.ok) {
+        // Shouldn't happen since we already checked for dirty worktree, but handle it
+        return {
+          rebased: false,
+          skipped: true,
+          commitCount: 0,
+          reason: "dirty-worktree",
+        };
+      }
     }
 
     return {
@@ -895,7 +940,15 @@ async function syncCurrentBranchForAll(): Promise<CurrentBranchSyncResult> {
   const commits = await getStackCommitsWithTrailers();
   const missingCount = commits.filter((c) => !c.trailers["Spry-Commit-Id"]).length;
   if (missingCount > 0) {
-    await injectMissingIds();
+    const injectResult = await injectMissingIds();
+    if (!injectResult.ok) {
+      return {
+        rebased: false,
+        skipped: true,
+        commitCount: 0,
+        reason: "dirty-worktree",
+      };
+    }
   }
 
   // Up to date
