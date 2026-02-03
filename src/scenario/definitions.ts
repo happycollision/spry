@@ -612,6 +612,100 @@ export const scenarios = {
       await Bun.write(join(repo.path, "untracked.txt"), "Untracked content\n");
     },
   },
+  /**
+   * Multiple Spry-tracked branches for testing sync --all.
+   *
+   * Creates:
+   * - feature-uptodate: Spry branch, already on origin/main
+   * - feature-behind: Spry branch, needs rebase (no conflict)
+   * - feature-conflict: Spry branch, would conflict on rebase
+   * - feature-nospry: Non-Spry branch (no Spry-Commit-Id trailers)
+   * - feature-mixed: Spry branch with some commits missing IDs
+   * - feature-split: Spry branch with split group (malformed)
+   *
+   * Leaves repo on feature-behind branch.
+   * REQUIRES: LocalRepo (uses updateOriginMain)
+   */
+  multiSpryBranches: {
+    name: "multi-spry-branches",
+    description: "Multiple Spry branches for sync --all testing",
+    repoType: "local",
+    setup: async (repo: ScenarioRepo) => {
+      if (!hasUpdateOriginMain(repo)) {
+        throw new Error("multiSpryBranches scenario requires updateOriginMain method");
+      }
+
+      // Branch 1: Spry-tracked, up-to-date with origin/main
+      await repo.branch("feature-uptodate");
+      await repo.commit({
+        message: "Feature uptodate commit",
+        trailers: { "Spry-Commit-Id": "upto0001" },
+      });
+
+      await repo.checkout(repo.defaultBranch);
+
+      // Branch 2: Spry-tracked, will be behind after origin update
+      await repo.branch("feature-behind");
+      await repo.commit({
+        message: "Feature behind commit",
+        trailers: { "Spry-Commit-Id": "bhnd0001" },
+      });
+
+      await repo.checkout(repo.defaultBranch);
+
+      // Branch 3: Spry-tracked, will conflict
+      await repo.branch("feature-conflict");
+      await repo.commitFiles(
+        { "conflict.txt": "Feature content\n" },
+        {
+          message: "Feature conflict commit",
+          trailers: { "Spry-Commit-Id": "cnfl0001" },
+        },
+      );
+
+      await repo.checkout(repo.defaultBranch);
+
+      // Branch 4: NOT Spry-tracked (no trailer)
+      await repo.branch("feature-nospry");
+      await repo.commit({ message: "Plain commit without Spry-Commit-Id" });
+
+      await repo.checkout(repo.defaultBranch);
+
+      // Branch 5: Spry-tracked but has commits missing IDs (mixed)
+      await repo.branch("feature-mixed");
+      await repo.commit({
+        message: "Commit with ID",
+        trailers: { "Spry-Commit-Id": "mix00001" },
+      });
+      await repo.commit({ message: "Commit without ID" }); // No Spry-Commit-Id!
+
+      await repo.checkout(repo.defaultBranch);
+
+      // Branch 6: Spry-tracked but has split group (malformed)
+      await repo.branch("feature-split");
+      await repo.commit({
+        message: "Group A part 1",
+        trailers: { "Spry-Commit-Id": "splt0001", "Spry-Group": "groupA" },
+      });
+      await repo.commit({
+        message: "Interrupting commit",
+        trailers: { "Spry-Commit-Id": "splt0002" },
+      });
+      await repo.commit({
+        message: "Group A part 2",
+        trailers: { "Spry-Commit-Id": "splt0003", "Spry-Group": "groupA" },
+      });
+
+      // Update origin/main with conflicting content
+      await repo.updateOriginMain("Upstream change", {
+        "conflict.txt": "Main content\n",
+      });
+      await repo.fetch();
+
+      // End on feature-behind as the "current" branch
+      await repo.checkout("feature-behind-" + repo.uniqueId);
+    },
+  },
 } satisfies Record<string, ScenarioDefinition>;
 
 /**

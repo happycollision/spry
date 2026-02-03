@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Phase:** Not Started
+**Phase:** Phase 1 Complete (including Addendum)
 **Branch:** `sp-all`
 
 ---
@@ -75,12 +75,12 @@ Add `--all` flag from Phase 1 with stub implementation. This enables:
 
 ## Phase Overview
 
-| Phase | Name                                                 | Purpose                                                      | Status      |
-| ----- | ---------------------------------------------------- | ------------------------------------------------------------ | ----------- |
-| 1     | [Foundation + CLI Stub](./SUB_PLAN_PHASE_1.md)       | Branch discovery, `--all` flag, `multiSpryBranches` scenario | Not Started |
-| 2     | [Branch-Aware Core Functions](./SUB_PLAN_PHASE_2.md) | Add `branch` param to existing functions, result types       | Not Started |
-| 3     | [Stack Validation](./SUB_PLAN_PHASE_3.md)            | `validateBranchStack()` for split group detection            | Not Started |
-| 4     | [Full Orchestration](./SUB_PLAN_PHASE_4.md)          | Complete `syncAllCommand()` with rebase                      | Not Started |
+| Phase | Name                                                 | Purpose                                                | Status      |
+| ----- | ---------------------------------------------------- | ------------------------------------------------------ | ----------- |
+| 1     | [Foundation + CLI Stub](./SUB_PLAN_PHASE_1.md)       | Branch discovery, `--all` flag, current branch sync    | ✅ Complete |
+| 2     | [Branch-Aware Core Functions](./SUB_PLAN_PHASE_2.md) | Add `branch` param to existing functions, result types | Not Started |
+| 3     | [Stack Validation](./SUB_PLAN_PHASE_3.md)            | `validateBranchStack()` for split group detection      | Not Started |
+| 4     | [Full Orchestration](./SUB_PLAN_PHASE_4.md)          | Complete `syncAllCommand()` for non-current branches   | Not Started |
 
 Each phase builds on the previous. Complete them in order.
 
@@ -116,15 +116,17 @@ Syncing 7 Spry branch(es)...
 ✓ feature-auth: rebased 3 commits onto origin/main
 ✓ feature-api: rebased 5 commits onto origin/main (worktree updated)
 ✓ feature-mixed: rebased 2 commits onto origin/main
+✓ feature-current: rebased 2 commits onto origin/main (current branch)
 ⊘ feature-ui: skipped (up-to-date)
 ⊘ feature-db: skipped (would conflict in: src/db/schema.ts)
 ⊘ feature-wip: skipped (worktree has uncommitted changes)
-⊘ feature-current: skipped (current branch - run 'sp sync' without --all)
 ⊘ feature-broken: skipped (split group "myGroup" - run 'sp group --fix' on that branch)
 
-Rebased: 3 branch(es)
-Skipped: 4 branch(es) (1 up-to-date, 1 conflict, 1 dirty, 1 current, 1 split-group)
+Rebased: 4 branch(es)
+Skipped: 3 branch(es) (1 up-to-date, 1 conflict, 1 dirty, 1 split-group)
 ```
+
+**Note:** The current branch IS included in `--all`. It will be synced like any other branch.
 
 ---
 

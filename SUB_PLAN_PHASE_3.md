@@ -95,51 +95,25 @@ export async function validateBranchStack(
 
 **File:** `src/cli/commands/sync.ts`
 
-Add validation step after up-to-date and dirty-worktree checks:
+Add validation step for non-current branches after up-to-date and dirty-worktree checks.
+
+**Note:** Current branch sync is already implemented (Phase 1 Addendum). This phase only adds stack validation for non-current branches.
 
 ```typescript
 export async function syncAllCommand(options: SyncOptions = {}): Promise<SyncAllResult> {
-  await fetchRemote();
-
-  const currentBranch = await getCurrentBranch();
-  const target = await getDefaultBranchRef();
-  const spryBranches = await listSpryLocalBranches(options);
-
-  if (spryBranches.length === 0) {
-    console.log("No Spry-tracked branches found.");
-    return { rebased: [], skipped: [] };
-  }
-
-  console.log(`Syncing ${spryBranches.length} Spry branch(es)...\n`);
-
-  const rebased: SyncAllResult["rebased"] = [];
-  const skipped: SyncAllResult["skipped"] = [];
+  // ... existing setup code ...
 
   for (const branch of spryBranches) {
-    // Skip current branch
+    // Current branch: already implemented in Phase 1 Addendum
     if (branch.name === currentBranch) {
-      console.log(`⊘ ${branch.name}: skipped (current branch - run 'sp sync' without --all)`);
-      skipped.push({ branch: branch.name, reason: "current-branch" });
+      const result = await syncCurrentBranchForAll();
+      // ... (existing implementation)
       continue;
     }
 
-    // Check if behind target
-    const isBehind = await isBranchBehindTarget(branch.name, target, options);
-    if (!isBehind) {
-      console.log(`⊘ ${branch.name}: skipped (up-to-date)`);
-      skipped.push({ branch: branch.name, reason: "up-to-date" });
-      continue;
-    }
-
-    // Check dirty worktree
-    if (branch.inWorktree) {
-      const isDirty = await hasUncommittedChanges({ cwd: branch.worktreePath });
-      if (isDirty) {
-        console.log(`⊘ ${branch.name}: skipped (worktree has uncommitted changes)`);
-        skipped.push({ branch: branch.name, reason: "dirty-worktree" });
-        continue;
-      }
-    }
+    // Check if behind target (Phase 2)
+    // Check dirty worktree (Phase 2)
+    // ...
 
     // NEW: Validate stack structure (check for split groups)
     const validation = await validateBranchStack(branch.name, options);
@@ -159,8 +133,7 @@ export async function syncAllCommand(options: SyncOptions = {}): Promise<SyncAll
     skipped.push({ branch: branch.name, reason: "up-to-date" }); // placeholder
   }
 
-  reportSyncAllResults(rebased, skipped, target);
-  return { rebased, skipped };
+  // ... summary code ...
 }
 ```
 

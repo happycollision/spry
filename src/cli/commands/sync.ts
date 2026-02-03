@@ -6,7 +6,11 @@ import {
   rebaseOntoMain,
   predictRebaseConflicts,
 } from "../../git/rebase.ts";
-import { getStackCommitsWithTrailers } from "../../git/commands.ts";
+import {
+  getStackCommitsWithTrailers,
+  listSpryLocalBranches,
+  getCurrentBranch,
+} from "../../git/commands.ts";
 import {
   fetchRemote,
   isStackBehindMain,
@@ -72,6 +76,7 @@ import { resolveUnitTitle, hasStoredTitle } from "../../core/title.ts";
 
 export interface SyncOptions {
   open?: boolean;
+  all?: boolean;
   apply?: string;
   upTo?: string;
   interactive?: boolean;
@@ -152,6 +157,23 @@ async function cleanupMergedPRs(
 }
 
 export async function syncCommand(options: SyncOptions = {}): Promise<void> {
+  // Check mutual exclusivity for --all
+  if (options.all && options.open) {
+    console.error("✗ Error: --all and --open are mutually exclusive");
+    console.error("  Run 'sp sync --all' first, then 'sp sync --open' on each branch");
+    process.exit(1);
+  }
+
+  if (options.all) {
+    if (options.apply || options.upTo || options.interactive) {
+      console.error("✗ Error: --all cannot be used with --apply, --up-to, or --interactive");
+      process.exit(1);
+    }
+
+    await syncAllCommand(options);
+    return;
+  }
+
   try {
     // If --open is requested, verify this is a GitHub repository
     if (options.open) {
@@ -679,4 +701,208 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
     }
     process.exit(1);
   }
+}
+
+/**
+ * Result of syncing all branches.
+ */
+export interface SyncAllResult {
+  rebased: Array<{
+    branch: string;
+    commitCount: number;
+    wasInWorktree: boolean;
+  }>;
+  skipped: Array<{
+    branch: string;
+    reason: "up-to-date" | "conflict" | "dirty-worktree" | "split-group";
+    conflictFiles?: string[];
+    splitGroupInfo?: { groupId: string; groupTitle?: string };
+  }>;
+}
+
+/**
+ * Sync all Spry-tracked branches in the repository.
+ * Phase 1: Syncs current branch, stubs for other branches.
+ */
+export async function syncAllCommand(_options: SyncOptions = {}): Promise<SyncAllResult> {
+  // Fetch from remote to get latest state
+  await fetchRemote();
+
+  const currentBranch = await getCurrentBranch();
+  const spryBranches = await listSpryLocalBranches();
+
+  if (spryBranches.length === 0) {
+    console.log("No Spry-tracked branches found.");
+    return { rebased: [], skipped: [] };
+  }
+
+  console.log(`Syncing ${spryBranches.length} Spry branch(es)...\n`);
+
+  const rebased: SyncAllResult["rebased"] = [];
+  const skipped: SyncAllResult["skipped"] = [];
+
+  for (const branch of spryBranches) {
+    const isCurrentBranch = branch.name === currentBranch;
+
+    if (isCurrentBranch) {
+      // Sync the current branch using existing logic
+      const result = await syncCurrentBranchForAll();
+
+      if (result.rebased) {
+        console.log(
+          `✓ ${branch.name}: rebased ${result.commitCount} commit(s) onto origin/main (current branch)`,
+        );
+        rebased.push({
+          branch: branch.name,
+          commitCount: result.commitCount,
+          wasInWorktree: true,
+        });
+      } else if (result.skipped) {
+        if (result.reason === "up-to-date") {
+          console.log(`✓ ${branch.name}: up to date (current branch)`);
+        } else if (result.reason === "conflict") {
+          console.log(`⚠ ${branch.name}: skipped (would conflict) (current branch)`);
+        } else if (result.reason === "dirty-worktree") {
+          console.log(`⊘ ${branch.name}: skipped (uncommitted changes) (current branch)`);
+        }
+        skipped.push({
+          branch: branch.name,
+          reason: result.reason ?? "up-to-date",
+          conflictFiles: result.conflictFiles,
+        });
+      }
+    } else {
+      // Phase 1: Other branches not yet implemented
+      console.log(`⊘ ${branch.name}: skipped (sync not yet implemented)`);
+      skipped.push({ branch: branch.name, reason: "up-to-date" }); // placeholder
+    }
+  }
+
+  // Summary
+  console.log("");
+  if (rebased.length > 0) {
+    console.log(`Rebased: ${rebased.length} branch(es)`);
+  }
+  if (skipped.length > 0) {
+    console.log(`Skipped: ${skipped.length} branch(es)`);
+  }
+
+  return { rebased, skipped };
+}
+
+/**
+ * Result of syncing the current branch for --all.
+ */
+interface CurrentBranchSyncResult {
+  rebased: boolean;
+  skipped: boolean;
+  commitCount: number;
+  reason?: "up-to-date" | "conflict" | "dirty-worktree";
+  conflictFiles?: string[];
+}
+
+/**
+ * Sync the current branch for --all mode.
+ * Uses the same logic as syncCommand() for rebase/ID injection/conflict prediction.
+ */
+async function syncCurrentBranchForAll(): Promise<CurrentBranchSyncResult> {
+  // Check for ongoing rebase conflict
+  const conflict = await getConflictInfo();
+  if (conflict) {
+    // Don't print the full conflict error, just skip with reason
+    return {
+      rebased: false,
+      skipped: true,
+      commitCount: 0,
+      reason: "dirty-worktree", // Treat ongoing rebase as dirty state
+    };
+  }
+
+  // Check for uncommitted changes
+  try {
+    await requireCleanWorkingTree();
+  } catch (error) {
+    if (error instanceof DirtyWorkingTreeError) {
+      return {
+        rebased: false,
+        skipped: true,
+        commitCount: 0,
+        reason: "dirty-worktree",
+      };
+    }
+    throw error;
+  }
+
+  // Check if behind main
+  const behindMain = await isStackBehindMain();
+
+  // Try to fast-forward local main if it's behind origin
+  const localMainStatus = await getLocalMainStatus();
+  if (localMainStatus.isBehind) {
+    const ffResult = await fastForwardLocalMain();
+    if (ffResult.performed) {
+      const config = await getSpryConfig();
+      console.log(
+        `  ✓ Fast-forwarded local ${config.defaultBranch} (${localMainStatus.commitsBehind} commit(s))`,
+      );
+    }
+  }
+
+  // If stack is behind remote default branch, check for conflicts then rebase
+  if (behindMain) {
+    // First, predict if rebase would cause conflicts
+    const prediction = await predictRebaseConflicts();
+
+    if (!prediction.wouldSucceed) {
+      // Would conflict - skip this branch
+      return {
+        rebased: false,
+        skipped: true,
+        commitCount: 0,
+        reason: "conflict",
+        conflictFiles: prediction.conflictInfo?.files,
+      };
+    }
+
+    // No conflicts predicted - safe to rebase
+    const rebaseResult = await rebaseOntoMain();
+    if (!rebaseResult.success) {
+      // Rebase failed with conflict (shouldn't happen if prediction worked)
+      return {
+        rebased: false,
+        skipped: true,
+        commitCount: 0,
+        reason: "conflict",
+        conflictFiles: rebaseResult.conflictFile ? [rebaseResult.conflictFile] : [],
+      };
+    }
+
+    // Inject missing IDs after rebase
+    const commits = await getStackCommitsWithTrailers();
+    const missingCount = commits.filter((c) => !c.trailers["Spry-Commit-Id"]).length;
+    if (missingCount > 0) {
+      await injectMissingIds();
+    }
+
+    return {
+      rebased: true,
+      skipped: false,
+      commitCount: rebaseResult.commitCount,
+    };
+  }
+
+  // Not behind main - check if IDs need injection
+  const commits = await getStackCommitsWithTrailers();
+  const missingCount = commits.filter((c) => !c.trailers["Spry-Commit-Id"]).length;
+  if (missingCount > 0) {
+    await injectMissingIds();
+  }
+
+  // Up to date
+  return {
+    rebased: false,
+    skipped: true,
+    commitCount: 0,
+    reason: "up-to-date",
+  };
 }

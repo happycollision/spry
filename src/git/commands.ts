@@ -4,6 +4,24 @@ import { parseTrailers } from "./trailers.ts";
 import type { CommitWithTrailers } from "../core/stack.ts";
 import { getDefaultBranchRef, getSpryConfig } from "./config.ts";
 
+/**
+ * Information about a Spry-tracked local branch.
+ */
+export interface SpryBranchInfo {
+  /** Branch name (without refs/heads/) */
+  name: string;
+  /** Branch tip SHA */
+  tipSha: string;
+  /** Number of commits in stack (between branch and origin/main) */
+  commitCount: number;
+  /** Whether branch is checked out in a worktree */
+  inWorktree: boolean;
+  /** Path to worktree if checked out */
+  worktreePath?: string;
+  /** Whether any commits in stack are missing Spry-Commit-Id (needs ID injection) */
+  hasMissingIds: boolean;
+}
+
 export interface GitOptions {
   cwd?: string;
 }
@@ -232,4 +250,92 @@ export async function getBranchWorktree(
   }
 
   return { checkedOut: false };
+}
+
+/**
+ * List all local branches that have Spry-tracked commits.
+ * A branch is Spry-tracked if it has commits with Spry-Commit-Id trailers
+ * between the branch tip and origin/main.
+ */
+export async function listSpryLocalBranches(options: GitOptions = {}): Promise<SpryBranchInfo[]> {
+  const { cwd } = options;
+
+  // Get the default branch ref (e.g., "origin/main")
+  const defaultBranchRef = await getDefaultBranchRef(options);
+
+  // Get all local branches with their tip SHAs
+  // Note: Format string must be quoted to prevent shell interpretation of parentheses
+  const format = "%(refname:short) %(objectname)";
+  const branchListResult = cwd
+    ? await $`git -C ${cwd} for-each-ref --format=${format} refs/heads/`.text()
+    : await $`git for-each-ref --format=${format} refs/heads/`.text();
+
+  const branches: Array<{ name: string; tipSha: string }> = [];
+  for (const line of branchListResult.trim().split("\n")) {
+    if (!line.trim()) continue;
+    const [name, tipSha] = line.trim().split(" ");
+    if (name && tipSha) {
+      branches.push({ name, tipSha });
+    }
+  }
+
+  // Get the default branch name (without origin/) to exclude it
+  const config = await getSpryConfig(options);
+  const defaultBranchName = config.defaultBranch;
+
+  const spryBranches: SpryBranchInfo[] = [];
+
+  for (const { name, tipSha } of branches) {
+    // Skip the default branch
+    if (name === defaultBranchName) continue;
+
+    // Check if this branch has any commits above the default branch
+    const countResult = cwd
+      ? await $`git -C ${cwd} rev-list --count ${defaultBranchRef}..${name}`.text()
+      : await $`git rev-list --count ${defaultBranchRef}..${name}`.text();
+
+    const commitCount = parseInt(countResult.trim(), 10);
+    if (commitCount === 0) continue;
+
+    // Get the commits on this branch (between default branch and tip)
+    // Check if any have Spry-Commit-Id trailers
+    const logResult = cwd
+      ? await $`git -C ${cwd} log --format=%H%x00%B%x01 ${defaultBranchRef}..${name}`.text()
+      : await $`git log --format=%H%x00%B%x01 ${defaultBranchRef}..${name}`.text();
+
+    if (!logResult.trim()) continue;
+
+    const records = logResult.split("\x01").filter((r) => r.trim());
+    let hasSpryCommit = false;
+    let hasMissingIds = false;
+
+    for (const record of records) {
+      const [_hash, body] = record.split("\x00");
+      if (body !== undefined) {
+        const trailers = await parseTrailers(body);
+        if (trailers["Spry-Commit-Id"]) {
+          hasSpryCommit = true;
+        } else {
+          hasMissingIds = true;
+        }
+      }
+    }
+
+    // Only include branches that have at least one Spry commit
+    if (!hasSpryCommit) continue;
+
+    // Check if branch is in a worktree
+    const worktreeInfo = await getBranchWorktree(name, options);
+
+    spryBranches.push({
+      name,
+      tipSha,
+      commitCount,
+      inWorktree: worktreeInfo.checkedOut,
+      worktreePath: worktreeInfo.worktreePath,
+      hasMissingIds,
+    });
+  }
+
+  return spryBranches;
 }

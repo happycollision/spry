@@ -530,9 +530,11 @@ test("rebaseOntoMain returns result for conflict instead of throwing", async () 
 
 ---
 
-## Part F: Update `syncAllCommand()` to Use New Functions
+## Part F: Update `syncAllCommand()` for Non-Current Branches
 
-Replace stub with actual up-to-date and dirty-worktree checks:
+Add up-to-date and dirty-worktree checks for non-current branches.
+
+**Note:** Current branch sync is already implemented (Phase 1 Addendum). This phase only needs to add checks for non-current branches.
 
 ```typescript
 export async function syncAllCommand(options: SyncOptions = {}): Promise<SyncAllResult> {
@@ -553,14 +555,14 @@ export async function syncAllCommand(options: SyncOptions = {}): Promise<SyncAll
   const skipped: SyncAllResult["skipped"] = [];
 
   for (const branch of spryBranches) {
-    // Skip current branch
+    // Current branch: already implemented in Phase 1 Addendum
     if (branch.name === currentBranch) {
-      console.log(`⊘ ${branch.name}: skipped (current branch - run 'sp sync' without --all)`);
-      skipped.push({ branch: branch.name, reason: "current-branch" });
+      const result = await syncCurrentBranchForAll();
+      // ... (existing implementation from Phase 1)
       continue;
     }
 
-    // Check if behind target
+    // NEW: Check if behind target
     const isBehind = await isBranchBehindTarget(branch.name, target);
     if (!isBehind) {
       console.log(`⊘ ${branch.name}: skipped (up-to-date)`);
@@ -568,7 +570,7 @@ export async function syncAllCommand(options: SyncOptions = {}): Promise<SyncAll
       continue;
     }
 
-    // Check dirty worktree
+    // NEW: Check dirty worktree
     if (branch.inWorktree) {
       const isDirty = await hasUncommittedChanges({ cwd: branch.worktreePath });
       if (isDirty) {
@@ -583,7 +585,7 @@ export async function syncAllCommand(options: SyncOptions = {}): Promise<SyncAll
     skipped.push({ branch: branch.name, reason: "up-to-date" }); // placeholder
   }
 
-  reportSyncAllResults(rebased, skipped, target);
+  // Summary (existing implementation)
   return { rebased, skipped };
 }
 

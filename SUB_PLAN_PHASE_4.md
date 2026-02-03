@@ -12,21 +12,24 @@
 
 The complete `sp sync --all` implementation:
 
-1. **Discover** - Find all Spry branches (Phase 1) ✓
-2. **Filter** - Skip current, up-to-date, dirty worktree (Phase 2) ✓
-3. **Validate** - Check for split groups (Phase 3) ✓
-4. **Inject IDs** - For branches with missing IDs ← NEW
-5. **Predict Conflicts** - Skip branches that would conflict ← NEW
-6. **Rebase** - Execute rebase for safe branches ← NEW
-7. **Report** - Show results ✓
+1. **Discover** - Find all Spry branches (Phase 1) ✅
+2. **Sync Current** - Use existing sync logic for current branch (Phase 1 Addendum) ✅
+3. **Filter** - Skip up-to-date, dirty worktree (Phase 2)
+4. **Validate** - Check for split groups (Phase 3)
+5. **Inject IDs** - For non-current branches with missing IDs ← NEW
+6. **Predict Conflicts** - Skip non-current branches that would conflict ← NEW
+7. **Rebase** - Execute rebase for safe non-current branches ← NEW
+8. **Report** - Show results ✅
+
+**Note:** Current branch sync is already complete (Phase 1 Addendum). This phase completes sync for non-current branches using the branch-aware functions from Phase 2.
 
 ---
 
-## Part A: Complete `syncAllCommand()`
+## Part A: Complete `syncAllCommand()` for Non-Current Branches
 
 **File:** `src/cli/commands/sync.ts`
 
-Remove all stub placeholders and implement full flow:
+Remove stub placeholders for non-current branches and implement full flow. Current branch sync is already implemented (Phase 1 Addendum).
 
 ```typescript
 export async function syncAllCommand(options: SyncOptions = {}): Promise<SyncAllResult> {
@@ -48,10 +51,10 @@ export async function syncAllCommand(options: SyncOptions = {}): Promise<SyncAll
   const skipped: SyncAllResult["skipped"] = [];
 
   for (const branch of spryBranches) {
-    // 1. Skip current branch
+    // 1. Current branch: already implemented (Phase 1 Addendum)
     if (branch.name === currentBranch) {
-      console.log(`⊘ ${branch.name}: skipped (current branch - run 'sp sync' without --all)`);
-      skipped.push({ branch: branch.name, reason: "current-branch" });
+      const result = await syncCurrentBranchForAll();
+      // ... (existing implementation handles rebased/skipped)
       continue;
     }
 
@@ -181,7 +184,6 @@ function reportSyncAllResults(
   const upToDate = skipped.filter(s => s.reason === "up-to-date").length;
   const conflicts = skipped.filter(s => s.reason === "conflict").length;
   const dirty = skipped.filter(s => s.reason === "dirty-worktree").length;
-  const current = skipped.filter(s => s.reason === "current-branch").length;
   const splitGroups = skipped.filter(s => s.reason === "split-group").length;
 
   console.log(`Rebased: ${rebased.length} branch(es)`);
@@ -190,7 +192,6 @@ function reportSyncAllResults(
     if (upToDate > 0) parts.push(`${upToDate} up-to-date`);
     if (conflicts > 0) parts.push(`${conflicts} conflict`);
     if (dirty > 0) parts.push(`${dirty} dirty`);
-    if (current > 0) parts.push(`${current} current`);
     if (splitGroups > 0) parts.push(`${splitGroups} split-group`);
     console.log(`Skipped: ${skipped.length} branch(es) (${parts.join(", ")})`);
   }
@@ -217,7 +218,7 @@ export interface SyncAllResult {
   /** Branches that were skipped */
   skipped: Array<{
     branch: string;
-    reason: "up-to-date" | "conflict" | "dirty-worktree" | "current-branch" | "split-group" | "detached-head";
+    reason: "up-to-date" | "conflict" | "dirty-worktree" | "split-group" | "detached-head";
     conflictFiles?: string[];
     splitGroupInfo?: {
       groupId: string;
@@ -398,25 +399,28 @@ Syncing 7 Spry branch(es)...
 ✓ feature-auth: rebased 3 commits onto origin/main
 ✓ feature-api: rebased 5 commits onto origin/main (worktree updated)
 ✓ feature-mixed: rebased 2 commits onto origin/main
+✓ feature-current: rebased 2 commits onto origin/main (current branch)
 ⊘ feature-ui: skipped (up-to-date)
 ⊘ feature-db: skipped (would conflict in: src/db/schema.ts)
 ⊘ feature-wip: skipped (worktree has uncommitted changes)
-⊘ feature-current: skipped (current branch - run 'sp sync' without --all)
 ⊘ feature-split: skipped (split group "groupA" - run 'sp group --fix' on that branch)
 
-Rebased: 3 branch(es)
-Skipped: 4 branch(es) (1 up-to-date, 1 conflict, 1 dirty, 1 current, 1 split-group)
+Rebased: 4 branch(es)
+Skipped: 4 branch(es) (1 up-to-date, 1 conflict, 1 dirty, 1 split-group)
 ```
+
+**Note:** The current branch is included and synced like any other branch (indicated by "(current branch)" suffix).
 
 ---
 
 ## Definition of Done
 
-- [ ] `syncAllCommand()` fully implemented with no stubs
-- [ ] ID injection integrated (calls `injectMissingIds()` for branches with `hasMissingIds`)
-- [ ] Conflict prediction integrated (calls `predictRebaseConflicts()`)
-- [ ] Rebase execution integrated (calls `rebaseOntoMain()`)
-- [ ] Worktree updates work correctly
+- [x] Current branch sync implemented (Phase 1 Addendum)
+- [ ] Non-current branch stubs removed - full implementation
+- [ ] ID injection integrated for non-current branches (calls `injectMissingIds({ branch })`)
+- [ ] Conflict prediction integrated for non-current branches (calls `predictRebaseConflicts({ branch })`)
+- [ ] Rebase execution integrated for non-current branches (calls `rebaseOntoMain({ branch })`)
+- [ ] Worktree updates work correctly for non-current branches
 - [ ] All Phase 4 tests pass
 - [ ] Output format matches specification
 - [ ] Full CI test run passes: `bun run test:ci`

@@ -2,7 +2,7 @@
 
 **Goal:** Add `--all` flag with stub implementation, implement branch discovery, create test scenario. Enable end-to-end testing of branch discovery immediately.
 
-**Status:** Not Started
+**Status:** ✅ Complete
 
 ---
 
@@ -15,6 +15,8 @@
 5. End-to-end tests validating branch discovery works
 
 After this phase, `sp sync --all` will show discovered branches (all skipped as "not yet implemented"), proving the discovery logic works.
+
+**Note:** The current branch IS included in `--all` - it should be synced like any other branch.
 
 ---
 
@@ -173,7 +175,7 @@ export interface SyncAllResult {
   }>;
   skipped: Array<{
     branch: string;
-    reason: "up-to-date" | "conflict" | "dirty-worktree" | "current-branch" | "split-group";
+    reason: "up-to-date" | "conflict" | "dirty-worktree" | "split-group";
     conflictFiles?: string[];
     splitGroupInfo?: { groupId: string; groupTitle?: string };
   }>;
@@ -201,15 +203,10 @@ export async function syncAllCommand(options: SyncOptions = {}): Promise<SyncAll
   const skipped: SyncAllResult["skipped"] = [];
 
   for (const branch of spryBranches) {
-    if (branch.name === currentBranch) {
-      console.log(`⊘ ${branch.name}: skipped (current branch - run 'sp sync' without --all)`);
-      skipped.push({ branch: branch.name, reason: "current-branch" });
-    } else {
-      // Phase 1: Report all other branches as not-yet-implemented
-      console.log(`⊘ ${branch.name}: skipped (sync not yet implemented)`);
-      // Use a temporary reason for the stub
-      skipped.push({ branch: branch.name, reason: "up-to-date" }); // placeholder
-    }
+    // Phase 1: Report all branches as not-yet-implemented (including current branch)
+    console.log(`⊘ ${branch.name}: skipped (sync not yet implemented)`);
+    // Use a temporary reason for the stub
+    skipped.push({ branch: branch.name, reason: "up-to-date" }); // placeholder
   }
 
   console.log(`\nSkipped: ${skipped.length} branch(es)`);
@@ -336,17 +333,19 @@ test("--all discovers Spry branches and excludes non-Spry", async () => {
 });
 ```
 
-### Test 2: Skips current branch with correct message
+### Test 2: Includes current branch
 
 ```typescript
-test("--all skips current branch with correct message", async () => {
+test("--all includes current branch", async () => {
   const repo = await repos.create();
   await scenarios.multiSpryBranches.setup(repo);
 
   const result = await runSpry(repo.path, "sync", ["--all"]);
 
-  expect(result.stdout).toContain("current branch");
-  expect(result.stdout).toContain("run 'sp sync' without --all");
+  // Current branch (feature-behind) should be included, not skipped
+  expect(result.stdout).toContain("feature-behind");
+  // Should NOT say "current branch - run 'sp sync' without --all"
+  expect(result.stdout).not.toContain("run 'sp sync' without --all");
 });
 ```
 
@@ -409,14 +408,46 @@ test("listSpryLocalBranches detects hasMissingIds", async () => {
 
 ## Definition of Done
 
-- [ ] `--all` flag added to CLI in `src/cli/index.ts`
-- [ ] Mutual exclusivity checks in `syncCommand()` for `--all` vs `--open`, `--apply`, etc.
-- [ ] `listSpryLocalBranches()` function implemented in `src/git/commands.ts`
-- [ ] Stub `syncAllCommand()` implemented in `src/cli/commands/sync.ts`
-- [ ] `multiSpryBranches` scenario added to `src/scenario/definitions.ts`
-- [ ] All Phase 1 tests pass
-- [ ] `sp sync --all` shows discovered Spry branches (non-Spry branches excluded)
-- [ ] Full CI test run passes: `bun run test:ci`
+- [x] `--all` flag added to CLI in `src/cli/index.ts`
+- [x] Mutual exclusivity checks in `syncCommand()` for `--all` vs `--open`, `--apply`, etc.
+- [x] `listSpryLocalBranches()` function implemented in `src/git/commands.ts`
+- [x] `syncAllCommand()` implemented in `src/cli/commands/sync.ts`
+- [x] `multiSpryBranches` scenario added to `src/scenario/definitions.ts`
+- [x] All Phase 1 tests pass
+- [x] `sp sync --all` shows discovered Spry branches (non-Spry branches excluded)
+- [x] Current branch is included in `--all` (not skipped)
+- [x] **Addendum:** Current branch is actually synced (rebase, ID injection, conflict prediction)
+- [x] **Addendum:** Test verifies actual sync occurs (not just inclusion)
+- [x] Full CI test run passes: `bun run test:docker`
+
+---
+
+## Addendum: Current Branch Sync ✅ COMPLETE
+
+The current branch is now synced like any other branch when using `--all`. The implementation:
+
+1. **Detects current branch** in `syncAllCommand()` using `getCurrentBranch()`
+2. **Calls `syncCurrentBranchForAll()`** helper that reuses existing sync logic:
+   - Checks for ongoing rebase conflicts
+   - Checks for clean working tree (uncommitted changes)
+   - Fast-forwards local main if behind
+   - Predicts rebase conflicts before rebasing
+   - Rebases if behind main and no conflicts
+   - Injects missing IDs after rebase
+3. **Reports results** using the same format as other branches with "(current branch)" suffix
+
+**Key insight:** No branch-aware functions needed for current branch - the existing functions already work on HEAD.
+
+**Files modified:**
+
+- `src/cli/commands/sync.ts` - Added `syncCurrentBranchForAll()` helper
+- `tests/integration/sync-all.test.ts` - Updated test to verify actual sync occurs
+
+**Output format:**
+
+```
+✓ feature-behind: rebased 1 commit(s) onto origin/main (current branch)
+```
 
 ---
 
