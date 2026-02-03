@@ -8,7 +8,8 @@ import { test, expect, describe } from "bun:test";
 import { repoManager } from "../helpers/local-repo.ts";
 import { scenarios } from "../../src/scenario/definitions.ts";
 import { runSpry } from "./helpers.ts";
-import { listSpryLocalBranches } from "../../src/git/commands.ts";
+import { listSpryLocalBranches, getCurrentBranch } from "../../src/git/commands.ts";
+import { validateBranchStack } from "../../src/git/rebase.ts";
 
 // ============================================================================
 // Phase 1: Foundation + CLI Stub Tests
@@ -167,5 +168,75 @@ describe("sync --all: Phase 1 - Foundation", () => {
     expect(result.exitCode).toBe(0);
     // Should report "Syncing 5 Spry branch(es)" or similar
     expect(result.stdout).toMatch(/Syncing \d+ Spry branch/);
+  });
+});
+
+// ============================================================================
+// Phase 3: Stack Validation Tests
+// ============================================================================
+
+describe("sync --all: Phase 3 - Stack Validation", () => {
+  const repos = repoManager();
+
+  test("validateBranchStack detects split group on non-current branch", async () => {
+    const repo = await repos.create();
+    await scenarios.multiSpryBranches.setup(repo);
+
+    // feature-split has a split group (groupA)
+    const result = await validateBranchStack(`feature-split-${repo.uniqueId}`, { cwd: repo.path });
+
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe("split-group");
+    expect(result.splitGroupInfo?.groupId).toBe("groupA");
+    expect(result.splitGroupInfo?.interruptingCommits.length).toBeGreaterThan(0);
+  });
+
+  test("validateBranchStack returns valid for well-formed branch", async () => {
+    const repo = await repos.create();
+    await scenarios.multiSpryBranches.setup(repo);
+
+    // feature-behind has a valid stack (no split groups)
+    const result = await validateBranchStack(`feature-behind-${repo.uniqueId}`, { cwd: repo.path });
+
+    expect(result.valid).toBe(true);
+    expect(result.error).toBeUndefined();
+    expect(result.splitGroupInfo).toBeUndefined();
+  });
+
+  test("validateBranchStack does not change current branch", async () => {
+    const repo = await repos.create();
+    await scenarios.multiSpryBranches.setup(repo);
+
+    const branchBefore = await getCurrentBranch({ cwd: repo.path });
+
+    // Validate a different branch (feature-split has split group)
+    await validateBranchStack(`feature-split-${repo.uniqueId}`, { cwd: repo.path });
+
+    const branchAfter = await getCurrentBranch({ cwd: repo.path });
+    expect(branchAfter).toBe(branchBefore);
+  });
+
+  test("--all skips branches with split groups", async () => {
+    const repo = await repos.create();
+    await scenarios.multiSpryBranches.setup(repo);
+
+    const result = await runSpry(repo.path, "sync", ["--all"]);
+
+    expect(result.exitCode).toBe(0);
+    // Should show the split group skip reason with group title
+    expect(result.stdout).toContain("feature-split");
+    expect(result.stdout).toContain("split group");
+    // Group title falls back to first commit subject when no stored title
+    expect(result.stdout).toContain("Group A part 1");
+  });
+
+  test("--all shows sp group --fix suggestion for split groups", async () => {
+    const repo = await repos.create();
+    await scenarios.multiSpryBranches.setup(repo);
+
+    const result = await runSpry(repo.path, "sync", ["--all"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("sp group --fix");
   });
 });

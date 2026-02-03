@@ -22,6 +22,8 @@ import {
   updateRef,
 } from "./plumbing.ts";
 import { parseConflictOutput } from "./conflict-predict.ts";
+import { readGroupTitles } from "./group-titles.ts";
+import { parseStack } from "../core/stack.ts";
 
 /**
  * Result of injecting missing IDs into commits.
@@ -417,4 +419,55 @@ To resolve:
 
 To abort:
   git rebase --abort`;
+}
+
+/**
+ * Result of validating a branch's commit stack structure.
+ */
+export interface BranchValidationResult {
+  valid: boolean;
+  error?: "split-group";
+  splitGroupInfo?: {
+    groupId: string;
+    groupTitle?: string;
+    interruptingCommits: string[];
+  };
+}
+
+/**
+ * Validate that a branch's commit stack is structurally valid.
+ * Checks for split groups (non-contiguous group commits).
+ * Works on any branch, not just the current one.
+ */
+export async function validateBranchStack(
+  branch: string,
+  options: GitOptions = {},
+): Promise<BranchValidationResult> {
+  // Get commits for branch (branch-aware)
+  const commits = await getStackCommitsWithTrailers({ ...options, branch });
+
+  if (commits.length === 0) {
+    return { valid: true };
+  }
+
+  // Get group titles for display
+  const groupTitles = await readGroupTitles(options);
+
+  // Use existing parseStack() - it's already branch-agnostic and detects split groups
+  const result = parseStack(commits, groupTitles);
+
+  if (result.ok) {
+    return { valid: true };
+  }
+
+  // result.error === "split-group"
+  return {
+    valid: false,
+    error: "split-group",
+    splitGroupInfo: {
+      groupId: result.group.id,
+      groupTitle: result.group.title,
+      interruptingCommits: result.interruptingCommits,
+    },
+  };
 }

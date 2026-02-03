@@ -2,7 +2,7 @@
 
 **Goal:** Implement `validateBranchStack()` to detect malformed groups (split groups) on any branch. Update `syncAllCommand()` to skip branches with invalid stacks.
 
-**Status:** Not Started
+**Status:** Complete
 
 **Depends on:** Phase 2
 
@@ -216,11 +216,11 @@ test("--all skips branches with split groups", async () => {
 
 ## Definition of Done
 
-- [ ] `validateBranchStack()` function implemented in `src/git/rebase.ts`
-- [ ] `syncAllCommand()` updated to validate stacks and skip branches with split groups
-- [ ] CLI output shows split group reason with group ID/title
-- [ ] All Phase 3 tests pass
-- [ ] `validateBranchStack()` works without modifying current branch
+- [x] `validateBranchStack()` function implemented in `src/git/rebase.ts`
+- [x] `syncAllCommand()` updated to validate stacks and skip branches with split groups
+- [x] CLI output shows split group reason with group ID/title
+- [x] All Phase 3 tests pass
+- [x] `validateBranchStack()` works without modifying current branch
 
 ---
 

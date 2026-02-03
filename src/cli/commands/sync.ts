@@ -6,6 +6,7 @@ import {
   formatConflictError,
   rebaseOntoMain,
   predictRebaseConflicts,
+  validateBranchStack,
 } from "../../git/rebase.ts";
 import {
   getStackCommitsWithTrailers,
@@ -807,6 +808,27 @@ export async function syncAllCommand(_options: SyncOptions = {}): Promise<SyncAl
         skipped.push({ branch: branch.name, reason: "dirty-worktree" });
         continue;
       }
+    }
+
+    // Validate stack structure (check for split groups)
+    const validation = await validateBranchStack(branch.name, { cwd: undefined });
+    if (!validation.valid) {
+      const groupInfo =
+        validation.splitGroupInfo?.groupTitle ?? validation.splitGroupInfo?.groupId ?? "unknown";
+      console.log(
+        `⊘ ${branch.name}: skipped (split group "${groupInfo}" - run 'sp group --fix' on that branch)`,
+      );
+      skipped.push({
+        branch: branch.name,
+        reason: "split-group",
+        splitGroupInfo: validation.splitGroupInfo
+          ? {
+              groupId: validation.splitGroupInfo.groupId,
+              groupTitle: validation.splitGroupInfo.groupTitle,
+            }
+          : undefined,
+      });
+      continue;
     }
 
     // Check for conflicts before attempting rebase
