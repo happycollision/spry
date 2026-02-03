@@ -2,7 +2,7 @@
 
 **Goal:** Complete `syncAllCommand()` with ID injection, conflict prediction, and rebase execution. Remove all stubs.
 
-**Status:** Not Started
+**Status:** Completed
 
 **Depends on:** Phases 1-3
 
@@ -416,14 +416,14 @@ Skipped: 4 branch(es) (1 up-to-date, 1 conflict, 1 dirty, 1 split-group)
 ## Definition of Done
 
 - [x] Current branch sync implemented (Phase 1 Addendum)
-- [ ] Non-current branch stubs removed - full implementation
-- [ ] ID injection integrated for non-current branches (calls `injectMissingIds({ branch })`)
-- [ ] Conflict prediction integrated for non-current branches (calls `predictRebaseConflicts({ branch })`)
-- [ ] Rebase execution integrated for non-current branches (calls `rebaseOntoMain({ branch })`)
-- [ ] Worktree updates work correctly for non-current branches
-- [ ] All Phase 4 tests pass
-- [ ] Output format matches specification
-- [ ] Full CI test run passes: `bun run test:ci`
+- [x] Non-current branch stubs removed - full implementation
+- [x] ID injection integrated for non-current branches (calls `injectMissingIds({ branch })`)
+- [x] Conflict prediction integrated for non-current branches (calls `predictRebaseConflicts({ branch })`)
+- [x] Rebase execution integrated for non-current branches (calls `rebaseOntoMain({ branch })`)
+- [x] Worktree updates work correctly for non-current branches
+- [x] All Phase 4 tests pass
+- [x] Output format matches specification
+- [x] Full CI test run passes: `bun run test:ci`
 
 ---
 
