@@ -60,13 +60,13 @@ async function selectScenario(): Promise<ScenarioDefinition | null> {
 }
 
 /**
- * Get the path to the spry dist directory.
+ * Get the path to the spry scripts directory (contains sp wrapper).
  */
 function getSpryPath(): string {
   // This file is at src/scenario/runner.ts
   // Project root is two directories up
   const projectRoot = dirname(dirname(dirname(import.meta.path)));
-  return join(projectRoot, "dist");
+  return join(projectRoot, "scripts");
 }
 
 /**
