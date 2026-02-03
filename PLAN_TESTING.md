@@ -178,38 +178,35 @@ For testing worktree behavior:
 
 ```typescript
 describe("sync --all: local behavior", () => {
-  // Phase 1 tests: listSpryLocalBranches
+  // Phase 1 tests: listSpryLocalBranches + CLI stub
   test("identifies Spry-tracked branches");
   test("excludes non-Spry branches");
   test("detects branches in worktrees");
   test("detects branches with missing Spry-Commit-Ids (hasMissingIds)");
+  test("--all flag works");
+  test("--all and --open are mutually exclusive");
+  test("--all is incompatible with --apply");
 
-  // Phase 2 tests: validation and conflict prediction
-  test("validateBranchStack detects split groups");
-  test("validateBranchStack passes valid branches");
+  // Phase 2 tests: branch-aware APIs
+  test("getStackCommitsWithTrailers works on non-current branch");
+  test("injectMissingIds works on non-current branch");
   test("predicts conflicts for specific branch");
   test("detects up-to-date branches");
 
-  // Phase 3 tests: branch-aware APIs
-  test("getStackCommitsWithTrailers works on non-current branch");
-  test("injectMissingIds works on non-current branch");
+  // Phase 3 tests: stack validation
+  test("validateBranchStack detects split groups");
+  test("validateBranchStack passes valid branches");
+  test("validateBranchStack does not change current branch");
 
-  // Phase 3-4 tests: plumbing rebase
-  test("rebases branch not in worktree");
-  test("rebases branch in clean worktree");
-  test("skips branch in dirty worktree");
-
-  // Phase 5 tests: orchestration
+  // Phase 4 tests: full orchestration
   test("syncs all Spry branches");
   test("skips current branch");
   test("reports results correctly");
   test("injects missing IDs before rebasing (mixed commits)");
   test("skips branch with split group");
-
-  // Phase 6 tests: CLI
-  test("--all flag works");
-  test("--all is incompatible with --apply");
-  test("--all is incompatible with --up-to");
+  test("rebases branch not in worktree");
+  test("rebases branch in clean worktree");
+  test("skips branch in dirty worktree");
 });
 ```
 
@@ -237,11 +234,9 @@ GITHUB_INTEGRATION_TESTS=1 bun run test:github
 
 Each phase has its own sub-plan document:
 
-1. **[SUB_PLAN_PHASE_1.md](./SUB_PLAN_PHASE_1.md)** - `listSpryLocalBranches()` - Discovering Spry branches (includes `hasMissingIds` detection)
-2. **[SUB_PLAN_PHASE_2.md](./SUB_PLAN_PHASE_2.md)** - `validateBranchStack()` + `predictRebaseConflictsForBranch()` - Validation and conflict prediction
-3. **[SUB_PLAN_PHASE_3.md](./SUB_PLAN_PHASE_3.md)** - Branch-aware APIs + `rebaseBranchPlumbing()` - Core infrastructure
-4. **[SUB_PLAN_PHASE_4.md](./SUB_PLAN_PHASE_4.md)** - Worktree-aware rebase
-5. **[SUB_PLAN_PHASE_5.md](./SUB_PLAN_PHASE_5.md)** - `syncAllCommand()` - Orchestration (validation, ID injection, rebase)
-6. **[SUB_PLAN_PHASE_6.md](./SUB_PLAN_PHASE_6.md)** - CLI integration
+1. **[SUB_PLAN_PHASE_1.md](./SUB_PLAN_PHASE_1.md)** - Foundation + CLI Stub: `listSpryLocalBranches()`, `--all` flag, test scenario
+2. **[SUB_PLAN_PHASE_2.md](./SUB_PLAN_PHASE_2.md)** - Branch-Aware Core Functions: Add `branch` param to existing functions, result types
+3. **[SUB_PLAN_PHASE_3.md](./SUB_PLAN_PHASE_3.md)** - Stack Validation: `validateBranchStack()` for split group detection
+4. **[SUB_PLAN_PHASE_4.md](./SUB_PLAN_PHASE_4.md)** - Full Orchestration: Complete `syncAllCommand()` with rebase
 
 Each phase builds on the previous and proves a specific capability works before moving on.
