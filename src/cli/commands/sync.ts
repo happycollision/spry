@@ -720,7 +720,13 @@ export interface SyncAllResult {
   }>;
   skipped: Array<{
     branch: string;
-    reason: "up-to-date" | "conflict" | "dirty-worktree" | "split-group";
+    reason:
+      | "up-to-date"
+      | "conflict"
+      | "dirty-worktree"
+      | "split-group"
+      | "detached-head"
+      | "not-implemented";
     conflictFiles?: string[];
     splitGroupInfo?: { groupId: string; groupTitle?: string };
   }>;
@@ -771,6 +777,8 @@ export async function syncAllCommand(_options: SyncOptions = {}): Promise<SyncAl
           console.log(`⚠ ${branch.name}: skipped (would conflict) (current branch)`);
         } else if (result.reason === "dirty-worktree") {
           console.log(`⊘ ${branch.name}: skipped (uncommitted changes) (current branch)`);
+        } else if (result.reason === "detached-head") {
+          console.log(`⊘ ${branch.name}: skipped (detached HEAD) (current branch)`);
         }
         skipped.push({
           branch: branch.name,
@@ -801,9 +809,20 @@ export async function syncAllCommand(_options: SyncOptions = {}): Promise<SyncAl
       }
     }
 
+    // Check for conflicts before attempting rebase
+    const prediction = await predictRebaseConflicts({ branch: branch.name, onto: target });
+    if (!prediction.wouldSucceed) {
+      const conflictFiles = prediction.conflictInfo?.files ?? [];
+      const fileList = conflictFiles.length > 0 ? ` in: ${conflictFiles.join(", ")}` : "";
+      console.log(`⊘ ${branch.name}: skipped (would conflict${fileList})`);
+      skipped.push({ branch: branch.name, reason: "conflict", conflictFiles });
+      continue;
+    }
+
     // Phase 2: Still stub the actual rebase (done in Phase 4)
+    // TODO: Phase 4 will replace this with actual rebase using rebaseOntoMain({ branch: branch.name })
     console.log(`⊘ ${branch.name}: skipped (rebase not yet implemented)`);
-    skipped.push({ branch: branch.name, reason: "up-to-date" }); // placeholder
+    skipped.push({ branch: branch.name, reason: "not-implemented" });
   }
 
   // Summary
@@ -833,7 +852,7 @@ interface CurrentBranchSyncResult {
   rebased: boolean;
   skipped: boolean;
   commitCount: number;
-  reason?: "up-to-date" | "conflict" | "dirty-worktree";
+  reason?: "up-to-date" | "conflict" | "dirty-worktree" | "detached-head";
   conflictFiles?: string[];
 }
 
@@ -903,7 +922,16 @@ async function syncCurrentBranchForAll(): Promise<CurrentBranchSyncResult> {
     // No conflicts predicted - safe to rebase
     const rebaseResult = await rebaseOntoMain();
     if (!rebaseResult.ok) {
-      // Rebase failed with conflict (shouldn't happen if prediction worked)
+      // Rebase failed - map the actual reason
+      if (rebaseResult.reason === "detached-head") {
+        return {
+          rebased: false,
+          skipped: true,
+          commitCount: 0,
+          reason: "detached-head",
+        };
+      }
+      // Conflict (shouldn't happen if prediction worked, but handle it)
       return {
         rebased: false,
         skipped: true,
@@ -919,12 +947,12 @@ async function syncCurrentBranchForAll(): Promise<CurrentBranchSyncResult> {
     if (missingCount > 0) {
       const injectResult = await injectMissingIds();
       if (!injectResult.ok) {
-        // Shouldn't happen since we already checked for dirty worktree, but handle it
+        // injectMissingIds can only fail with "detached-head"
         return {
           rebased: false,
           skipped: true,
           commitCount: 0,
-          reason: "dirty-worktree",
+          reason: "detached-head",
         };
       }
     }
@@ -942,11 +970,12 @@ async function syncCurrentBranchForAll(): Promise<CurrentBranchSyncResult> {
   if (missingCount > 0) {
     const injectResult = await injectMissingIds();
     if (!injectResult.ok) {
+      // injectMissingIds can only fail with "detached-head"
       return {
         rebased: false,
         skipped: true,
         commitCount: 0,
-        reason: "dirty-worktree",
+        reason: "detached-head",
       };
     }
   }
