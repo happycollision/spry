@@ -1,80 +1,229 @@
-# Phase 4: Worktree-Aware Rebase
+# Phase 4: Full Orchestration
 
-**Goal:** Prove we can safely rebase branches that ARE checked out in worktrees, updating both the ref and the working directory.
+**Goal:** Complete `syncAllCommand()` with ID injection, conflict prediction, and rebase execution. Remove all stubs.
 
 **Status:** Not Started
 
-**Depends on:** Phase 3 (extends `rebaseBranchPlumbing()` for worktree case)
+**Depends on:** Phases 1-3
 
 ---
 
-## Why This Phase?
+## What This Phase Delivers
 
-Phase 3 handles branches not checked out anywhere. But what about branches in worktrees?
+The complete `sp sync --all` implementation:
 
-**Problem:** If we update a ref via `git update-ref` but don't update the working directory, the worktree becomes "dirty" - git status shows changes because the index/HEAD doesn't match the working tree.
-
-**Solution:** When rebasing a branch in a worktree:
-
-1. Check if worktree is clean first (skip if dirty)
-2. Perform plumbing rebase as usual
-3. Update the ref
-4. Reset the worktree to the new tip: `git -C <worktree> reset --hard <new-tip>`
-
----
-
-## Key Insight
-
-The `rebaseBranchPlumbing()` from Phase 3 already accepts a `worktreePath` parameter. In Phase 4, we:
-
-1. Add the dirty check BEFORE calling `rebaseBranchPlumbing()`
-2. Verify the worktree update works correctly
+1. **Discover** - Find all Spry branches (Phase 1) ✓
+2. **Filter** - Skip current, up-to-date, dirty worktree (Phase 2) ✓
+3. **Validate** - Check for split groups (Phase 3) ✓
+4. **Inject IDs** - For branches with missing IDs ← NEW
+5. **Predict Conflicts** - Skip branches that would conflict ← NEW
+6. **Rebase** - Execute rebase for safe branches ← NEW
+7. **Report** - Show results ✓
 
 ---
 
-## Extended Interface
+## Part A: Complete `syncAllCommand()`
 
-No new function needed! We use the existing interface from Phase 3:
+**File:** `src/cli/commands/sync.ts`
+
+Remove all stub placeholders and implement full flow:
 
 ```typescript
-export async function rebaseBranchPlumbing(
-  branch: string,
-  onto: string,
-  worktreePath?: string,  // <-- This enables worktree support
-  options: GitOptions = {},
-): Promise<BranchRebaseResult>
-```
+export async function syncAllCommand(options: SyncOptions = {}): Promise<SyncAllResult> {
+  // Fetch from remote to get latest state
+  await fetchRemote();
 
-But the **caller** must:
+  const currentBranch = await getCurrentBranch();
+  const target = await getDefaultBranchRef();
+  const spryBranches = await listSpryLocalBranches(options);
 
-1. Check if the branch is in a worktree
-2. Check if that worktree is clean
-3. Pass the `worktreePath` to enable working dir update
-
----
-
-## Orchestration Logic (Preview)
-
-This logic will live in `syncAllCommand()` (Phase 5), but we test it here:
-
-```typescript
-// For each Spry branch:
-const worktreeInfo = await getBranchWorktree(branch, options);
-
-if (worktreeInfo.checkedOut) {
-  // Branch is in a worktree - check if clean
-  const isDirty = await hasUncommittedChanges({ cwd: worktreeInfo.worktreePath });
-
-  if (isDirty) {
-    // Skip with reason
-    return { skippedReason: "dirty-worktree" };
+  if (spryBranches.length === 0) {
+    console.log("No Spry-tracked branches found.");
+    return { rebased: [], skipped: [] };
   }
 
-  // Safe to rebase with worktree update
-  return await rebaseBranchPlumbing(branch, onto, worktreeInfo.worktreePath, options);
-} else {
-  // Not in worktree - simple plumbing rebase
-  return await rebaseBranchPlumbing(branch, onto, undefined, options);
+  console.log(`Syncing ${spryBranches.length} Spry branch(es)...\n`);
+
+  const rebased: SyncAllResult["rebased"] = [];
+  const skipped: SyncAllResult["skipped"] = [];
+
+  for (const branch of spryBranches) {
+    // 1. Skip current branch
+    if (branch.name === currentBranch) {
+      console.log(`⊘ ${branch.name}: skipped (current branch - run 'sp sync' without --all)`);
+      skipped.push({ branch: branch.name, reason: "current-branch" });
+      continue;
+    }
+
+    // 2. Check if behind target
+    const isBehind = await isBranchBehindTarget(branch.name, target, options);
+    if (!isBehind) {
+      console.log(`⊘ ${branch.name}: skipped (up-to-date)`);
+      skipped.push({ branch: branch.name, reason: "up-to-date" });
+      continue;
+    }
+
+    // 3. Check dirty worktree
+    if (branch.inWorktree) {
+      const isDirty = await hasUncommittedChanges({ cwd: branch.worktreePath });
+      if (isDirty) {
+        console.log(`⊘ ${branch.name}: skipped (worktree has uncommitted changes)`);
+        skipped.push({ branch: branch.name, reason: "dirty-worktree" });
+        continue;
+      }
+    }
+
+    // 4. Validate stack structure (check for split groups)
+    const validation = await validateBranchStack(branch.name, options);
+    if (!validation.valid) {
+      const groupInfo = validation.splitGroupInfo?.groupTitle ?? validation.splitGroupInfo?.groupId ?? "unknown";
+      console.log(`⊘ ${branch.name}: skipped (split group "${groupInfo}" - run 'sp group --fix' on that branch)`);
+      skipped.push({
+        branch: branch.name,
+        reason: "split-group",
+        splitGroupInfo: validation.splitGroupInfo,
+      });
+      continue;
+    }
+
+    // 5. Inject missing IDs if needed
+    let idsInjected = 0;
+    if (branch.hasMissingIds) {
+      const injectResult = await injectMissingIds({ ...options, branch: branch.name });
+      if (!injectResult.ok) {
+        // Handle detached HEAD in worktree
+        console.log(`⊘ ${branch.name}: skipped (${injectResult.reason})`);
+        skipped.push({ branch: branch.name, reason: injectResult.reason as any });
+        continue;
+      }
+      idsInjected = injectResult.modifiedCount;
+    }
+
+    // 6. Predict conflicts before attempting rebase
+    const prediction = await predictRebaseConflicts({
+      ...options,
+      branch: branch.name,
+      onto: target,
+    });
+
+    if (!prediction.wouldSucceed) {
+      const files = prediction.conflictInfo?.files.slice(0, 3).join(", ") ?? "unknown";
+      console.log(`⊘ ${branch.name}: skipped (would conflict in: ${files})`);
+      skipped.push({
+        branch: branch.name,
+        reason: "conflict",
+        conflictFiles: prediction.conflictInfo?.files,
+      });
+      continue;
+    }
+
+    // 7. Perform the rebase
+    const result = await rebaseOntoMain({
+      ...options,
+      branch: branch.name,
+      onto: target,
+      worktreePath: branch.inWorktree ? branch.worktreePath : undefined,
+    });
+
+    if (result.ok) {
+      const wtNote = branch.inWorktree ? " (worktree updated)" : "";
+      console.log(`✓ ${branch.name}: rebased ${result.commitCount} commit(s) onto ${target}${wtNote}`);
+      rebased.push({
+        branch: branch.name,
+        commitCount: result.commitCount,
+        wasInWorktree: branch.inWorktree,
+        idsInjected: idsInjected > 0 ? idsInjected : undefined,
+      });
+    } else {
+      // Unexpected failure (shouldn't happen after prediction, but handle gracefully)
+      console.log(`⊘ ${branch.name}: skipped (${result.reason})`);
+      skipped.push({
+        branch: branch.name,
+        reason: result.reason === "conflict" ? "conflict" : ("error" as any),
+        conflictFiles: result.conflictFile ? [result.conflictFile] : undefined,
+      });
+    }
+  }
+
+  // Report summary
+  reportSyncAllResults(rebased, skipped, target);
+  return { rebased, skipped };
+}
+```
+
+---
+
+## Part B: Helper Functions
+
+**File:** `src/cli/commands/sync.ts`
+
+```typescript
+async function isBranchBehindTarget(
+  branch: string,
+  target: string,
+  options: GitOptions = {},
+): Promise<boolean> {
+  const { cwd } = options;
+  const behindCount = cwd
+    ? (await $`git -C ${cwd} rev-list --count ${branch}..${target}`.text()).trim()
+    : (await $`git rev-list --count ${branch}..${target}`.text()).trim();
+  return parseInt(behindCount, 10) > 0;
+}
+
+function reportSyncAllResults(
+  rebased: SyncAllResult["rebased"],
+  skipped: SyncAllResult["skipped"],
+  target: string,
+): void {
+  console.log("");
+
+  // Summary counts
+  const upToDate = skipped.filter(s => s.reason === "up-to-date").length;
+  const conflicts = skipped.filter(s => s.reason === "conflict").length;
+  const dirty = skipped.filter(s => s.reason === "dirty-worktree").length;
+  const current = skipped.filter(s => s.reason === "current-branch").length;
+  const splitGroups = skipped.filter(s => s.reason === "split-group").length;
+
+  console.log(`Rebased: ${rebased.length} branch(es)`);
+  if (skipped.length > 0) {
+    const parts = [];
+    if (upToDate > 0) parts.push(`${upToDate} up-to-date`);
+    if (conflicts > 0) parts.push(`${conflicts} conflict`);
+    if (dirty > 0) parts.push(`${dirty} dirty`);
+    if (current > 0) parts.push(`${current} current`);
+    if (splitGroups > 0) parts.push(`${splitGroups} split-group`);
+    console.log(`Skipped: ${skipped.length} branch(es) (${parts.join(", ")})`);
+  }
+}
+```
+
+---
+
+## Part C: Update `SyncAllResult` Interface
+
+**File:** `src/cli/commands/sync.ts`
+
+Ensure the interface supports all skip reasons:
+
+```typescript
+export interface SyncAllResult {
+  /** Branches that were successfully rebased */
+  rebased: Array<{
+    branch: string;
+    commitCount: number;
+    wasInWorktree: boolean;
+    idsInjected?: number;
+  }>;
+  /** Branches that were skipped */
+  skipped: Array<{
+    branch: string;
+    reason: "up-to-date" | "conflict" | "dirty-worktree" | "current-branch" | "split-group" | "detached-head";
+    conflictFiles?: string[];
+    splitGroupInfo?: {
+      groupId: string;
+      groupTitle?: string;
+    };
+  }>;
 }
 ```
 
@@ -82,237 +231,214 @@ if (worktreeInfo.checkedOut) {
 
 ## Test Cases
 
-### Test 1: Rebases branch in clean worktree
+**File:** `tests/integration/sync-all.test.ts`
 
-**Setup:**
-
-- Create feature branch with Spry commits
-- Create worktree for feature branch
-- Update origin/main
-- Worktree is clean
-
-**Assert:**
-
-- Rebase succeeds
-- Worktree HEAD matches new tip
-- Worktree is still clean (no dirty state)
-- New files from rebase are present in worktree
-
-### Test 2: Skips branch in dirty worktree
-
-**Setup:**
-
-- Create feature branch with Spry commits
-- Create worktree for feature branch
-- Modify a file in worktree (make it dirty)
-- Update origin/main
-
-**Assert:**
-
-- Helper function detects dirty state
-- Rebase is skipped
-- Worktree is unchanged
-
-### Test 3: Does not affect other worktrees
-
-**Setup:**
-
-- Create two feature branches
-- Create worktrees for both
-- Rebase branch A
-
-**Assert:**
-
-- Branch B's worktree is unchanged
-- Branch A's worktree is updated
-
-### Test 4: Worktree has correct files after rebase
-
-**Setup:**
-
-- Origin/main adds new file `upstream.txt`
-- Feature branch in worktree
-- Rebase feature onto origin/main
-
-**Assert:**
-
-- After rebase, worktree contains `upstream.txt`
-
----
-
-## Scenario Addition
-
-Add to `src/scenario/definitions.ts`:
+### Test 1: Full end-to-end sync
 
 ```typescript
-/**
- * Spry branches with worktrees for testing sync --all worktree behavior.
- * Extends multiSpryBranches with worktree scenarios.
- */
-multiSpryBranchesWithWorktrees: {
-  name: "multi-spry-branches-worktrees",
-  description: "Spry branches with worktrees (clean and dirty)",
-  repoType: "local",
-  setup: async (repo: ScenarioRepo) => {
-    // First do the standard multiSpryBranches setup
-    await scenarios.multiSpryBranches.setup(repo);
+test("syncs multiple Spry branches end-to-end", async () => {
+  const repo = await repos.create();
+  await scenarios.multiSpryBranches.setup(repo);
 
-    // Now add worktree-specific branches
-    await repo.checkout(repo.defaultBranch);
+  const result = await syncAllCommand({ cwd: repo.path });
 
-    // Clean worktree branch
-    await repo.branch("feature-wt-clean");
-    await repo.commit({
-      message: "Clean worktree commit",
-      trailers: { "Spry-Commit-Id": "wtcl0001" },
-    });
-    await repo.checkout(repo.defaultBranch);
-    // Worktree will be created by test as needed
+  // feature-behind should be rebased
+  expect(result.rebased.map(r => r.branch)).toContain(
+    expect.stringContaining("feature-behind")
+  );
 
-    // Dirty worktree branch
-    await repo.branch("feature-wt-dirty");
-    await repo.commit({
-      message: "Dirty worktree commit",
-      trailers: { "Spry-Commit-Id": "wtdr0001" },
-    });
-    await repo.checkout(repo.defaultBranch);
-    // Worktree will be created and dirtied by test
+  // feature-conflict should be skipped with conflict reason
+  const conflictSkip = result.skipped.find(s =>
+    s.branch.includes("feature-conflict")
+  );
+  expect(conflictSkip).toBeDefined();
+  expect(conflictSkip?.reason).toBe("conflict");
 
-    // Return to feature-behind as current
-    await repo.checkout("feature-behind-" + repo.uniqueId);
-  },
-}
+  // feature-split should be skipped with split-group reason
+  const splitSkip = result.skipped.find(s =>
+    s.branch.includes("feature-split")
+  );
+  expect(splitSkip).toBeDefined();
+  expect(splitSkip?.reason).toBe("split-group");
+});
+```
+
+### Test 2: Rebased branches are actually rebased
+
+```typescript
+test("rebased branches have correct ancestry", async () => {
+  const repo = await repos.create();
+  await scenarios.multiSpryBranches.setup(repo);
+
+  const behindBranch = `feature-behind-${repo.uniqueId}`;
+
+  // Verify branch is behind before sync
+  const behindBefore = await $`git -C ${repo.path} rev-list --count ${behindBranch}..origin/main`.text();
+  expect(parseInt(behindBefore.trim())).toBeGreaterThan(0);
+
+  await syncAllCommand({ cwd: repo.path });
+
+  // After sync, branch should be on top of origin/main
+  const mergeBase = await $`git -C ${repo.path} merge-base ${behindBranch} origin/main`.text();
+  const originMain = await $`git -C ${repo.path} rev-parse origin/main`.text();
+  expect(mergeBase.trim()).toBe(originMain.trim());
+});
+```
+
+### Test 3: Injects missing IDs before rebasing
+
+```typescript
+test("injects missing IDs before rebasing", async () => {
+  const repo = await repos.create();
+  await scenarios.multiSpryBranches.setup(repo);
+
+  const result = await syncAllCommand({ cwd: repo.path });
+
+  // feature-mixed should be rebased (IDs were injected first)
+  const mixedRebased = result.rebased.find(r =>
+    r.branch.includes("feature-mixed")
+  );
+  expect(mixedRebased).toBeDefined();
+
+  // Verify all commits on feature-mixed now have IDs
+  const commits = await getStackCommitsWithTrailers({
+    cwd: repo.path,
+    branch: mixedRebased!.branch,
+  });
+  for (const commit of commits) {
+    expect(commit.trailers["Spry-Commit-Id"]).toBeDefined();
+  }
+});
+```
+
+### Test 4: Worktree is updated after rebase
+
+```typescript
+test("worktree is updated after rebase", async () => {
+  const repo = await repos.create();
+
+  // Create feature branch
+  const featureBranch = await repo.branch("feature");
+  await repo.commit({
+    message: "Feature commit",
+    trailers: { "Spry-Commit-Id": "wt000001" },
+  });
+
+  // Go back to main and create worktree
+  await repo.checkout("main");
+  const worktree = await repo.createWorktree(featureBranch);
+
+  // Update origin/main with a new file
+  await repo.updateOriginMain("Add upstream file", {
+    "upstream.txt": "Upstream content\n",
+  });
+  await repo.fetch();
+
+  // Run sync --all
+  await syncAllCommand({ cwd: repo.path });
+
+  // Verify worktree has the upstream file
+  const upstreamExists = await Bun.file(join(worktree.path, "upstream.txt")).exists();
+  expect(upstreamExists).toBe(true);
+
+  // Verify worktree is still clean
+  const isDirty = await hasUncommittedChanges({ cwd: worktree.path });
+  expect(isDirty).toBe(false);
+});
+```
+
+### Test 5: CLI output format
+
+```typescript
+test("CLI output matches expected format", async () => {
+  const repo = await repos.create();
+  await scenarios.multiSpryBranches.setup(repo);
+
+  const result = await runSpry(repo.path, "sync", ["--all"]);
+
+  expect(result.exitCode).toBe(0);
+
+  // Check for success symbol
+  expect(result.stdout).toMatch(/✓.*rebased/);
+
+  // Check for skip symbol
+  expect(result.stdout).toMatch(/⊘.*skipped/);
+
+  // Check for summary
+  expect(result.stdout).toContain("Rebased:");
+  expect(result.stdout).toContain("Skipped:");
+});
+```
+
+### Test 6: No Spry branches gracefully handled
+
+```typescript
+test("handles no Spry branches gracefully", async () => {
+  const repo = await repos.create();
+
+  // Create only non-Spry branches
+  await repo.branch("feature-plain");
+  await repo.commit({ message: "No Spry-Commit-Id" });
+
+  const result = await syncAllCommand({ cwd: repo.path });
+
+  expect(result.rebased).toHaveLength(0);
+  expect(result.skipped).toHaveLength(0);
+});
 ```
 
 ---
 
-## Test File Addition
+## Expected Output
 
-**File:** `tests/integration/sync-all.test.ts`
+```
+$ sp sync --all
+Syncing 7 Spry branch(es)...
 
-```typescript
-describe("sync --all: Phase 4 - Worktree-aware rebase", () => {
-  const repos = repoManager();
+✓ feature-auth: rebased 3 commits onto origin/main
+✓ feature-api: rebased 5 commits onto origin/main (worktree updated)
+✓ feature-mixed: rebased 2 commits onto origin/main
+⊘ feature-ui: skipped (up-to-date)
+⊘ feature-db: skipped (would conflict in: src/db/schema.ts)
+⊘ feature-wip: skipped (worktree has uncommitted changes)
+⊘ feature-current: skipped (current branch - run 'sp sync' without --all)
+⊘ feature-split: skipped (split group "groupA" - run 'sp group --fix' on that branch)
 
-  test("rebases branch in clean worktree", async () => {
-    const repo = await repos.create();
-
-    // Create feature branch
-    const featureBranch = await repo.branch("feature");
-    await repo.commit({
-      message: "Feature commit",
-      trailers: { "Spry-Commit-Id": "wt000001" },
-    });
-
-    // Go back to main and create worktree
-    await repo.checkout("main");
-    const worktree = await repo.createWorktree(featureBranch);
-
-    // Update origin/main with a new file
-    await repo.updateOriginMain("Add upstream file", {
-      "upstream.txt": "Upstream content\n",
-    });
-    await repo.fetch();
-
-    // Verify worktree is clean
-    const dirtyBefore = await hasUncommittedChanges({ cwd: worktree.path });
-    expect(dirtyBefore).toBe(false);
-
-    // Rebase with worktree path
-    const result = await rebaseBranchPlumbing(
-      featureBranch,
-      "origin/main",
-      worktree.path,
-      { cwd: repo.path },
-    );
-
-    expect(result.success).toBe(true);
-
-    // Verify worktree is still clean
-    const dirtyAfter = await hasUncommittedChanges({ cwd: worktree.path });
-    expect(dirtyAfter).toBe(false);
-
-    // Verify worktree has the upstream file
-    const upstreamExists = await Bun.file(join(worktree.path, "upstream.txt")).exists();
-    expect(upstreamExists).toBe(true);
-
-    // Verify worktree HEAD matches new tip
-    const wtHead = (await $`git -C ${worktree.path} rev-parse HEAD`.text()).trim();
-    expect(wtHead).toBe(result.newTip);
-  });
-
-  test("detects dirty worktree (test helper for orchestration)", async () => {
-    const repo = await repos.create();
-
-    // Create feature branch
-    const featureBranch = await repo.branch("feature");
-    await repo.commit({ message: "Feature commit" });
-
-    // Go back to main and create worktree
-    await repo.checkout("main");
-    const worktree = await repo.createWorktree(featureBranch);
-
-    // Make worktree dirty
-    await Bun.write(join(worktree.path, "dirty.txt"), "Dirty content\n");
-
-    // Verify dirty detection works
-    const isDirty = await hasUncommittedChanges({ cwd: worktree.path });
-    expect(isDirty).toBe(true);
-
-    // This test just verifies the helper - actual skip logic is in Phase 5
-  });
-
-  test("does not affect unrelated worktrees", async () => {
-    const repo = await repos.create();
-
-    // Create two feature branches
-    const featureA = await repo.branch("feature-a");
-    await repo.commit({
-      message: "Feature A commit",
-      trailers: { "Spry-Commit-Id": "fta00001" },
-    });
-    await repo.checkout("main");
-
-    const featureB = await repo.branch("feature-b");
-    await repo.commit({
-      message: "Feature B commit",
-      trailers: { "Spry-Commit-Id": "ftb00001" },
-    });
-    await repo.checkout("main");
-
-    // Create worktrees for both
-    const wtA = await repo.createWorktree(featureA);
-    const wtB = await repo.createWorktree(featureB);
-
-    // Record B's HEAD before
-    const headBBefore = (await $`git -C ${wtB.path} rev-parse HEAD`.text()).trim();
-
-    // Update origin/main
-    await repo.updateOriginMain("Upstream change");
-    await repo.fetch();
-
-    // Rebase only A
-    await rebaseBranchPlumbing(featureA, "origin/main", wtA.path, { cwd: repo.path });
-
-    // B should be unchanged
-    const headBAfter = (await $`git -C ${wtB.path} rev-parse HEAD`.text()).trim();
-    expect(headBAfter).toBe(headBBefore);
-  });
-});
+Rebased: 3 branch(es)
+Skipped: 4 branch(es) (1 up-to-date, 1 conflict, 1 dirty, 1 current, 1 split-group)
 ```
 
 ---
 
 ## Definition of Done
 
-- [ ] Worktree update logic works in `rebaseBranchPlumbing()` when `worktreePath` provided
+- [ ] `syncAllCommand()` fully implemented with no stubs
+- [ ] ID injection integrated (calls `injectMissingIds()` for branches with `hasMissingIds`)
+- [ ] Conflict prediction integrated (calls `predictRebaseConflicts()`)
+- [ ] Rebase execution integrated (calls `rebaseOntoMain()`)
+- [ ] Worktree updates work correctly
 - [ ] All Phase 4 tests pass
-- [ ] Clean worktrees are updated correctly
-- [ ] Dirty worktree detection works (for use in Phase 5)
-- [ ] Unrelated worktrees are not affected
+- [ ] Output format matches specification
+- [ ] Full CI test run passes: `bun run test:ci`
 
 ---
 
-## Next Phase
+## Completion
 
-Once this phase is complete, proceed to [SUB_PLAN_PHASE_5.md](./SUB_PLAN_PHASE_5.md) - Orchestration.
+After Phase 4, the `sp sync --all` feature is complete:
+
+- Users can run `sp sync --all` to rebase all Spry branches
+- Clear reporting shows what happened to each branch
+- Safe handling of worktrees (skips dirty ones, updates clean ones)
+- Conflict detection without getting stuck in rebase state
+- Split group detection with helpful error messages
+- Automatic ID injection for mixed-commit branches
+
+### Full Test Run
+
+```bash
+bun run test:docker tests/integration/sync-all.test.ts
+bun run test:ci
+```
+
+All tests should pass!

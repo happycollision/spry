@@ -1,25 +1,93 @@
-# Phase 1: Discovering Spry Branches - `listSpryLocalBranches()`
+# Phase 1: Foundation + CLI Stub
 
-**Goal:** Prove we can identify which local branches are Spry-tracked.
+**Goal:** Add `--all` flag with stub implementation, implement branch discovery, create test scenario. Enable end-to-end testing of branch discovery immediately.
 
 **Status:** Not Started
 
 ---
 
-## What Makes a Branch "Spry-Tracked"?
+## What This Phase Delivers
 
-A local branch is Spry-tracked if it has **at least one commit** between the branch tip and `origin/main` that contains a `Spry-Commit-Id` trailer.
+1. `--all` flag added to CLI with mutual exclusivity checks
+2. `listSpryLocalBranches()` function to discover Spry-tracked branches
+3. Stub `syncAllCommand()` that reports discovered branches
+4. `multiSpryBranches` test scenario
+5. End-to-end tests validating branch discovery works
 
-Non-Spry branches:
-
-- Branches with no commits above origin/main
-- Branches where no commits have Spry-Commit-Id trailers
+After this phase, `sp sync --all` will show discovered branches (all skipped as "not yet implemented"), proving the discovery logic works.
 
 ---
 
-## Interface
+## Part A: Add `--all` Flag to CLI
+
+**File:** `src/cli/index.ts`
+
+```typescript
+program
+  .command("sync")
+  .description("Sync stack with GitHub: add IDs, push branches, and optionally create PRs")
+  .option("--open", "Create PRs for branches that don't have them")
+  .option("--all", "Sync all Spry-tracked branches in the repository")  // NEW
+  .option(
+    "--apply <json>",
+    "Only open PRs for specified commits/groups (JSON array of identifiers)",
+  )
+  .option("--up-to <id>", "Only open PRs for commits/groups up to and including this identifier")
+  .option("-i, --interactive", "Interactively select which commits/groups to open PRs for")
+  .option(
+    "--allow-untitled-pr",
+    "Allow creating PRs for groups without stored titles (uses first commit subject)",
+  )
+  .action((options) => syncCommand(options));
+```
+
+---
+
+## Part B: Mutual Exclusivity Check
+
+**File:** `src/cli/commands/sync.ts`
+
+Add at the start of `syncCommand()`:
+
+```typescript
+export interface SyncOptions {
+  open?: boolean;
+  apply?: string;
+  upTo?: string;
+  interactive?: boolean;
+  allowUntitledPr?: boolean;
+  all?: boolean;  // NEW
+}
+
+export async function syncCommand(options: SyncOptions = {}): Promise<void> {
+  // Check mutual exclusivity first
+  if (options.all && options.open) {
+    console.error("✗ Error: --all and --open are mutually exclusive");
+    console.error("  Run 'sp sync --all' first, then 'sp sync --open' on each branch");
+    process.exit(1);
+  }
+
+  if (options.all) {
+    if (options.apply || options.upTo || options.interactive) {
+      console.error("✗ Error: --all cannot be used with --apply, --up-to, or --interactive");
+      process.exit(1);
+    }
+
+    await syncAllCommand(options);
+    return;
+  }
+
+  // ... existing sync logic ...
+}
+```
+
+---
+
+## Part C: Implement `listSpryLocalBranches()`
 
 **File:** `src/git/commands.ts`
+
+### Interface
 
 ```typescript
 export interface SpryBranchInfo {
@@ -47,29 +115,28 @@ export async function listSpryLocalBranches(
 ): Promise<SpryBranchInfo[]>
 ```
 
----
+### What Makes a Branch "Spry-Tracked"?
 
-## Implementation Approach
+A local branch is Spry-tracked if it has **at least one commit** between the branch tip and `origin/main` that contains a `Spry-Commit-Id` trailer.
 
-### Step 1: Get all local branches
+Non-Spry branches:
+
+- Branches with no commits above origin/main
+- Branches where no commits have Spry-Commit-Id trailers
+
+### Implementation Approach
+
+#### Step 1: Get all local branches
 
 ```bash
 git for-each-ref --format='%(refname:short) %(objectname)' refs/heads/
 ```
 
-Output:
-
-```
-feature-auth abc123...
-feature-api def456...
-main 789xyz...
-```
-
-### Step 2: Get default branch ref
+#### Step 2: Get default branch ref
 
 Use existing `getDefaultBranchRef()` to get `origin/main` or equivalent.
 
-### Step 3: For each branch (excluding default branch):
+#### Step 3: For each branch (excluding default branch):
 
 1. Check if branch is ahead of default:
 
@@ -79,109 +146,87 @@ Use existing `getDefaultBranchRef()` to get `origin/main` or equivalent.
 
    If 0, skip (no commits to check).
 
-2. Check for Spry-Commit-Id trailers:
-
-   ```bash
-   git log --format=%B origin/main..branch | grep -q "Spry-Commit-Id:"
-   ```
-
-   Or more efficiently, get all commits and check trailers.
+2. Check for Spry-Commit-Id trailers in commits
 
 3. If has Spry commits, check worktree status:
+
    ```typescript
    const worktreeInfo = await getBranchWorktree(branch, options);
    ```
 
-### Step 4: Return list
+4. Check if any commits are missing IDs (for `hasMissingIds`)
+
+#### Step 4: Return list
 
 ---
 
-## Test Cases
+## Part D: Stub `syncAllCommand()`
 
-### Test 1: Identifies Spry-tracked branches
+**File:** `src/cli/commands/sync.ts`
 
-**Setup:**
+```typescript
+export interface SyncAllResult {
+  rebased: Array<{
+    branch: string;
+    commitCount: number;
+    wasInWorktree: boolean;
+  }>;
+  skipped: Array<{
+    branch: string;
+    reason: "up-to-date" | "conflict" | "dirty-worktree" | "current-branch" | "split-group";
+    conflictFiles?: string[];
+    splitGroupInfo?: { groupId: string; groupTitle?: string };
+  }>;
+}
 
-- Create `feature-spry` branch with Spry commits
-- Create `feature-plain` branch without Spry commits
+/**
+ * Sync all Spry-tracked branches in the repository.
+ * Phase 1: Stub implementation that discovers and reports branches.
+ */
+export async function syncAllCommand(options: SyncOptions = {}): Promise<SyncAllResult> {
+  // Fetch from remote to get latest state
+  await fetchRemote();
 
-**Assert:**
+  const currentBranch = await getCurrentBranch();
+  const target = await getDefaultBranchRef();
+  const spryBranches = await listSpryLocalBranches(options);
 
-- `listSpryLocalBranches()` returns only `feature-spry`
+  if (spryBranches.length === 0) {
+    console.log("No Spry-tracked branches found.");
+    return { rebased: [], skipped: [] };
+  }
 
-### Test 2: Excludes main branch
+  console.log(`Found ${spryBranches.length} Spry branch(es):\n`);
 
-**Setup:**
+  const skipped: SyncAllResult["skipped"] = [];
 
-- Repo with main and one Spry branch
+  for (const branch of spryBranches) {
+    if (branch.name === currentBranch) {
+      console.log(`⊘ ${branch.name}: skipped (current branch - run 'sp sync' without --all)`);
+      skipped.push({ branch: branch.name, reason: "current-branch" });
+    } else {
+      // Phase 1: Report all other branches as not-yet-implemented
+      console.log(`⊘ ${branch.name}: skipped (sync not yet implemented)`);
+      // Use a temporary reason for the stub
+      skipped.push({ branch: branch.name, reason: "up-to-date" }); // placeholder
+    }
+  }
 
-**Assert:**
-
-- Main is not in the result list
-
-### Test 3: Handles branches with no commits above main
-
-**Setup:**
-
-- Create branch at same commit as main
-
-**Assert:**
-
-- Branch not in result (commitCount would be 0)
-
-### Test 4: Detects branches in worktrees
-
-**Setup:**
-
-- Create Spry branch
-- Create worktree for it
-
-**Assert:**
-
-- Branch in result with `inWorktree: true` and `worktreePath` set
-
-### Test 5: Returns commit count correctly
-
-**Setup:**
-
-- Create Spry branch with 3 commits
-
-**Assert:**
-
-- `commitCount: 3` in result
-
-### Test 6: Detects branches with missing IDs
-
-**Setup:**
-
-- Create branch with one Spry commit and one commit without Spry-Commit-Id
-
-**Assert:**
-
-- Branch in result with `hasMissingIds: true`
-
-### Test 7: Branch with all IDs has hasMissingIds false
-
-**Setup:**
-
-- Create branch where all commits have Spry-Commit-Id
-
-**Assert:**
-
-- Branch in result with `hasMissingIds: false`
+  console.log(`\nSkipped: ${skipped.length} branch(es)`);
+  return { rebased: [], skipped };
+}
+```
 
 ---
 
-## Scenario to Add
+## Part E: Test Scenario - `multiSpryBranches`
 
-**Name:** `multiSpryBranches`
-
-**Location:** `src/scenario/definitions.ts`
+**File:** `src/scenario/definitions.ts`
 
 ```typescript
 /**
  * Multiple branches, some Spry-tracked, some not.
- * For testing listSpryLocalBranches().
+ * For testing listSpryLocalBranches() and sync --all.
  */
 multiSpryBranches: {
   name: "multi-spry-branches",
@@ -199,7 +244,6 @@ multiSpryBranches: {
       trailers: { "Spry-Commit-Id": "upto0001" },
     });
 
-    // Go back to main for next branch
     await repo.checkout(repo.defaultBranch);
 
     // Branch 2: Spry-tracked, will be behind after origin update
@@ -268,88 +312,96 @@ multiSpryBranches: {
 
 ---
 
-## Test File
+## Test Cases
 
 **File:** `tests/integration/sync-all.test.ts`
 
+### Test 1: Discovers Spry branches, excludes non-Spry
+
 ```typescript
-import { test, expect, describe } from "bun:test";
-import { repoManager } from "../helpers/local-repo.ts";
-import { listSpryLocalBranches } from "../../src/git/commands.ts";
-import { scenarios } from "../../src/scenario/definitions.ts";
+test("--all discovers Spry branches and excludes non-Spry", async () => {
+  const repo = await repos.create();
+  await scenarios.multiSpryBranches.setup(repo);
 
-describe("sync --all: Phase 1 - listSpryLocalBranches", () => {
-  const repos = repoManager();
+  const result = await runSpry(repo.path, "sync", ["--all"]);
 
-  test("identifies Spry-tracked branches", async () => {
-    const repo = await repos.create();
-    await scenarios.multiSpryBranches.setup(repo);
+  expect(result.exitCode).toBe(0);
+  // Should include Spry branches
+  expect(result.stdout).toContain("feature-behind");
+  expect(result.stdout).toContain("feature-conflict");
+  expect(result.stdout).toContain("feature-mixed");
+  expect(result.stdout).toContain("feature-split");
+  // Should NOT include non-Spry branch
+  expect(result.stdout).not.toContain("feature-nospry");
+});
+```
 
-    const branches = await listSpryLocalBranches({ cwd: repo.path });
-    const names = branches.map(b => b.name);
+### Test 2: Skips current branch with correct message
 
-    // Should include Spry branches
-    expect(names).toContain(expect.stringContaining("feature-uptodate"));
-    expect(names).toContain(expect.stringContaining("feature-behind"));
-    expect(names).toContain(expect.stringContaining("feature-conflict"));
+```typescript
+test("--all skips current branch with correct message", async () => {
+  const repo = await repos.create();
+  await scenarios.multiSpryBranches.setup(repo);
 
-    // Should NOT include non-Spry branch
-    expect(names).not.toContain(expect.stringContaining("feature-nospry"));
+  const result = await runSpry(repo.path, "sync", ["--all"]);
 
-    // Should NOT include main
-    expect(names).not.toContain("main");
-  });
+  expect(result.stdout).toContain("current branch");
+  expect(result.stdout).toContain("run 'sp sync' without --all");
+});
+```
 
-  test("returns correct commit counts", async () => {
-    const repo = await repos.create();
-    await scenarios.multiSpryBranches.setup(repo);
+### Test 3: --all and --open are mutually exclusive
 
-    const branches = await listSpryLocalBranches({ cwd: repo.path });
+```typescript
+test("--all and --open are mutually exclusive", async () => {
+  const repo = await repos.create();
+  const result = await runSpry(repo.path, "sync", ["--all", "--open"]);
 
-    for (const branch of branches) {
-      expect(branch.commitCount).toBeGreaterThan(0);
-      expect(branch.tipSha).toMatch(/^[0-9a-f]{40}$/);
-    }
-  });
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("mutually exclusive");
+});
+```
 
-  test("detects branches in worktrees", async () => {
-    const repo = await repos.create();
+### Test 4: --all incompatible with --apply
 
-    // Create a Spry branch
-    const branchName = await repo.branch("feature-wt");
-    await repo.commit({
-      message: "Worktree commit",
-      trailers: { "Spry-Commit-Id": "wt000001" },
-    });
+```typescript
+test("--all is incompatible with --apply", async () => {
+  const repo = await repos.create();
+  const result = await runSpry(repo.path, "sync", ["--all", "--apply", '["abc"]']);
 
-    // Go back to main and create worktree
-    await repo.checkout("main");
-    const worktree = await repo.createWorktree(branchName);
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("cannot be used with");
+});
+```
 
-    const branches = await listSpryLocalBranches({ cwd: repo.path });
-    const wtBranch = branches.find(b => b.name === branchName);
+### Test 5: Help shows --all option
 
-    expect(wtBranch).toBeDefined();
-    expect(wtBranch!.inWorktree).toBe(true);
-    expect(wtBranch!.worktreePath).toBe(worktree.path);
-  });
+```typescript
+test("help shows --all option", async () => {
+  const repo = await repos.create();
+  const result = await runSpry(repo.path, "sync", ["--help"]);
 
-  test("detects branches with missing Spry-Commit-Ids", async () => {
-    const repo = await repos.create();
-    await scenarios.multiSpryBranches.setup(repo);
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("--all");
+});
+```
 
-    const branches = await listSpryLocalBranches({ cwd: repo.path });
+### Test 6: listSpryLocalBranches detects hasMissingIds
 
-    // feature-mixed has one commit with ID and one without
-    const mixedBranch = branches.find(b => b.name.includes("feature-mixed"));
-    expect(mixedBranch).toBeDefined();
-    expect(mixedBranch!.hasMissingIds).toBe(true);
+```typescript
+test("listSpryLocalBranches detects hasMissingIds", async () => {
+  const repo = await repos.create();
+  await scenarios.multiSpryBranches.setup(repo);
 
-    // feature-behind has all commits with IDs
-    const behindBranch = branches.find(b => b.name.includes("feature-behind"));
-    expect(behindBranch).toBeDefined();
-    expect(behindBranch!.hasMissingIds).toBe(false);
-  });
+  const branches = await listSpryLocalBranches({ cwd: repo.path });
+
+  const mixedBranch = branches.find(b => b.name.includes("feature-mixed"));
+  expect(mixedBranch).toBeDefined();
+  expect(mixedBranch!.hasMissingIds).toBe(true);
+
+  const behindBranch = branches.find(b => b.name.includes("feature-behind"));
+  expect(behindBranch).toBeDefined();
+  expect(behindBranch!.hasMissingIds).toBe(false);
 });
 ```
 
@@ -357,15 +409,17 @@ describe("sync --all: Phase 1 - listSpryLocalBranches", () => {
 
 ## Definition of Done
 
+- [ ] `--all` flag added to CLI in `src/cli/index.ts`
+- [ ] Mutual exclusivity checks in `syncCommand()` for `--all` vs `--open`, `--apply`, etc.
 - [ ] `listSpryLocalBranches()` function implemented in `src/git/commands.ts`
+- [ ] Stub `syncAllCommand()` implemented in `src/cli/commands/sync.ts`
 - [ ] `multiSpryBranches` scenario added to `src/scenario/definitions.ts`
 - [ ] All Phase 1 tests pass
-- [ ] Function correctly identifies Spry vs non-Spry branches
-- [ ] Function correctly detects worktree status
-- [ ] Function correctly detects `hasMissingIds` for branches with mixed commits
+- [ ] `sp sync --all` shows discovered Spry branches (non-Spry branches excluded)
+- [ ] Full CI test run passes: `bun run test:ci`
 
 ---
 
 ## Next Phase
 
-Once this phase is complete, proceed to [SUB_PLAN_PHASE_2.md](./SUB_PLAN_PHASE_2.md) - Conflict Prediction.
+Once this phase is complete, proceed to [SUB_PLAN_PHASE_2.md](./SUB_PLAN_PHASE_2.md) - Branch-Aware Core Functions.

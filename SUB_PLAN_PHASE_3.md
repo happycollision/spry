@@ -1,220 +1,166 @@
-# Phase 3: Branch-Aware APIs and Plumbing Rebase
+# Phase 3: Stack Validation
 
-**Goal:** Make core APIs work on any branch (not just HEAD) and prove we can rebase branches using plumbing commands.
+**Goal:** Implement `validateBranchStack()` to detect malformed groups (split groups) on any branch. Update `syncAllCommand()` to skip branches with invalid stacks.
 
 **Status:** Not Started
 
-**Depends on:** Phase 2 (we use conflict prediction to pre-check)
+**Depends on:** Phase 2
 
 ---
 
 ## Why This Phase?
 
-For `sync --all`, we need to:
+A branch may have a "split group" - commits with the same `Spry-Group` ID that aren't contiguous. This is a structural error that the user must fix before syncing. We should skip such branches with a clear error message rather than attempting to sync them.
 
-1. Get commits for any branch (not just HEAD)
-2. Inject missing Spry-Commit-Ids on any branch
-3. Rebase any branch using plumbing commands
+Example of a split group:
 
-This phase provides the infrastructure for all three.
+```
+commit 3: Group A part 2    <- Spry-Group: groupA
+commit 2: Interrupting commit  <- No group (splits the group!)
+commit 1: Group A part 1    <- Spry-Group: groupA
+```
 
 ---
 
-## Part A: Branch-Aware `getStackCommitsWithTrailers()`
-
-### Current Limitation
-
-The existing function is hardcoded to use `HEAD`:
-
-```typescript
-// Current: always uses HEAD
-git log --reverse --format=... ${mergeBase}..HEAD
-```
-
-### Required Change
-
-Add optional `branch` parameter:
-
-```typescript
-export async function getStackCommitsWithTrailers(
-  options: GitOptions & { branch?: string } = {},
-): Promise<CommitWithTrailers[]>
-```
-
-When `branch` is provided, use it instead of `HEAD`:
-
-```typescript
-const ref = options.branch ?? "HEAD";
-git log --reverse --format=... ${mergeBase}..${ref}
-```
-
-### Test Case: Branch-aware getStackCommitsWithTrailers
-
-**Setup:**
-
-- Create two branches with different commits
-- Stay on branch A
-
-**Assert:**
-
-- `getStackCommitsWithTrailers({ branch: "branchB" })` returns branchB's commits
-- Current branch is still A
-
----
-
-## Part B: Branch-Aware `injectMissingIds()`
-
-### Current Limitation
-
-The existing function only works on the current branch:
-
-```typescript
-// Current: uses HEAD and getCurrentBranch()
-const commits = await getStackCommitsWithTrailers(options);
-const branch = await getCurrentBranch(options);
-```
-
-### Required Change
-
-Add optional `branch` parameter:
-
-```typescript
-export async function injectMissingIds(
-  options: GitOptions & { branch?: string } = {},
-): Promise<InjectIdsResult>
-```
-
-Implementation changes:
-
-1. Skip `assertNotDetachedHead()` when branch is specified
-2. Use branch-aware `getStackCommitsWithTrailers({ ...options, branch })`
-3. Pass the branch name to `finalizeRewrite()` (already supports branch parameter)
-
-### Test Case: Branch-aware injectMissingIds
-
-**Setup:**
-
-- Create branch with one commit that has ID and one without
-- Stay on main
-
-**Assert:**
-
-- `injectMissingIds({ branch: "feature-..." })` succeeds
-- Both commits on feature branch now have Spry-Commit-Id
-- Current branch is still main
-- Main's working directory is unchanged
-
----
-
-## Part C: Plumbing Rebase - `rebaseBranchPlumbing()`
-
-For branches not checked out in any worktree, we can rebase entirely with plumbing:
-
-1. `rebasePlumbing()` - creates new commits without touching refs
-2. `updateRef()` - atomically updates the branch ref
-
-No working directory changes needed!
-
----
-
-## Interface
+## Part A: Implement `validateBranchStack()`
 
 **File:** `src/git/rebase.ts`
 
+### Interface
+
 ```typescript
-export interface BranchRebaseResult {
-  /** Whether the rebase succeeded */
-  success: boolean;
-  /** New tip SHA after rebase */
-  newTip?: string;
-  /** Number of commits rebased */
-  commitCount: number;
-  /** If skipped, the reason */
-  skippedReason?: "up-to-date" | "conflict" | "dirty-worktree";
-  /** Conflict files if skipped due to conflict */
-  conflictFiles?: string[];
+export interface BranchValidationResult {
+  valid: boolean;
+  error?: "split-group";
+  splitGroupInfo?: {
+    groupId: string;
+    groupTitle?: string;
+    interruptingCommits: string[];
+  };
 }
 
 /**
- * Rebase a branch onto a target using plumbing commands.
- * Does NOT check out the branch - works entirely via git objects.
- *
- * For branches NOT in worktrees: only updates the ref.
- * For branches IN worktrees: caller must provide worktreePath for working dir update.
- *
- * @param branch - Branch name to rebase (without refs/heads/)
- * @param onto - Target to rebase onto
- * @param worktreePath - If branch is in a worktree, its path (for working dir update)
+ * Validate that a branch's commit stack is structurally valid.
+ * Checks for split groups (non-contiguous group commits).
+ * Works on any branch, not just the current one.
  */
-export async function rebaseBranchPlumbing(
+export async function validateBranchStack(
   branch: string,
-  onto: string,
-  worktreePath?: string,
   options: GitOptions = {},
-): Promise<BranchRebaseResult>
+): Promise<BranchValidationResult>
 ```
+
+### Implementation
+
+```typescript
+export async function validateBranchStack(
+  branch: string,
+  options: GitOptions = {},
+): Promise<BranchValidationResult> {
+  // Get commits for branch (branch-aware)
+  const commits = await getStackCommitsWithTrailers({ ...options, branch });
+
+  if (commits.length === 0) {
+    return { valid: true };
+  }
+
+  // Get group titles for display
+  const groupTitles = await readGroupTitles(options);
+
+  // Use existing parseStack() - it's already branch-agnostic and detects split groups
+  const result = parseStack(commits, groupTitles);
+
+  if (result.ok) {
+    return { valid: true };
+  }
+
+  // result.error === "split-group"
+  return {
+    valid: false,
+    error: "split-group",
+    splitGroupInfo: {
+      groupId: result.group.id,
+      groupTitle: result.group.title,
+      interruptingCommits: result.interruptingCommits,
+    },
+  };
+}
+```
+
+**Note:** The heavy lifting is done by `parseStack()` which already exists and validates group contiguity. This function is a convenience wrapper that makes it work on any branch.
 
 ---
 
-## Implementation Approach
+## Part B: Update `syncAllCommand()` to Validate Stacks
 
-### For branches NOT in worktrees:
+**File:** `src/cli/commands/sync.ts`
+
+Add validation step after up-to-date and dirty-worktree checks:
 
 ```typescript
-import { parseConflictOutput } from "./conflict-predict.ts";
+export async function syncAllCommand(options: SyncOptions = {}): Promise<SyncAllResult> {
+  await fetchRemote();
 
-export async function rebaseBranchPlumbing(
-  branch: string,
-  onto: string,
-  worktreePath?: string,
-  options: GitOptions = {},
-): Promise<BranchRebaseResult> {
-  const { cwd } = options;
+  const currentBranch = await getCurrentBranch();
+  const target = await getDefaultBranchRef();
+  const spryBranches = await listSpryLocalBranches(options);
 
-  // 1. Get commits between onto and branch
-  const logResult = cwd
-    ? await $`git -C ${cwd} log --reverse --format=%H ${onto}..${branch}`.text()
-    : await $`git log --reverse --format=%H ${onto}..${branch}`.text();
-
-  const commitHashes = logResult.trim().split("\n").filter(Boolean);
-
-  if (commitHashes.length === 0) {
-    return { success: true, commitCount: 0, skippedReason: "up-to-date" };
+  if (spryBranches.length === 0) {
+    console.log("No Spry-tracked branches found.");
+    return { rebased: [], skipped: [] };
   }
 
-  // 2. Get the target SHA
-  const ontoSha = await getFullSha(onto, options);
+  console.log(`Syncing ${spryBranches.length} Spry branch(es)...\n`);
 
-  // 3. Perform plumbing rebase
-  const result = await rebasePlumbing(ontoSha, commitHashes, options);
+  const rebased: SyncAllResult["rebased"] = [];
+  const skipped: SyncAllResult["skipped"] = [];
 
-  if (!result.ok) {
-    // Use parseConflictOutput to properly extract conflict files
-    const { files } = parseConflictOutput(result.conflictInfo ?? "");
-    return {
-      success: false,
-      commitCount: commitHashes.length,
-      skippedReason: "conflict",
-      conflictFiles: files,
-    };
+  for (const branch of spryBranches) {
+    // Skip current branch
+    if (branch.name === currentBranch) {
+      console.log(`⊘ ${branch.name}: skipped (current branch - run 'sp sync' without --all)`);
+      skipped.push({ branch: branch.name, reason: "current-branch" });
+      continue;
+    }
+
+    // Check if behind target
+    const isBehind = await isBranchBehindTarget(branch.name, target, options);
+    if (!isBehind) {
+      console.log(`⊘ ${branch.name}: skipped (up-to-date)`);
+      skipped.push({ branch: branch.name, reason: "up-to-date" });
+      continue;
+    }
+
+    // Check dirty worktree
+    if (branch.inWorktree) {
+      const isDirty = await hasUncommittedChanges({ cwd: branch.worktreePath });
+      if (isDirty) {
+        console.log(`⊘ ${branch.name}: skipped (worktree has uncommitted changes)`);
+        skipped.push({ branch: branch.name, reason: "dirty-worktree" });
+        continue;
+      }
+    }
+
+    // NEW: Validate stack structure (check for split groups)
+    const validation = await validateBranchStack(branch.name, options);
+    if (!validation.valid) {
+      const groupInfo = validation.splitGroupInfo?.groupTitle ?? validation.splitGroupInfo?.groupId ?? "unknown";
+      console.log(`⊘ ${branch.name}: skipped (split group "${groupInfo}" - run 'sp group --fix' on that branch)`);
+      skipped.push({
+        branch: branch.name,
+        reason: "split-group",
+        splitGroupInfo: validation.splitGroupInfo,
+      });
+      continue;
+    }
+
+    // Phase 3: Still stub the actual rebase (done in Phase 4)
+    console.log(`⊘ ${branch.name}: skipped (rebase not yet implemented)`);
+    skipped.push({ branch: branch.name, reason: "up-to-date" }); // placeholder
   }
 
-  // 4. Get old tip for compare-and-swap
-  const oldTip = await getFullSha(branch, options);
-
-  // 5. Update the ref atomically
-  await updateRef(`refs/heads/${branch}`, result.newTip, oldTip, options);
-
-  // 6. If worktree provided, update working directory
-  if (worktreePath) {
-    await $`git -C ${worktreePath} reset --hard ${result.newTip}`.quiet();
-  }
-
-  return {
-    success: true,
-    newTip: result.newTip,
-    commitCount: commitHashes.length,
-  };
+  reportSyncAllResults(rebased, skipped, target);
+  return { rebased, skipped };
 }
 ```
 
@@ -222,223 +168,74 @@ export async function rebaseBranchPlumbing(
 
 ## Test Cases
 
-### Test 1: Rebases branch not in any worktree
-
-**Setup:**
-
-- Create repo with main
-- Create feature branch with Spry commits
-- Update origin/main
-- Stay on main (feature is not checked out anywhere)
-
-**Assert:**
-
-- `rebaseBranchPlumbing()` returns `success: true`
-- Branch ref is updated
-- Working directory (main) is unchanged
-
-### Test 2: Returns up-to-date when no rebase needed
-
-**Setup:**
-
-- Create branch at origin/main tip
-
-**Assert:**
-
-- `skippedReason: "up-to-date"`
-- No ref changes
-
-### Test 3: Returns conflict info when would conflict
-
-**Setup:**
-
-- Use `multiSpryBranches` scenario
-- Try to rebase `feature-conflict`
-
-**Assert:**
-
-- `success: false`
-- `skippedReason: "conflict"`
-- `conflictFiles` contains the conflicting file
-
-### Test 4: Does not affect current branch
-
-**Setup:**
-
-- On main, rebase a feature branch
-
-**Assert:**
-
-- Current branch still main
-- Main's HEAD unchanged
-- Main's working directory unchanged
-
-### Test 5: Ref is updated atomically
-
-**Setup:**
-
-- Rebase a branch
-
-**Assert:**
-
-- Branch now points to new commits
-- New commits have correct ancestry (on top of onto)
-
----
-
-## Test File Addition
-
 **File:** `tests/integration/sync-all.test.ts`
 
+### Test 1: Detects split group on non-current branch
+
 ```typescript
-describe("sync --all: Phase 3 - Branch-aware APIs", () => {
-  const repos = repoManager();
+test("validateBranchStack detects split group on non-current branch", async () => {
+  const repo = await repos.create();
+  await scenarios.multiSpryBranches.setup(repo);
 
-  test("getStackCommitsWithTrailers works on non-current branch", async () => {
-    const repo = await repos.create();
+  const result = await validateBranchStack(
+    `feature-split-${repo.uniqueId}`,
+    { cwd: repo.path },
+  );
 
-    // Create branch A with a commit
-    const branchA = await repo.branch("feature-a");
-    await repo.commit({
-      message: "Commit on A",
-      trailers: { "Spry-Commit-Id": "aaa00001" },
-    });
-
-    // Create branch B with different commits
-    await repo.checkout("main");
-    const branchB = await repo.branch("feature-b");
-    await repo.commit({
-      message: "Commit on B",
-      trailers: { "Spry-Commit-Id": "bbb00001" },
-    });
-    await repo.commit({
-      message: "Second commit on B",
-      trailers: { "Spry-Commit-Id": "bbb00002" },
-    });
-
-    // Stay on B, query A
-    const commitsA = await getStackCommitsWithTrailers({
-      cwd: repo.path,
-      branch: branchA,
-    });
-
-    expect(commitsA).toHaveLength(1);
-    expect(commitsA[0].trailers["Spry-Commit-Id"]).toBe("aaa00001");
-
-    // Verify still on B
-    expect(await repo.currentBranch()).toBe(branchB);
-  });
-
-  test("injectMissingIds works on non-current branch", async () => {
-    const repo = await repos.create();
-
-    // Create branch with mixed commits (one with ID, one without)
-    const branch = await repo.branch("feature-mixed");
-    await repo.commit({
-      message: "Commit with ID",
-      trailers: { "Spry-Commit-Id": "mix00001" },
-    });
-    await repo.commit({ message: "Commit without ID" });
-
-    // Go back to main
-    await repo.checkout("main");
-
-    // Inject IDs on the feature branch
-    const result = await injectMissingIds({
-      cwd: repo.path,
-      branch,
-    });
-
-    expect(result.modifiedCount).toBe(1);
-
-    // Verify all commits now have IDs
-    const commits = await getStackCommitsWithTrailers({
-      cwd: repo.path,
-      branch,
-    });
-    for (const commit of commits) {
-      expect(commit.trailers["Spry-Commit-Id"]).toBeDefined();
-    }
-
-    // Verify still on main
-    expect(await repo.currentBranch()).toBe("main");
-  });
+  expect(result.valid).toBe(false);
+  expect(result.error).toBe("split-group");
+  expect(result.splitGroupInfo?.groupId).toBe("groupA");
+  expect(result.splitGroupInfo?.interruptingCommits.length).toBeGreaterThan(0);
 });
+```
 
-describe("sync --all: Phase 3 - rebaseBranchPlumbing (no worktree)", () => {
-  const repos = repoManager();
+### Test 2: Valid branch passes validation
 
-  test("rebases branch not checked out anywhere", async () => {
-    const repo = await repos.create();
+```typescript
+test("validateBranchStack returns valid for well-formed branch", async () => {
+  const repo = await repos.create();
+  await scenarios.multiSpryBranches.setup(repo);
 
-    // Create feature branch with Spry commit
-    const featureBranch = await repo.branch("feature");
-    await repo.commit({
-      message: "Feature commit",
-      trailers: { "Spry-Commit-Id": "feat0001" },
-    });
+  const result = await validateBranchStack(
+    `feature-behind-${repo.uniqueId}`,
+    { cwd: repo.path },
+  );
 
-    // Go back to main
-    await repo.checkout("main");
+  expect(result.valid).toBe(true);
+});
+```
 
-    // Update origin/main
-    await repo.updateOriginMain("Upstream change");
-    await repo.fetch();
+### Test 3: Does not change current branch
 
-    // Rebase the feature branch (not checked out)
-    const result = await rebaseBranchPlumbing(
-      featureBranch,
-      "origin/main",
-      undefined, // no worktree
-      { cwd: repo.path },
-    );
+```typescript
+test("validateBranchStack does not change current branch", async () => {
+  const repo = await repos.create();
+  await scenarios.multiSpryBranches.setup(repo);
 
-    expect(result.success).toBe(true);
-    expect(result.commitCount).toBe(1);
-    expect(result.newTip).toBeDefined();
+  const branchBefore = await repo.currentBranch();
 
-    // Verify feature is now on top of origin/main
-    const mergeBase = await $`git -C ${repo.path} merge-base ${featureBranch} origin/main`.text();
-    const originMain = await $`git -C ${repo.path} rev-parse origin/main`.text();
-    expect(mergeBase.trim()).toBe(originMain.trim());
+  await validateBranchStack(
+    `feature-split-${repo.uniqueId}`,
+    { cwd: repo.path },
+  );
 
-    // Verify we're still on main
-    expect(await repo.currentBranch()).toBe("main");
-  });
+  const branchAfter = await repo.currentBranch();
+  expect(branchAfter).toBe(branchBefore);
+});
+```
 
-  test("returns up-to-date when branch already on target", async () => {
-    const repo = await repos.create();
+### Test 4: CLI shows split group skip reason
 
-    // Create feature at same point as main
-    const featureBranch = await repo.branch("feature");
-    await repo.checkout("main");
+```typescript
+test("--all skips branches with split groups", async () => {
+  const repo = await repos.create();
+  await scenarios.multiSpryBranches.setup(repo);
 
-    const result = await rebaseBranchPlumbing(
-      featureBranch,
-      "origin/main",
-      undefined,
-      { cwd: repo.path },
-    );
+  const result = await runSpry(repo.path, "sync", ["--all"]);
 
-    expect(result.success).toBe(true);
-    expect(result.skippedReason).toBe("up-to-date");
-  });
-
-  test("returns conflict info for conflicting branch", async () => {
-    const repo = await repos.create();
-    await scenarios.multiSpryBranches.setup(repo);
-
-    const result = await rebaseBranchPlumbing(
-      `feature-conflict-${repo.uniqueId}`,
-      "origin/main",
-      undefined,
-      { cwd: repo.path },
-    );
-
-    expect(result.success).toBe(false);
-    expect(result.skippedReason).toBe("conflict");
-    expect(result.conflictFiles).toContain("conflict.txt");
-  });
+  expect(result.stdout).toContain("feature-split");
+  expect(result.stdout).toContain("split group");
+  expect(result.stdout).toContain("groupA");
 });
 ```
 
@@ -446,16 +243,14 @@ describe("sync --all: Phase 3 - rebaseBranchPlumbing (no worktree)", () => {
 
 ## Definition of Done
 
-- [ ] `getStackCommitsWithTrailers()` extended with optional `branch` parameter
-- [ ] `injectMissingIds()` extended with optional `branch` parameter
-- [ ] `rebaseBranchPlumbing()` function implemented in `src/git/rebase.ts`
+- [ ] `validateBranchStack()` function implemented in `src/git/rebase.ts`
+- [ ] `syncAllCommand()` updated to validate stacks and skip branches with split groups
+- [ ] CLI output shows split group reason with group ID/title
 - [ ] All Phase 3 tests pass
-- [ ] Branch-aware APIs work without modifying current branch or working directory
-- [ ] `rebaseBranchPlumbing()` correctly rebases branches not in worktrees
-- [ ] Ref is updated atomically with compare-and-swap
+- [ ] `validateBranchStack()` works without modifying current branch
 
 ---
 
 ## Next Phase
 
-Once this phase is complete, proceed to [SUB_PLAN_PHASE_4.md](./SUB_PLAN_PHASE_4.md) - Worktree-Aware Rebase.
+Once this phase is complete, proceed to [SUB_PLAN_PHASE_4.md](./SUB_PLAN_PHASE_4.md) - Full Orchestration.
