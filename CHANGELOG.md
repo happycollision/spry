@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `sp sync --all` to sync all Spry-tracked branches in the repository at once
+  - Discovers branches with Spry-Commit-Id trailers
+  - Rebases each branch onto the remote default branch without manual checkout
+  - Injects missing Spry-Commit-Ids before rebasing
+  - Predicts conflicts and skips branches that would fail (never enters failed rebase state)
+  - Validates stack structure and skips branches with split groups
+  - Handles worktrees: skips dirty ones, updates clean ones after rebase
+  - Clear summary showing rebased vs skipped branches with reasons
+- Branch-aware core functions: `injectMissingIds()`, `predictRebaseConflicts()`, `rebaseOntoMain()` now accept optional `branch` parameter
+- `validateBranchStack()` function to detect split groups on any branch
+- `listSpryLocalBranches()` function to discover all Spry-tracked local branches
+
 ## [1.0.0-beta.4] - 2026-01-28
 
 ### Fixed

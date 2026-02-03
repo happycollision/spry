@@ -10,8 +10,9 @@ import {
   rebaseOntoMain,
   getConflictInfo,
   formatConflictError,
+  predictRebaseConflicts,
 } from "./rebase.ts";
-import { getStackCommitsWithTrailers } from "./commands.ts";
+import { getStackCommitsWithTrailers, getCurrentBranch } from "./commands.ts";
 
 const repos = repoManager();
 
@@ -31,8 +32,11 @@ describe("git/rebase", () => {
       // Inject IDs
       const result = await injectMissingIds({ cwd: repo.path });
 
-      expect(result.modifiedCount).toBe(2);
-      expect(result.rebasePerformed).toBe(true);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.modifiedCount).toBe(2);
+        expect(result.rebasePerformed).toBe(true);
+      }
 
       // Verify they now have IDs
       const afterCommits = await getStackCommitsWithTrailers({ cwd: repo.path });
@@ -47,8 +51,11 @@ describe("git/rebase", () => {
 
       const result = await injectMissingIds({ cwd: repo.path });
 
-      expect(result.modifiedCount).toBe(2);
-      expect(result.rebasePerformed).toBe(true);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.modifiedCount).toBe(2);
+        expect(result.rebasePerformed).toBe(true);
+      }
 
       const afterCommits = await getStackCommitsWithTrailers({ cwd: repo.path });
       expect(afterCommits[0]?.trailers["Spry-Commit-Id"]).toBe("mix00001");
@@ -63,8 +70,11 @@ describe("git/rebase", () => {
 
       const result = await injectMissingIds({ cwd: repo.path });
 
-      expect(result.modifiedCount).toBe(0);
-      expect(result.rebasePerformed).toBe(false);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.modifiedCount).toBe(0);
+        expect(result.rebasePerformed).toBe(false);
+      }
 
       // Verify IDs unchanged
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
@@ -78,8 +88,11 @@ describe("git/rebase", () => {
 
       const result = await injectMissingIds({ cwd: repo.path });
 
-      expect(result.modifiedCount).toBe(0);
-      expect(result.rebasePerformed).toBe(false);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.modifiedCount).toBe(0);
+        expect(result.rebasePerformed).toBe(false);
+      }
     });
   });
 
@@ -135,9 +148,10 @@ describe("git/rebase", () => {
       // Rebase onto main
       const result = await rebaseOntoMain({ cwd: repo.path });
 
-      expect(result.success).toBe(true);
-      expect(result.commitCount).toBe(2);
-      expect(result.conflictFile).toBeUndefined();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.commitCount).toBe(2);
+      }
     });
 
     test("preserves Spry trailers through rebase", async () => {
@@ -145,7 +159,7 @@ describe("git/rebase", () => {
       await scenarios.divergedMain.setup(repo);
 
       const result = await rebaseOntoMain({ cwd: repo.path });
-      expect(result.success).toBe(true);
+      expect(result.ok).toBe(true);
 
       // Verify commits are present (divergedMain doesn't add trailers by default, but commits are preserved)
       const commits = await getStackCommitsWithTrailers({ cwd: repo.path });
@@ -159,8 +173,10 @@ describe("git/rebase", () => {
       // Rebase should detect conflict
       const result = await rebaseOntoMain({ cwd: repo.path });
 
-      expect(result.success).toBe(false);
-      expect(result.conflictFile).toBe("shared.txt");
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.conflictFile).toBe("shared.txt");
+      }
 
       // Clean up the rebase state
       await $`git -C ${repo.path} rebase --abort`.quiet().nothrow();
@@ -175,8 +191,10 @@ describe("git/rebase", () => {
 
       const result = await rebaseOntoMain({ cwd: repo.path });
 
-      expect(result.success).toBe(true);
-      expect(result.commitCount).toBe(1);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.commitCount).toBe(1);
+      }
     });
   });
 
@@ -301,7 +319,10 @@ describe("git/rebase", () => {
 
       // Inject IDs - this performs a rebase
       const result = await injectMissingIds({ cwd: repo.path });
-      expect(result.rebasePerformed).toBe(true);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.rebasePerformed).toBe(true);
+      }
 
       // Verify order is preserved (fixup! commit should NOT have moved)
       const afterCommits = await getStackCommitsWithTrailers({ cwd: repo.path });
@@ -350,7 +371,7 @@ describe("git/rebase", () => {
 
       // Rebase onto main
       const result = await rebaseOntoMain({ cwd: repo.path });
-      expect(result.success).toBe(true);
+      expect(result.ok).toBe(true);
 
       // Verify order is preserved
       const afterCommits = await getStackCommitsWithTrailers({ cwd: repo.path });
@@ -358,6 +379,185 @@ describe("git/rebase", () => {
       expect(afterCommits[0]?.subject).toBe("Add file1");
       expect(afterCommits[1]?.subject).toBe("fixup! Add file1");
       expect(afterCommits[2]?.subject).toBe("Add file2");
+    });
+  });
+
+  // ==========================================================================
+  // Phase 2: Branch-Aware Function Tests
+  // ==========================================================================
+
+  describe("branch-aware functions (Phase 2)", () => {
+    test("getStackCommitsWithTrailers works on non-current branch", async () => {
+      const repo = await repos.create();
+
+      // Create branch A with a commit
+      const branchA = await repo.branch("feature-a");
+      await repo.commit({
+        message: "Commit on A",
+        trailers: { "Spry-Commit-Id": "aaa00001" },
+      });
+
+      // Create branch B with different commits
+      await repo.checkout(repo.defaultBranch);
+      const branchB = await repo.branch("feature-b");
+      await repo.commit({
+        message: "Commit on B",
+        trailers: { "Spry-Commit-Id": "bbb00001" },
+      });
+
+      // Stay on B, query A
+      const commitsA = await getStackCommitsWithTrailers({
+        cwd: repo.path,
+        branch: branchA,
+      });
+
+      expect(commitsA).toHaveLength(1);
+      expect(commitsA[0]?.trailers["Spry-Commit-Id"]).toBe("aaa00001");
+
+      // Verify still on B
+      const currentBranch = await getCurrentBranch({ cwd: repo.path });
+      expect(currentBranch).toBe(branchB);
+    });
+
+    test("injectMissingIds works on non-current branch", async () => {
+      const repo = await repos.create();
+
+      // Create branch with mixed commits
+      const featureBranch = await repo.branch("feature-mixed");
+      await repo.commit({
+        message: "Commit with ID",
+        trailers: { "Spry-Commit-Id": "mix00001" },
+      });
+      await repo.commit({ message: "Commit without ID" });
+
+      // Go back to main
+      await repo.checkout(repo.defaultBranch);
+
+      // Inject IDs on the feature branch (while on main)
+      const result = await injectMissingIds({ cwd: repo.path, branch: featureBranch });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.modifiedCount).toBe(1);
+        expect(result.rebasePerformed).toBe(true);
+      }
+
+      // Verify all commits on feature branch now have IDs
+      const commits = await getStackCommitsWithTrailers({ cwd: repo.path, branch: featureBranch });
+      expect(commits).toHaveLength(2);
+      for (const commit of commits) {
+        expect(commit.trailers["Spry-Commit-Id"]).toBeDefined();
+      }
+
+      // Verify still on main
+      const currentBranch = await getCurrentBranch({ cwd: repo.path });
+      expect(currentBranch).toBe(repo.defaultBranch);
+    });
+
+    test("predictRebaseConflicts works on non-current branch", async () => {
+      const repo = await repos.create();
+      await scenarios.multiSpryBranches.setup(repo);
+
+      // Get the conflict branch name (includes unique ID)
+      const currentBranch = await getCurrentBranch({ cwd: repo.path });
+
+      // Find the conflict branch - it should be feature-conflict-<uniqueId>
+      const result = await $`git -C ${repo.path} branch --list "feature-conflict-*"`.text();
+      const conflictBranch = result.trim();
+
+      // Stay on current branch, predict conflicts for feature-conflict
+      const prediction = await predictRebaseConflicts({
+        cwd: repo.path,
+        branch: conflictBranch,
+        onto: "origin/main",
+      });
+
+      expect(prediction.wouldSucceed).toBe(false);
+      expect(prediction.conflictInfo?.files).toContain("conflict.txt");
+
+      // Verify we didn't change branches
+      const branchAfter = await getCurrentBranch({ cwd: repo.path });
+      expect(branchAfter).toBe(currentBranch);
+    });
+
+    test("predictRebaseConflicts does not change current branch", async () => {
+      const repo = await repos.create();
+      await scenarios.multiSpryBranches.setup(repo);
+
+      const branchBefore = await getCurrentBranch({ cwd: repo.path });
+
+      // Find and predict on a different branch
+      const result = await $`git -C ${repo.path} branch --list "feature-uptodate-*"`.text();
+      const otherBranch = result.trim();
+
+      await predictRebaseConflicts({
+        cwd: repo.path,
+        branch: otherBranch,
+        onto: "origin/main",
+      });
+
+      const branchAfter = await getCurrentBranch({ cwd: repo.path });
+      expect(branchAfter).toBe(branchBefore);
+    });
+
+    test("rebaseOntoMain works on non-current branch", async () => {
+      const repo = await repos.create();
+
+      // Create feature branch
+      const featureBranch = await repo.branch("feature");
+      await repo.commit({
+        message: "Feature commit",
+        trailers: { "Spry-Commit-Id": "feat0001" },
+      });
+
+      // Go back to main and update origin
+      await repo.checkout(repo.defaultBranch);
+      await repo.updateOriginMain("Upstream change", { "new-file.txt": "content\n" });
+      await repo.fetch();
+
+      // Rebase the feature branch (while on main)
+      const result = await rebaseOntoMain({
+        cwd: repo.path,
+        branch: featureBranch,
+        onto: "origin/main",
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.commitCount).toBe(1);
+      }
+
+      // Verify we're still on main
+      const currentBranch = await getCurrentBranch({ cwd: repo.path });
+      expect(currentBranch).toBe(repo.defaultBranch);
+
+      // Verify feature is now on top of origin/main
+      const mergeBase = (
+        await $`git -C ${repo.path} merge-base ${featureBranch} origin/main`.text()
+      ).trim();
+      const originMain = (await $`git -C ${repo.path} rev-parse origin/main`.text()).trim();
+      expect(mergeBase).toBe(originMain);
+    });
+
+    test("rebaseOntoMain returns result for conflict instead of throwing", async () => {
+      const repo = await repos.create();
+      await scenarios.multiSpryBranches.setup(repo);
+
+      // Find the conflict branch
+      const branchListResult =
+        await $`git -C ${repo.path} branch --list "feature-conflict-*"`.text();
+      const conflictBranch = branchListResult.trim();
+
+      const result = await rebaseOntoMain({
+        cwd: repo.path,
+        branch: conflictBranch,
+        onto: "origin/main",
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe("conflict");
+      }
     });
   });
 });

@@ -74,7 +74,7 @@ export async function checkFileOverlap(
  * The output contains lines like:
  * CONFLICT (content): Merge conflict in <file>
  */
-function parseConflictOutput(output: string): { files: string[]; lines: string[] } {
+export function parseConflictOutput(output: string): { files: string[]; lines: string[] } {
   const files: string[] = [];
   const lines: string[] = [];
 

@@ -42,6 +42,7 @@ program
   .command("sync")
   .description("Sync stack with GitHub: add IDs, push branches, and optionally create PRs")
   .option("--open", "Create PRs for branches that don't have them")
+  .option("--all", "Sync all Spry-tracked branches in the repository")
   .option(
     "--apply <json>",
     "Only open PRs for specified commits/groups (JSON array of identifiers)",
