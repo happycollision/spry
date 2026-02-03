@@ -1,69 +1,94 @@
-# Plan: Wrap GitHub Interactions for Testability
+# Plan: GitHub Service with Record/Replay Testing
+
+## Quick Summary
+
+**What:** Create a `GitHubService` abstraction layer with snapshot-based testing that records real GitHub API responses and replays them in subsequent test runs.
+
+**Key Innovation:** Dynamic test ID substitution - record with one test ID (e.g., `happy-penguin-x3f`), replay with a different one (e.g., `brave-falcon-k2m`) while automatically substituting IDs in responses.
+
+**Composability:** Use `withGitHubSnapshots()` composition function to add snapshot support to any test suite (including `createStoryTest`).
+
+**Test Experience:**
+
+```typescript
+const base = createStoryTest("pr.test.ts");
+const { test } = withGitHubSnapshots(base, "pr.test.ts");
+
+describe("PR operations", () => {
+  const repos = repoManager({ github: true });
+
+  test("creates PR", async (story) => {
+    const repo = await repos.clone();
+    // GitHub service automatically uses repos.uniqueId and test context
+    const result = await getGitHubService().createPR({...});
+    // Fast in replay mode, uses real data from record mode
+  });
+});
+```
 
 ## Goal
 
-Create a `GitHubService` interface that wraps all GitHub operations returning typed data structures. Use module-level dependency injection so tests can swap in mocks while production code continues using the `gh` CLI with existing rate limiting.
+Create a `GitHubService` interface that wraps all GitHub operations with a **snapshot-based testing approach**. The test service wraps the real service and records results, allowing tests to replay recorded responses without hitting GitHub.
 
-## Context
+## Updated Testing Strategy (Key Change)
 
-### Current Architecture
+Instead of swapping services based on ENV vars, we'll use a **record/replay pattern**:
 
-All `gh` CLI commands route through `ghExecWithLimit()` in [src/github/retry.ts](src/github/retry.ts) which provides:
+### Record Mode (with `GITHUB_INTEGRATION_TESTS=1`)
 
-- Concurrency limiting (max 5 concurrent calls)
-- Exponential backoff retry (3 attempts, 1-30s)
-- Rate limit detection
+1. Test calls `service.getUsername()`
+2. Snapshot service wraps the real service
+3. Real service calls `gh` CLI → returns `"testuser"`
+4. Snapshot service records `"testuser"` to a snapshot file
+5. Returns `"testuser"` to caller
 
-GitHub operations are spread across several files:
+### Replay Mode (without ENV vars - default)
 
-- [src/github/pr.ts](src/github/pr.ts) - PR operations (create, view, edit, list, close)
-- [src/github/api.ts](src/github/api.ts) - User/auth operations (`getGitHubUsername()`)
-- [src/github/branches.ts](src/github/branches.ts) - Branch naming and push operations (uses `getGitHubUsername()`)
+1. Test calls `service.getUsername()`
+2. Snapshot service reads from snapshot file
+3. Returns `Promise.resolve("testuser")` from snapshot
+4. No GitHub API calls, no `gh` CLI execution
 
-### Key Consumers
+### Benefits
 
-The largest consumer of GitHub operations is [src/cli/commands/sync.ts](src/cli/commands/sync.ts) which imports from:
+- Tests are fast by default (replay mode)
+- Tests use real GitHub responses (not hand-crafted mocks)
+- Can re-record snapshots when GitHub API changes
+- Explicit about what responses are being tested
+- **Gradual migration**: Tests without snapshots skip gracefully (no failures)
+- Run partial test suites without all snapshots recorded
 
-- `../../github/api.ts` - username, auth checks
-- `../../github/branches.ts` - branch naming, pushing
-- `../../github/pr.ts` - PR creation, querying, retargeting
-- `../../github/pr-body.ts` - PR body formatting
+## Architecture
 
-Other consumers:
-
-- [src/git/pr-detection.ts](src/git/pr-detection.ts) - Finding PRs by branch
-- [src/git/stack-settings.ts](src/git/stack-settings.ts) - PR queries
-- [src/git/group-titles.ts](src/git/group-titles.ts) - PR body parsing
-- [src/cli/commands/group.ts](src/cli/commands/group.ts) - PR operations
-
-### Current Testing Pattern
-
-- `GITHUB_INTEGRATION_TESTS=1` enables real GitHub tests
-- `GITHUB_CI_TESTS=1` enables CI-dependent tests
-- Tests use repo managers for local git repos
-- GitHub tests use a real test repo via [tests/helpers/github-fixture.ts](tests/helpers/github-fixture.ts)
-- Scenario-based tests in [src/scenario/](src/scenario/) for complex multi-branch setups
-
-### Recent Changes on Main (since worktree created)
-
-The following features have been merged and may affect this plan:
-
-1. **`sync --all` command** - Syncs all Spry-tracked branches at once. This significantly expanded [src/cli/commands/sync.ts](src/cli/commands/sync.ts), making it the largest consumer of GitHub operations. The service abstraction will help test this complex feature.
-
-2. **Scenario-based testing** - New [src/scenario/](src/scenario/) module provides reusable test scenarios for complex multi-branch setups. Consider using scenarios when testing the mock service.
-
-3. **Branch-aware functions** - Core functions like `injectMissingIds()`, `predictRebaseConflicts()`, `rebaseOntoMain()` now accept optional `branch` parameters. No impact on GitHub service design.
-
-## Design Decisions
-
-1. **Single interface** (`GitHubService`) rather than multiple smaller interfaces - operations share context and are typically mocked together
-2. **Module-level singleton with getter/setter** - matches existing patterns (`cachedBranchConfig`), zero changes to existing consumers initially
-3. **Default implementation delegates to existing functions** - keeps rate limiting via `ghExecWithLimit()` intact
-4. **Env var controls mock vs real** - same pattern as existing tests
+```
+┌─────────────────────────────────────────────────┐
+│ Test Code                                       │
+│ (uses getGitHubService())                       │
+└────────────────────┬────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────┐
+│ Service Layer (DI)                              │
+│ - getGitHubService()                            │
+│ - setGitHubService()                            │
+└────────────────────┬────────────────────────────┘
+                     │
+        ┌────────────┴────────────┐
+        │                         │
+        ▼                         ▼
+┌──────────────────┐    ┌──────────────────────┐
+│ Snapshot Service │    │ Default (Real)       │
+│ (Test Mode)      │    │ Service              │
+│                  │    │ (Production)         │
+│ Wraps Real ───►  │    │                      │
+│ Records/Replays  │    │ Direct gh CLI        │
+│ Results          │    │ via ghExecWithLimit  │
+└──────────────────┘    └──────────────────────┘
+```
 
 ## Files to Create
 
-### `src/github/service.ts` - Main interface and DI
+### 1. `src/github/service.ts` - Interface and DI
 
 ```typescript
 export interface GitHubService {
@@ -90,109 +115,387 @@ export interface GitHubService {
 }
 
 // DI functions
-export function getGitHubService(): GitHubService;
-export function setGitHubService(service: GitHubService): void;
-export function resetGitHubService(): void;
-export function createDefaultGitHubService(): GitHubService;
+let githubService: GitHubService | null = null;
+
+export function getGitHubService(): GitHubService {
+  if (!githubService) {
+    // Default to snapshot service in tests, real service in production
+    githubService = isTestEnvironment()
+      ? createSnapshotGitHubService()
+      : createDefaultGitHubService();
+  }
+  return githubService;
+}
+
+export function setGitHubService(service: GitHubService): void {
+  githubService = service;
+}
+
+export function resetGitHubService(): void {
+  githubService = null;
+}
+
+function isTestEnvironment(): boolean {
+  return typeof Bun !== 'undefined' && Bun.jest !== undefined;
+}
 ```
 
-### `src/github/service.mock.ts` - Test helper
+### 2. `src/github/service.default.ts` - Real Implementation
+
+Delegates all methods to existing functions in `api.ts`, `pr.ts`, etc.
+
+```typescript
+import { getGitHubUsername } from './api.ts';
+import { findPRForBranch, /* other functions */ } from './pr.ts';
+
+export function createDefaultGitHubService(): GitHubService {
+  return {
+    getUsername: async () => getGitHubUsername(),
+    findPRByBranch: async (branch: string) => findPRForBranch(branch),
+    // ... all other methods delegate to existing implementations
+  };
+}
+```
+
+### 3. `src/github/service.snapshot.ts` - Record/Replay with Dynamic Substitution
+
+**Key component!** See full implementation in code blocks below. Key features:
+
+- Wraps real service
+- Records responses with test context (testFile, testName, testId)
+- Replays responses with test ID substitution
+- Throws `SnapshotNotFoundError` for missing snapshots (handled gracefully by test wrapper)
+
+### 4. `src/github/snapshot-context.ts` - Test Context Registry
+
+Global registry that tracks:
+
+- `testFile`: e.g., "pr.test.ts"
+- `testName`: e.g., "creates PR for feature branch"
+- `testId`: e.g., "happy-penguin-x3f" from `repos.uniqueId`
+
+Functions:
+
+- `registerRepoContext(uniqueId)` - called by repoManager in beforeEach
+- `setTestMetadata(testFile, testName)` - called by test wrapper
+- `getSnapshotContext()` - used by snapshot service
+- `clearSnapshotContext()` - called in afterEach
+- `getSnapshotPath(testFile)` - converts "pr.test.ts" → "tests/snapshots/pr.json"
+
+### 5. `tests/helpers/snapshot-compose.ts` - Composition Function
+
+**Composable function to add snapshot support:**
+
+```typescript
+export function withGitHubSnapshots(suite: TestSuite, testFile: string): TestSuite
+```
+
+Usage:
+
+```typescript
+const base = createStoryTest("pr.test.ts");
+const { test } = withGitHubSnapshots(base, "pr.test.ts");
+```
+
+Features:
+
+- Wraps test functions to set test metadata before execution
+- Catches `SnapshotNotFoundError` and skips test with warning
+- Clears context in afterEach
+- Preserves test.skip, test.only, etc.
+
+### 6. `src/github/service.mock.ts` - Simple Mocks
+
+For unit tests that need specific behavior:
 
 ```typescript
 export function createMockGitHubService(
   overrides: Partial<GitHubService> = {}
-): GitHubService;
+): GitHubService
 ```
 
 ## Files to Modify
 
-### `src/github/pr.ts`
+### `tests/helpers/local-repo.ts`
 
-- Re-export service functions for convenience
-- No functional changes to existing code
-
-## Environment Variable Control
-
-Following the existing pattern (`GITHUB_INTEGRATION_TESTS`, `GITHUB_CI_TESTS`):
-
-- **No env var** → `getGitHubService()` returns mock service (fast local tests)
-- **`GITHUB_INTEGRATION_TESTS=1`** → `getGitHubService()` returns real service
+Add ONE line in the beforeEach hook for GitHub repos:
 
 ```typescript
-// In service.ts
-export function getGitHubService(): GitHubService {
-  if (!githubService) {
-    githubService = process.env.GITHUB_INTEGRATION_TESTS
-      ? createDefaultGitHubService()  // Real gh CLI
-      : createMockGitHubService();    // Mock with sensible defaults
-  }
-  return githubService;
-}
+import { registerRepoContext } from "../../src/github/snapshot-context.ts";
+
+// In the beforeEach hook for GitHub repos (around line 328):
+beforeEach(async () => {
+  ctx.uniqueId = generateUniqueId();
+  registerRepoContext(ctx.uniqueId);  // ADD THIS LINE
+  await githubFixture?.reset();
+});
 ```
 
-This means:
+## Environment Variable Behavior
 
-- `bun test` → runs with mocks (fast, no network)
-- `GITHUB_INTEGRATION_TESTS=1 bun test` → runs with real GitHub (existing behavior)
-- Tests can still override with `setGitHubService()` for specific scenarios
+| Mode              | ENV Var                      | Service Used                    | Behavior                                                                           |
+| ----------------- | ---------------------------- | ------------------------------- | ---------------------------------------------------------------------------------- |
+| **Production**    | None                         | Default                         | Real `gh` CLI calls                                                                |
+| **Test - Replay** | None                         | Snapshot (replay)               | Returns recorded results with ID substitution. **Tests skip if snapshot missing.** |
+| **Test - Record** | `GITHUB_INTEGRATION_TESTS=1` | Snapshot (record)               | Calls real service, records results with test context                              |
+| **Test - Custom** | Any                          | Manual via `setGitHubService()` | Uses provided mock                                                                 |
 
-## Migration Strategy
+### Test Skip Behavior
 
-**Phase 1: Create infrastructure (this PR)**
+In **replay mode** (no ENV var):
 
-- Create `service.ts` with interface and default implementation
-- Create `service.mock.ts` with mock factory
-- No changes to existing consumers
+- ✅ Tests with snapshots: Run fast using recorded data
+- ⊘ Tests without snapshots: Skip with warning message
+- No test failures for missing snapshots
 
-**Phase 2: Migrate consumers incrementally (future PRs)**
+In **record mode** (`GITHUB_INTEGRATION_TESTS=1`):
 
-- Update modules one at a time to use `getGitHubService()`
-- Start with [src/git/pr-detection.ts](src/git/pr-detection.ts) which already has spyOn-based tests
-- Then migrate [src/cli/commands/sync.ts](src/cli/commands/sync.ts) - the largest consumer
-- Each migration is a small, isolated change
-- The `cachedBranchConfig` pattern in [src/github/branches.ts](src/github/branches.ts) is a good model for the DI approach
+- ✅ All tests run against real GitHub
+- 📝 Snapshots created/updated for all tests
+- Tests may be slower but create complete snapshot coverage
+
+## Snapshot Storage Strategy
+
+**Per-test-file snapshots:**
+
+- `pr.test.ts` → `tests/snapshots/pr.json`
+- `sync.test.ts` → `tests/snapshots/sync.json`
+- `api.test.ts` → `tests/snapshots/api.json`
+
+**Benefits:**
+
+- Test names only need to be unique within a file
+- Smaller, more manageable snapshot files
+- Easier to re-record specific test areas
+- Clear organization that mirrors test file structure
 
 ## Example Test Usage
 
+### Integration Tests with Story + Snapshots
+
 ```typescript
-import { setGitHubService } from "../github/service";
-import { createMockGitHubService } from "../github/service.mock";
+import { createStoryTest } from "../helpers/story-test.ts";
+import { withGitHubSnapshots } from "../helpers/snapshot-compose.ts";
+import { repoManager } from "../helpers/local-repo.ts";
+import { getGitHubService } from "../../src/github/service.ts";
 
-// Most tests just run - they get mock or real based on env var
+// Compose story test + GitHub snapshot support
+const base = createStoryTest("pr.test.ts");
+const { test } = withGitHubSnapshots(base, "pr.test.ts");
 
-test("detects PR for branch", async () => {
-  // Uses whatever service the env var selected
-  const result = await detectPRs(commits);
-  expect(result).toBeDefined();
-});
+describe("GitHub PR operations", () => {
+  const repos = repoManager({ github: true });
 
-// Tests that need specific mock behavior can override
-test("handles missing PR gracefully", async () => {
-  setGitHubService(createMockGitHubService({
-    findPRByBranch: async () => null,  // Force "no PR found" scenario
-  }));
+  test("creates PR for feature branch", async (story) => {
+    const repo = await repos.clone();
+    const testId = repos.uniqueId;
 
-  const result = await detectPRs(commits);
-  expect(result).toEqual([]);
+    story.strip(testId);
+    story.narrate("Creating a PR for a feature branch");
+
+    const branchName = await repo.branch("feature");
+    await repo.commit({ message: "Add feature" });
+    await $`git -C ${repo.path} push -u origin ${branchName}`.quiet();
+
+    // GitHub service call - automatically snapshots
+    const result = await getGitHubService().createPR({
+      title: `Test Feature ${testId}`,
+      base: "main",
+      head: branchName,
+    });
+
+    expect(result.number).toBeGreaterThan(0);
+
+    // RECORD mode: Real GitHub, saves snapshot
+    // REPLAY mode: Uses snapshot, substitutes testId
+  });
 });
 ```
 
+### Just Snapshots (No Story)
+
+```typescript
+import { test as bunTest } from "bun:test";
+import { withGitHubSnapshots } from "../helpers/snapshot-compose.ts";
+
+const { test } = withGitHubSnapshots({ test: bunTest }, "api.test.ts");
+
+describe("GitHub API", () => {
+  const repos = repoManager({ github: true });
+
+  test("gets username", async () => {
+    const username = await getGitHubService().getUsername();
+    expect(username).toBeTruthy();
+  });
+});
+```
+
+## How It Works: The Complete Flow
+
+1. **Test Setup (beforeEach)**:
+   - `repoManager` generates `uniqueId` → "happy-penguin-x3f"
+   - Calls `registerRepoContext("happy-penguin-x3f")`
+
+2. **Test Execution**:
+   - `withGitHubSnapshots` wrapper calls `setTestMetadata("pr.test.ts", "creates PR")`
+   - Context now has: `{ testFile: "pr.test.ts", testName: "creates PR", testId: "happy-penguin-x3f" }`
+
+3. **GitHub Service Call**:
+   - Test calls `getGitHubService().createPR({...})`
+   - Service reads context via `getSnapshotContext()`
+   - **Record mode**: Calls real service, saves response to `tests/snapshots/pr.json`
+   - **Replay mode**: Loads snapshot, substitutes test ID, returns modified response
+
+4. **Test Cleanup (afterEach)**:
+   - `clearSnapshotContext()` resets state
+
+## Migration Strategy
+
+**Phase 1: Create infrastructure** (this PR)
+
+1. Create all 6 new files
+2. Modify `tests/helpers/local-repo.ts` (1 line)
+3. No changes to existing test files yet
+4. Infrastructure is additive - no breaking changes
+
+**Phase 2: Write initial snapshot tests** (next PR)
+
+1. Create example test using composition pattern
+2. Record snapshots: `GITHUB_INTEGRATION_TESTS=1 bun test`
+3. Verify replay: `bun test` (fast, uses snapshots)
+4. Commit snapshots to repository
+
+**Phase 3: Migrate existing tests incrementally** (future PRs)
+
+1. Update tests to use `getGitHubService()` instead of direct `gh` CLI calls
+2. Wrap tests with `withGitHubSnapshots()`
+3. Record snapshots for migrated tests
+4. Priority: pr-detection, sync, other integration tests
+
+## Verification Steps
+
+### 1. Create Infrastructure
+
+- Implement all 6 new files
+- Modify `local-repo.ts` (1 line)
+- Run existing tests: `bun test` (should pass, no changes yet)
+
+### 2. Write Example Test
+
+- Create `tests/github/service.snapshot.test.ts`
+- Use composition pattern with `withGitHubSnapshots()`
+- Initially fails with "Snapshot not found" warning
+
+### 3. Record Snapshots
+
+```bash
+GITHUB_INTEGRATION_TESTS=1 bun test tests/github/service.snapshot.test.ts
+```
+
+- Real GitHub calls
+- Creates `tests/snapshots/service.json`
+- Test passes
+
+### 4. Verify Replay Mode
+
+```bash
+bun test tests/github/service.snapshot.test.ts
+```
+
+- No GitHub calls
+- New test IDs generated
+- Test IDs substituted in responses
+- Test passes, fast (< 1s)
+
+### 5. Verify Skip Behavior
+
+- Add new test without recording snapshot
+- Run without ENV var
+- Test skips with warning (no failure)
+
+### 6. Verify Production
+
+```bash
+bun run sync
+```
+
+- Real `gh` CLI calls (not snapshots)
+- Rate limiting still works
+- No user-facing changes
+
+## Critical Implementation Details
+
+### Dynamic Test ID Substitution
+
+**Example:**
+
+```
+RECORD (testId: "old-test-af4"):
+  Input:  createPR({ head: "feature-old-test-af4" })
+  Output: { number: 42, branch: "feature-old-test-af4" }
+  Saved:  { testContext: "creates PR", testId: "old-test-af4", ... }
+
+REPLAY (testId: "new-test-x3f"):
+  Input:  createPR({ head: "feature-new-test-x3f" })
+  Match:  Found snapshot for "creates PR" + createPR
+  Substitute: "old-test-af4" → "new-test-x3f" in result
+  Return: { number: 42, branch: "feature-new-test-x3f" }
+```
+
+### Snapshot Matching Strategy
+
+1. Filter by `testContext` (test name)
+2. Filter by `method` name
+3. If multiple candidates, match by args (normalize test IDs)
+4. Return first match
+
+### Missing Snapshots
+
+When snapshot not found in replay mode:
+
+1. Throw `SnapshotNotFoundError`
+2. Test wrapper catches it
+3. Logs warning: `⊘ Skipped: test name - snapshot not available`
+4. Test passes (not fails)
+
+## Design Decisions Summary
+
+1. **Snapshot file organization**: Per-module files (e.g., `tests/snapshots/pr.json`)
+2. **Snapshot matching**: Test context + method name (inspired by story tests)
+3. **Test ID handling**: Dynamic substitution with recorded inputs
+4. **Non-deterministic data**: Record as-is, substitute only test IDs
+5. **Snapshot updates**: Manual re-recording with `GITHUB_INTEGRATION_TESTS=1`
+6. **Missing snapshots**: Skip tests gracefully instead of failing
+7. **Composability**: Use `withGitHubSnapshots()` to add snapshot support to any test suite
+8. **Unique IDs**: Use existing `repoManager({github:true}).uniqueId` (don't create duplicate system)
+
 ## Key Files Reference
 
-| File                                                               | Purpose                                         |
-| ------------------------------------------------------------------ | ----------------------------------------------- |
-| [src/github/pr.ts](src/github/pr.ts)                               | Existing PR operations to wrap                  |
-| [src/github/api.ts](src/github/api.ts)                             | Contains `getGitHubUsername()`                  |
-| [src/github/branches.ts](src/github/branches.ts)                   | Branch naming with `cachedBranchConfig` pattern |
-| [src/github/retry.ts](src/github/retry.ts)                         | Rate limiting (unchanged, used internally)      |
-| [src/cli/commands/sync.ts](src/cli/commands/sync.ts)               | Largest consumer - sync and sync --all          |
-| [src/git/pr-detection.ts](src/git/pr-detection.ts)                 | First consumer to migrate                       |
-| [tests/helpers/github-fixture.ts](tests/helpers/github-fixture.ts) | Real GitHub test fixture                        |
-| [tests/integration/helpers.ts](tests/integration/helpers.ts)       | Test env var definitions                        |
-| [src/scenario/](src/scenario/)                                     | Scenario-based test setup for complex cases     |
+| File                                | Purpose                                               |
+| ----------------------------------- | ----------------------------------------------------- |
+| **NEW Service Layer**               |                                                       |
+| `src/github/service.ts`             | Interface + DI (getGitHubService, setGitHubService)   |
+| `src/github/service.default.ts`     | Real implementation (delegates to existing functions) |
+| `src/github/service.snapshot.ts`    | Record/replay with test ID substitution               |
+| `src/github/service.mock.ts`        | Simple mocks for unit tests                           |
+| `src/github/snapshot-context.ts`    | Global test context registry                          |
+| **NEW Test Helpers**                |                                                       |
+| `tests/helpers/snapshot-compose.ts` | Composition function (withGitHubSnapshots)            |
+| **MODIFIED**                        |                                                       |
+| `tests/helpers/local-repo.ts`       | Add registerRepoContext call in beforeEach (1 line)   |
+| **Existing (Reference)**            |                                                       |
+| `tests/helpers/story-test.ts`       | Composes with snapshot via withGitHubSnapshots        |
+| `tests/helpers/unique-id.ts`        | Source of repos.uniqueId                              |
+| `src/github/pr.ts`                  | Existing PR operations (to be wrapped)                |
+| `src/github/api.ts`                 | Contains getGitHubUsername() (to be wrapped)          |
+| `src/github/retry.ts`               | Rate limiting (unchanged, used internally)            |
 
-## Verification
+## Success Criteria
 
-1. Run existing tests to ensure no regressions: `bun test`
-2. Create a simple test that uses the mock service
-3. Verify the default service works by running `bun run sync` in a real repo
+- ✅ Tests pass in record mode (with `GITHUB_INTEGRATION_TESTS=1`)
+- ✅ Tests pass in replay mode (without env var)
+- ✅ Test IDs are different between runs but tests still pass
+- ✅ Replay mode is fast (< 1 second per test)
+- ✅ Tests without snapshots skip gracefully (no failures)
+- ✅ Production commands still work with real GitHub
+- ✅ Existing tests continue to pass (no regressions)
