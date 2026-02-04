@@ -1,2 +1,6 @@
 echo "Running lint-staged..."
 bunx lint-staged
+
+echo "Now checking EVERYTHING..."
+
+bun run check
