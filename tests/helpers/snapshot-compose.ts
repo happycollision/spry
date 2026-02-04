@@ -31,10 +31,7 @@
 
 import { basename } from "node:path";
 import { afterEach as bunAfterEach } from "bun:test";
-import {
-  setTestMetadata,
-  clearSnapshotContext,
-} from "../../src/github/snapshot-context.ts";
+import { setTestMetadata, clearSnapshotContext } from "../../src/github/snapshot-context.ts";
 import { SnapshotNotFoundError } from "../../src/github/service.snapshot.ts";
 import { resetGitHubService } from "../../src/github/service.ts";
 
@@ -51,10 +48,7 @@ interface TestOptions {
  * @returns Wrapped test suite with snapshot support
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function withGitHubSnapshots<T extends { test: any }>(
-  suite: T,
-  testFile?: string,
-): T {
+export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?: string): T {
   // Auto-detect test file from Bun.main if not provided
   const resolvedTestFile = testFile ?? basename(Bun.main);
   const originalTest = suite.test;
@@ -110,7 +104,12 @@ export function withGitHubSnapshots<T extends { test: any }>(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function wrappedTest(name: string, fnOrOptions: any, optionsOrFn?: any): void {
     const fn = typeof fnOrOptions === "function" ? fnOrOptions : optionsOrFn;
-    const options = typeof fnOrOptions === "object" ? fnOrOptions : (typeof optionsOrFn === "object" ? optionsOrFn : undefined);
+    const options =
+      typeof fnOrOptions === "object"
+        ? fnOrOptions
+        : typeof optionsOrFn === "object"
+          ? optionsOrFn
+          : undefined;
 
     const wrapped = wrapTestFn(name, fn);
 

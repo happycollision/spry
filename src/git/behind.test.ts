@@ -133,12 +133,8 @@ describe("git/behind", () => {
       await repo.fetch();
 
       // Get SHA before fast-forward
-      const mainBefore = (
-        await $`git -C ${repo.path} rev-parse main`.text()
-      ).trim();
-      const remoteSha = (
-        await $`git -C ${repo.path} rev-parse origin/main`.text()
-      ).trim();
+      const mainBefore = (await $`git -C ${repo.path} rev-parse main`.text()).trim();
+      const remoteSha = (await $`git -C ${repo.path} rev-parse origin/main`.text()).trim();
 
       expect(mainBefore).not.toBe(remoteSha);
 
@@ -146,9 +142,7 @@ describe("git/behind", () => {
       expect(result.performed).toBe(true);
 
       // Verify local main now matches origin/main
-      const mainAfter = (
-        await $`git -C ${repo.path} rev-parse main`.text()
-      ).trim();
+      const mainAfter = (await $`git -C ${repo.path} rev-parse main`.text()).trim();
       expect(mainAfter).toBe(remoteSha);
     });
 

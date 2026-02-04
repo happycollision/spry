@@ -3,15 +3,18 @@
 ## Status: Phase 1 Complete ✅
 
 **Phase 1 (Infrastructure)** - DONE
+
 - All 6 service files created
 - Example test created
 - Tests skip gracefully without snapshots
 
 **Phase 2 (Record Snapshots)** - Next
+
 - Run `GITHUB_INTEGRATION_TESTS=1 bun test tests/github/service.snapshot.test.ts` to record
 - Commit snapshots to repository
 
 **Phase 3 (Migration)** - Future
+
 - Migrate existing tests to use `getGitHubService()`
 
 ---

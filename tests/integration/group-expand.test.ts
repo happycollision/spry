@@ -23,9 +23,7 @@ async function getCommitGroups(
   // Format: hash|subject|trailers (one per line)
   // Use an array for args to avoid Bun shell parsing issues with parentheses
   const format = "%H|%s|%(trailers:key=Spry-Group,valueonly)";
-  const log = await $`git -C ${cwd} log --format=${format} HEAD~7..HEAD`
-    .text()
-    .catch(() => "");
+  const log = await $`git -C ${cwd} log --format=${format} HEAD~7..HEAD`.text().catch(() => "");
 
   return log
     .trim()

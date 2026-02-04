@@ -449,10 +449,11 @@ export async function runGroupEditor(): Promise<GroupEditorResult> {
   }
 
   // Convert to display format
-  const { commits: displayCommits, existingGroupNames, existingGroupIds } = toCommitDisplays(
-    commits,
-    groupTitles,
-  );
+  const {
+    commits: displayCommits,
+    existingGroupNames,
+    existingGroupIds,
+  } = toCommitDisplays(commits, groupTitles);
 
   // Create initial state
   const initialState = createInitialState(displayCommits);
