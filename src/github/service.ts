@@ -29,6 +29,7 @@ import type {
   CommentStatus,
   PRMergeStatus,
 } from "./pr.ts";
+import { asserted } from "../utils/assert.ts";
 
 /**
  * The GitHub service interface.
@@ -67,7 +68,7 @@ let githubService: GitHubService | null = null;
  */
 function isTestEnvironment(): boolean {
   // Bun test sets this
-  return process.env.NODE_ENV === "test" || typeof Bun !== "undefined" && !!Bun.env.BUN_TEST;
+  return process.env.NODE_ENV === "test" || (typeof Bun !== "undefined" && !!Bun.env.BUN_TEST);
 }
 
 /**
@@ -103,7 +104,7 @@ export function getGitHubService(): GitHubService {
     githubService = createDefaultGitHubService();
   }
 
-  return githubService!;
+  return asserted(githubService);
 }
 
 /**

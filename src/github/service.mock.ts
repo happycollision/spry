@@ -17,7 +17,7 @@
  */
 
 import type { GitHubService } from "./service.ts";
-import type { PRInfo, CreatePROptions, ChecksStatus, ReviewDecision, CommentStatus, PRMergeStatus } from "./pr.ts";
+import type { PRInfo, ChecksStatus, ReviewDecision } from "./pr.ts";
 
 /**
  * Default implementations that throw "not implemented" errors.
@@ -37,9 +37,7 @@ function notImplemented(method: string): () => never {
  *
  * @param overrides - Partial implementation to use
  */
-export function createMockGitHubService(
-  overrides: Partial<GitHubService> = {},
-): GitHubService {
+export function createMockGitHubService(overrides: Partial<GitHubService> = {}): GitHubService {
   return {
     // User/Auth
     getUsername: overrides.getUsername ?? notImplemented("getUsername"),
@@ -89,7 +87,7 @@ export function createNoOpGitHubService(): GitHubService {
     getPRState: async () => "OPEN",
     getPRBody: async () => "",
     getPRBaseBranch: async () => "main",
-    createPR: async (options) => ({ number: 1, url: `https://github.com/owner/repo/pull/1` }),
+    createPR: async (_options) => ({ number: 1, url: `https://github.com/owner/repo/pull/1` }),
     retargetPR: async () => {},
     updatePRBody: async () => {},
     closePR: async () => {},

@@ -22,12 +22,7 @@ import {
   retargetPR,
   updatePRBody,
   closePR,
-  type PRInfo,
   type CreatePROptions,
-  type ChecksStatus,
-  type ReviewDecision,
-  type CommentStatus,
-  type PRMergeStatus,
 } from "./pr.ts";
 
 /**

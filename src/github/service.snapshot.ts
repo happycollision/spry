@@ -23,12 +23,8 @@ import { dirname } from "node:path";
 import type { GitHubService } from "./service.ts";
 import { isGitHubIntegrationEnabled } from "./service.ts";
 import { createDefaultGitHubService } from "./service.default.ts";
-import {
-  getSnapshotContext,
-  getSnapshotPath,
-  getSnapshotDir,
-  type SnapshotContext,
-} from "./snapshot-context.ts";
+import { getSnapshotContext, getSnapshotPath, type SnapshotContext } from "./snapshot-context.ts";
+import { asserted } from "../utils/assert.ts";
 
 /**
  * Error thrown when a snapshot is not found in replay mode.
@@ -75,9 +71,6 @@ interface SnapshotFile {
 /** In-memory cache of loaded snapshots */
 const snapshotCache = new Map<string, SnapshotFile>();
 
-/** Entries pending write (batched for performance) */
-const pendingWrites = new Map<string, SnapshotEntry[]>();
-
 /**
  * Load a snapshot file from disk or cache.
  */
@@ -86,7 +79,7 @@ async function loadSnapshots(testFile: string): Promise<SnapshotFile> {
 
   // Check cache first
   if (snapshotCache.has(path)) {
-    return snapshotCache.get(path)!;
+    return asserted(snapshotCache.get(path));
   }
 
   // Try to load from disk
@@ -95,7 +88,7 @@ async function loadSnapshots(testFile: string): Promise<SnapshotFile> {
     const file = JSON.parse(content) as SnapshotFile;
     snapshotCache.set(path, file);
     return file;
-  } catch (error) {
+  } catch {
     // File doesn't exist - create empty structure
     const empty: SnapshotFile = { version: 1, entries: [] };
     snapshotCache.set(path, empty);
@@ -181,7 +174,7 @@ async function findSnapshot(
 
   // If only one candidate, return it
   if (candidates.length === 1) {
-    return candidates[0]!;
+    return asserted(candidates[0]);
   }
 
   // Multiple candidates - try to match by args (normalizing test IDs)
@@ -194,7 +187,7 @@ async function findSnapshot(
   }
 
   // No exact match - return first candidate
-  return candidates[0]!;
+  return asserted(candidates[0]);
 }
 
 /**

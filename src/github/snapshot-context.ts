@@ -13,7 +13,7 @@
  * for recording/replaying GitHub API responses.
  */
 
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 
 /** Complete context needed for snapshot operations */
 export interface SnapshotContext {

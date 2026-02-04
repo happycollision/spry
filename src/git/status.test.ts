@@ -1,9 +1,7 @@
 import { test, expect, describe, setDefaultTimeout } from "bun:test";
-import { $ } from "bun";
 import { repoManager } from "../../tests/helpers/local-repo.ts";
 import { scenarios } from "../scenario/definitions.ts";
 import { getWorkingTreeStatus, requireCleanWorkingTree, DirtyWorkingTreeError } from "./status.ts";
-import { join } from "node:path";
 
 // Git operations can be slow under load, increase default timeout
 setDefaultTimeout(15_000);

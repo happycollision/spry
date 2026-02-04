@@ -120,9 +120,9 @@ describe("git/config", () => {
       await $`git remote rename origin upstream`.quiet();
       await $`git remote add fork ${repo.originPath}`.quiet();
 
-      await expect(detectRemote()).rejects.toThrow("Multiple remotes found");
+      expect(detectRemote()).rejects.toThrow("Multiple remotes found");
       // Check that both remotes are listed (order may vary)
-      await expect(detectRemote()).rejects.toThrow(/upstream.*fork|fork.*upstream/);
+      expect(detectRemote()).rejects.toThrow(/upstream.*fork|fork.*upstream/);
     });
 
     test("throws when no remotes exist", async () => {
@@ -131,7 +131,7 @@ describe("git/config", () => {
 
       await $`git remote remove origin`.quiet();
 
-      await expect(detectRemote()).rejects.toThrow("No git remotes found");
+      expect(detectRemote()).rejects.toThrow("No git remotes found");
     });
 
     test("uses non-origin remote when it is the only one", async () => {
@@ -179,7 +179,7 @@ describe("git/config", () => {
       const repo = await repos.create();
       process.chdir(repo.path);
 
-      await expect(detectDefaultBranch("nonexistent")).rejects.toThrow(
+      expect(detectDefaultBranch("nonexistent")).rejects.toThrow(
         "Could not detect default branch for remote 'nonexistent'",
       );
     });
