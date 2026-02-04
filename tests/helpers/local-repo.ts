@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { rm } from "node:fs/promises";
 import { createGitHubFixture, type GitHubFixture } from "./github-fixture.ts";
 import { generateUniqueId } from "./unique-id.ts";
+import { registerRepoContext } from "../../src/github/snapshot-context.ts";
 import {
   createLocalRepo as createLocalRepoCore,
   type LocalRepo,
@@ -326,6 +327,7 @@ export function repoManager(options?: { github?: boolean }): LocalRepoManager | 
 
     beforeEach(async () => {
       ctx.uniqueId = generateUniqueId();
+      registerRepoContext(ctx.uniqueId);
       await githubFixture?.reset();
     });
 

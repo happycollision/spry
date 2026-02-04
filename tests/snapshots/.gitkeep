@@ -1,0 +1,21 @@
+# GitHub API Snapshots
+
+This directory contains recorded GitHub API responses for testing.
+
+## Recording Snapshots
+
+Run tests with `GITHUB_INTEGRATION_TESTS=1` to record:
+
+```bash
+GITHUB_INTEGRATION_TESTS=1 bun test tests/github/
+```
+
+## Replay Mode (Default)
+
+Without the env var, tests replay from recorded snapshots:
+
+```bash
+bun test tests/github/
+```
+
+Tests with missing snapshots skip gracefully instead of failing.

@@ -1,5 +1,21 @@
 # Plan: GitHub Service with Record/Replay Testing
 
+## Status: Phase 1 Complete ✅
+
+**Phase 1 (Infrastructure)** - DONE
+- All 6 service files created
+- Example test created
+- Tests skip gracefully without snapshots
+
+**Phase 2 (Record Snapshots)** - Next
+- Run `GITHUB_INTEGRATION_TESTS=1 bun test tests/github/service.snapshot.test.ts` to record
+- Commit snapshots to repository
+
+**Phase 3 (Migration)** - Future
+- Migrate existing tests to use `getGitHubService()`
+
+---
+
 ## Quick Summary
 
 **What:** Create a `GitHubService` abstraction layer with snapshot-based testing that records real GitHub API responses and replays them in subsequent test runs.
@@ -11,8 +27,9 @@
 **Test Experience:**
 
 ```typescript
-const base = createStoryTest("pr.test.ts");
-const { test } = withGitHubSnapshots(base, "pr.test.ts");
+// withGitHubSnapshots auto-detects test file from Bun.main
+const base = createStoryTest(import.meta.file);
+const { test } = withGitHubSnapshots(base);
 
 describe("PR operations", () => {
   const repos = repoManager({ github: true });

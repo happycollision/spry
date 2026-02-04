@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- GitHub Service abstraction layer with snapshot-based testing for fast, reproducible integration tests
+  - `GitHubService` interface abstracts all GitHub operations (PR creation, queries, etc.)
+  - Record/replay snapshot system captures real GitHub API responses for offline testing
+  - Dynamic test ID substitution allows recorded snapshots to work with different test runs
+  - `withGitHubSnapshots()` composition function adds snapshot support to any test suite
+  - Mock service helpers for unit tests (`createMockGitHubService`, `createNoOpGitHubService`, `createTrackedGitHubService`)
 - `sp sync --all` to sync all Spry-tracked branches in the repository at once
   - Discovers branches with Spry-Commit-Id trailers
   - Rebases each branch onto the remote default branch without manual checkout
