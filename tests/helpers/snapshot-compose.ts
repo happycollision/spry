@@ -24,16 +24,57 @@
  * The wrapper:
  * - Automatically detects test file from Bun.main
  * - Sets test metadata before each test
- * - Catches SnapshotNotFoundError and skips tests gracefully
+ * - Skips tests without snapshots in replay mode (using native Bun skip)
  * - Clears context in afterEach
  * - Preserves test.skip, test.only, test.skipIf
  */
 
 import { basename } from "node:path";
 import { afterEach as bunAfterEach } from "bun:test";
-import { setTestMetadata, clearSnapshotContext } from "../../src/github/snapshot-context.ts";
-import { SnapshotNotFoundError } from "../../src/github/service.snapshot.ts";
-import { resetGitHubService } from "../../src/github/service.ts";
+import {
+  setTestMetadata,
+  clearSnapshotContext,
+  getSnapshotPath,
+} from "../../src/github/snapshot-context.ts";
+import { isGitHubIntegrationEnabled, resetGitHubService } from "../../src/github/service.ts";
+
+/** Memoized snapshot file cache */
+const snapshotFileCache = new Map<string, { entries: Array<{ testContext: string }> } | null>();
+
+/**
+ * Load a snapshot file synchronously (memoized).
+ * Returns null if the file doesn't exist or is invalid.
+ */
+function loadSnapshotFileSync(
+  testFile: string,
+): { entries: Array<{ testContext: string }> } | null {
+  const path = getSnapshotPath(testFile);
+
+  if (snapshotFileCache.has(path)) {
+    return snapshotFileCache.get(path) ?? null;
+  }
+
+  try {
+    // Use readFileSync for synchronous loading at test registration time
+    const content = require("fs").readFileSync(path, "utf-8");
+    const parsed = JSON.parse(content);
+    snapshotFileCache.set(path, parsed);
+    return parsed;
+  } catch {
+    snapshotFileCache.set(path, null);
+    return null;
+  }
+}
+
+/**
+ * Check if a test has any recorded snapshots.
+ * Used at registration time to decide whether to skip.
+ */
+function hasSnapshotForTest(testFile: string, testName: string): boolean {
+  const file = loadSnapshotFileSync(testFile);
+  if (!file || !file.entries) return false;
+  return file.entries.some((e) => e.testContext === testName);
+}
 
 /** Test options */
 interface TestOptions {
@@ -67,6 +108,18 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
   }
 
   /**
+   * Check if a test should be skipped (no snapshots in replay mode).
+   */
+  function shouldSkipTest(testName: string): boolean {
+    if (isGitHubIntegrationEnabled()) {
+      // Record mode - never skip, we're recording new snapshots
+      return false;
+    }
+    // Replay mode - skip if no snapshots exist for this test
+    return !hasSnapshotForTest(resolvedTestFile, testName);
+  }
+
+  /**
    * Wrap a test function to set metadata and handle snapshot errors.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -79,21 +132,11 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
       // Set test metadata for snapshot context
       setTestMetadata(resolvedTestFile, testName);
 
-      try {
-        // Call original test function
-        if (context !== undefined) {
-          await fn(context);
-        } else {
-          await fn();
-        }
-      } catch (error) {
-        // Handle snapshot not found - skip gracefully
-        if (error instanceof SnapshotNotFoundError) {
-          console.log(`⊘ Skipped: ${testName} - snapshot not available (${error.method})`);
-          console.log(`  Run with GITHUB_INTEGRATION_TESTS=1 to record snapshots`);
-          return; // Don't fail the test
-        }
-        throw error;
+      // Call original test function (snapshot errors will propagate)
+      if (context !== undefined) {
+        await fn(context);
+      } else {
+        await fn();
       }
     };
   }
@@ -110,6 +153,14 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
         : typeof optionsOrFn === "object"
           ? optionsOrFn
           : undefined;
+
+    // Skip at registration time if no snapshots in replay mode
+    if (shouldSkipTest(name)) {
+      if (originalTest.skip) {
+        originalTest.skip(name, fn, options);
+      }
+      return;
+    }
 
     const wrapped = wrapTestFn(name, fn);
 
