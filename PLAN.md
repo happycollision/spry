@@ -1,19 +1,20 @@
 # Plan: GitHub Service with Record/Replay Testing
 
-## Status: Phase 1 Complete ✅
+## Status: Phase 2 Complete ✅
 
 **Phase 1 (Infrastructure)** - DONE
 
 - All 6 service files created
 - Example test created
-- Tests skip gracefully without snapshots
+- Tests skip gracefully without snapshots (using native Bun skip)
 
-**Phase 2 (Record Snapshots)** - Next
+**Phase 2 (Record Snapshots)** - DONE
 
-- Run `GITHUB_INTEGRATION_TESTS=1 bun test tests/github/service.snapshot.test.ts` to record
-- Commit snapshots to repository
+- Snapshots recorded for service.snapshot.test.ts
+- Replay mode verified (~8s vs ~17s record mode)
+- Snapshot file cleared on re-recording (no stale entries)
 
-**Phase 3 (Migration)** - Future
+**Phase 3 (Migration)** - Next
 
 - Migrate existing tests to use `getGitHubService()`
 
