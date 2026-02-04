@@ -1,4 +1,5 @@
 import { $ } from "bun";
+import { asserted } from "../utils/assert.ts";
 
 export type TemplateLocation = "prepend" | "afterBody" | "afterStackLinks" | "append";
 
@@ -159,7 +160,7 @@ export async function detectRemote(configuredRemote?: string): Promise<string> {
 
   // 2. If only one remote, use it and persist to config for future-proofing
   if (remotes.length === 1) {
-    const remote = remotes[0];
+    const remote = asserted(remotes[0]);
     // Persist to config so if more remotes are added later, we remember the choice
     await $`git config spry.remote ${remote}`.quiet().nothrow();
     return remote;

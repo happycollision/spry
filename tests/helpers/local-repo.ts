@@ -61,6 +61,8 @@ interface BaseRepo {
   path: string;
   /** Unique identifier for this test run */
   readonly uniqueId: string;
+  /** Default branch name (e.g., "main") */
+  readonly defaultBranch: string;
 
   /** Create a commit with auto-generated file */
   commit(options?: CommitOptions): Promise<string>;
@@ -221,9 +223,12 @@ async function cloneGitHubRepo(
     return prs.filter((p) => p.title.includes(titleSubstring));
   }
 
+  const defaultBranch = options?.defaultBranch ?? "main";
+
   return {
     path,
     github,
+    defaultBranch,
     ...methods,
 
     async findPR(

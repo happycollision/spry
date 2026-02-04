@@ -110,7 +110,7 @@ export async function getStackCommitsForBranch(
   branch: string,
   options: GitOptions = {},
 ): Promise<CommitInfo[]> {
-  const defaultBranchRef = await getDefaultBranchRef(options);
+  const defaultBranchRef = await getDefaultBranchRef();
   const { cwd } = options;
 
   const result = cwd
@@ -295,7 +295,7 @@ export async function listSpryLocalBranches(options: GitOptions = {}): Promise<S
   const { cwd } = options;
 
   // Get the default branch ref (e.g., "origin/main")
-  const defaultBranchRef = await getDefaultBranchRef(options);
+  const defaultBranchRef = await getDefaultBranchRef();
 
   // Get all local branches with their tip SHAs
   // Note: Format string must be quoted to prevent shell interpretation of parentheses
@@ -314,7 +314,7 @@ export async function listSpryLocalBranches(options: GitOptions = {}): Promise<S
   }
 
   // Get the default branch name (without origin/) to exclude it
-  const config = await getSpryConfig(options);
+  const config = await getSpryConfig();
   const defaultBranchName = config.defaultBranch;
 
   const spryBranches: SpryBranchInfo[] = [];
