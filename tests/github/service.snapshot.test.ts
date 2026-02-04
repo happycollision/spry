@@ -19,6 +19,20 @@ import { withGitHubSnapshots, isGitHubIntegrationEnabled } from "../helpers/snap
 import { repoManager } from "../helpers/local-repo.ts";
 import { getGitHubService } from "../../src/github/service.ts";
 
+/**
+ * Helper to run a function from within a specific directory.
+ * This is needed because gh CLI commands use the current directory's git context.
+ */
+async function inDir<T>(dir: string, fn: () => Promise<T>): Promise<T> {
+  const originalDir = process.cwd();
+  try {
+    process.chdir(dir);
+    return await fn();
+  } finally {
+    process.chdir(originalDir);
+  }
+}
+
 // Compose story test + GitHub snapshot support
 // Note: withGitHubSnapshots auto-detects test file from Bun.main
 const base = createStoryTest(import.meta.file);
@@ -38,7 +52,7 @@ describe("GitHub Service Snapshots", () => {
     story.narrate(`Got username: ${username}`);
   });
 
-  test("creates and finds PR", async (story) => {
+  test("creates and finds PR", { timeout: 30000 }, async (story) => {
     const repo = await repos.clone();
     const testId = repos.uniqueId;
 
@@ -59,30 +73,31 @@ describe("GitHub Service Snapshots", () => {
       head: branchName,
       base: "main",
       body: `This is a test PR for ${testId}`,
+      repo: `${repo.github.owner}/${repo.github.repo}`,
     });
 
     expect(pr.number).toBeGreaterThan(0);
     expect(pr.url).toContain("/pull/");
     story.narrate(`Created PR #${pr.number}: ${pr.url}`);
 
-    // Find the PR by branch
-    const foundPR = await service.findPRByBranch(branchName);
+    // Find the PR by branch (needs repo context)
+    const foundPR = await inDir(repo.path, () => service.findPRByBranch(branchName));
     expect(foundPR).not.toBeNull();
     expect(foundPR!.number).toBe(pr.number);
     story.narrate(`Found PR by branch: #${foundPR!.number}`);
 
-    // Get PR state
-    const state = await service.getPRState(pr.number);
+    // Get PR state (needs repo context)
+    const state = await inDir(repo.path, () => service.getPRState(pr.number));
     expect(state).toBe("OPEN");
     story.narrate(`PR state: ${state}`);
 
-    // Get PR body
-    const body = await service.getPRBody(pr.number);
+    // Get PR body (needs repo context)
+    const body = await inDir(repo.path, () => service.getPRBody(pr.number));
     expect(body).toContain(testId);
     story.narrate(`PR body contains test ID: ${body.includes(testId)}`);
   });
 
-  test("finds PRs by multiple branches", async (story) => {
+  test("finds PRs by multiple branches", { timeout: 30000 }, async (story) => {
     const repo = await repos.clone();
     const testId = repos.uniqueId;
 
@@ -99,6 +114,7 @@ describe("GitHub Service Snapshots", () => {
       title: `Feature 1 ${testId}`,
       head: branch1,
       base: "main",
+      repo: `${repo.github.owner}/${repo.github.repo}`,
     });
     story.narrate(`Created PR #${pr1.number} for ${branch1}`);
 
@@ -112,11 +128,14 @@ describe("GitHub Service Snapshots", () => {
       title: `Feature 2 ${testId}`,
       head: branch2,
       base: "main",
+      repo: `${repo.github.owner}/${repo.github.repo}`,
     });
     story.narrate(`Created PR #${pr2.number} for ${branch2}`);
 
-    // Find PRs by branches (single API call)
-    const prsByBranch = await service.findPRsByBranches([branch1, branch2, "nonexistent-branch"]);
+    // Find PRs by branches (single API call, needs repo context)
+    const prsByBranch = await inDir(repo.path, () =>
+      service.findPRsByBranches([branch1, branch2, "nonexistent-branch"]),
+    );
 
     expect(prsByBranch.get(branch1)?.number).toBe(pr1.number);
     expect(prsByBranch.get(branch2)?.number).toBe(pr2.number);

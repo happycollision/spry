@@ -71,6 +71,9 @@ interface SnapshotFile {
 /** In-memory cache of loaded snapshots */
 const snapshotCache = new Map<string, SnapshotFile>();
 
+/** Track which test files have been cleared this recording session */
+const clearedForRecording = new Set<string>();
+
 /**
  * Load a snapshot file from disk or cache.
  */
@@ -123,6 +126,15 @@ async function recordSnapshot(
   isError: boolean,
   errorClass?: string,
 ): Promise<void> {
+  const path = getSnapshotPath(context.testFile);
+
+  // On first recording for this file, clear all existing entries
+  // This ensures stale entries from deleted/renamed tests are removed
+  if (!clearedForRecording.has(path)) {
+    clearedForRecording.add(path);
+    snapshotCache.set(path, { version: 1, entries: [] });
+  }
+
   const file = await loadSnapshots(context.testFile);
 
   const entry: SnapshotEntry = {
@@ -220,21 +232,21 @@ function substituteTestId(value: unknown, recordedId: string, currentId: string)
     return value.map((item) => substituteTestId(item, recordedId, currentId));
   }
 
-  if (value && typeof value === "object") {
-    const result: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(value)) {
-      result[key] = substituteTestId(val, recordedId, currentId);
-    }
-    return result;
-  }
-
-  // Map needs special handling
+  // Map needs special handling - check before generic object check
   if (value instanceof Map) {
     const result = new Map();
     for (const [key, val] of value) {
       const newKey = substituteTestId(key, recordedId, currentId);
       const newVal = substituteTestId(val, recordedId, currentId);
       result.set(newKey, newVal);
+    }
+    return result;
+  }
+
+  if (value && typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value)) {
+      result[key] = substituteTestId(val, recordedId, currentId);
     }
     return result;
   }

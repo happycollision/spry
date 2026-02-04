@@ -49,6 +49,8 @@ export interface CreatePROptions {
   head: string;
   base: string;
   body?: string;
+  /** Optional repo in "owner/repo" format. If not provided, uses current git context. */
+  repo?: string;
 }
 
 export type ChecksStatus = "pending" | "passing" | "failing" | "none";
@@ -260,6 +262,11 @@ export async function createPR(options: CreatePROptions): Promise<{ number: numb
     "--base",
     options.base,
   ];
+
+  // Add repo if specified
+  if (options.repo) {
+    args.push("--repo", options.repo);
+  }
 
   // Use --body="" syntax for empty body to avoid shell parsing issues
   if (options.body) {

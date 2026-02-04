@@ -15,6 +15,13 @@
 
 import { join } from "node:path";
 
+/**
+ * Capture project root at module load time.
+ * This is important because tests may chdir to temp directories,
+ * but we always want snapshots relative to the project root.
+ */
+const PROJECT_ROOT = process.cwd();
+
 /** Complete context needed for snapshot operations */
 export interface SnapshotContext {
   /** The test file name (e.g., "pr.test.ts") */
@@ -85,9 +92,8 @@ export function clearSnapshotContext(): void {
 export function getSnapshotPath(testFile: string): string {
   // Remove .test.ts or .test.js suffix
   const baseName = testFile.replace(/\.test\.(ts|js)$/, "");
-  // Get the project root (assuming we're running from the project directory)
-  const projectRoot = process.cwd();
-  return join(projectRoot, "tests", "snapshots", `${baseName}.json`);
+  // Use PROJECT_ROOT captured at module load time (not process.cwd())
+  return join(PROJECT_ROOT, "tests", "snapshots", `${baseName}.json`);
 }
 
 /**
@@ -95,6 +101,5 @@ export function getSnapshotPath(testFile: string): string {
  * Creates the directory if it doesn't exist.
  */
 export function getSnapshotDir(): string {
-  const projectRoot = process.cwd();
-  return join(projectRoot, "tests", "snapshots");
+  return join(PROJECT_ROOT, "tests", "snapshots");
 }
