@@ -76,7 +76,9 @@ export interface GitHubFixture {
 
 async function verifyTestRepo(owner: string, repo: string): Promise<boolean> {
   // Try to fetch the README and check for safety marker
-  const result = await $`gh api repos/${owner}/${repo}/contents/README.md --jq .content`.nothrow();
+  const result = await $`gh api repos/${owner}/${repo}/contents/README.md --jq .content`
+    .quiet()
+    .nothrow();
 
   if (result.exitCode !== 0) {
     return false;
@@ -94,7 +96,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
   if (process.env.SPRY_TEST_REPO_OWNER) {
     owner = process.env.SPRY_TEST_REPO_OWNER;
   } else {
-    const ownerResult = await $`gh api user --jq .login`.nothrow();
+    const ownerResult = await $`gh api user --jq .login`.quiet().nothrow();
     if (ownerResult.exitCode !== 0) {
       throw new DependencyError(
         "Failed to get GitHub username. Ensure gh CLI is authenticated.\nRun: gh auth login",
@@ -107,7 +109,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
   const fullRepoName = `${owner}/${repo}`;
 
   // Verify repo exists
-  const repoCheck = await $`gh repo view ${fullRepoName} --json name`.nothrow();
+  const repoCheck = await $`gh repo view ${fullRepoName} --json name`.quiet().nothrow();
   if (repoCheck.exitCode !== 0) {
     throw new DependencyError(
       `Test repository ${fullRepoName} not found.\n` + `Run: bun run scripts/setup-spry-check.ts`,
@@ -128,7 +130,9 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
 
   async function closeAllPRs(): Promise<number> {
     const listResult =
-      await $`gh pr list --repo ${owner}/${repo} --state open --json number --jq '.[].number'`.nothrow();
+      await $`gh pr list --repo ${owner}/${repo} --state open --json number --jq '.[].number'`
+        .quiet()
+        .nothrow();
 
     if (listResult.exitCode !== 0 || !listResult.stdout.toString().trim()) {
       return 0;
@@ -142,8 +146,9 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     let closed = 0;
 
     for (const prNumber of prNumbers) {
-      const closeResult =
-        await $`gh pr close ${prNumber} --repo ${owner}/${repo} --delete-branch`.nothrow();
+      const closeResult = await $`gh pr close ${prNumber} --repo ${owner}/${repo} --delete-branch`
+        .quiet()
+        .nothrow();
       if (closeResult.exitCode === 0) {
         closed++;
       }
@@ -153,7 +158,9 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
   }
 
   async function deleteAllBranches(): Promise<number> {
-    const listResult = await $`gh api repos/${owner}/${repo}/branches --jq '.[].name'`.nothrow();
+    const listResult = await $`gh api repos/${owner}/${repo}/branches --jq '.[].name'`
+      .quiet()
+      .nothrow();
 
     if (listResult.exitCode !== 0 || !listResult.stdout.toString().trim()) {
       return 0;
@@ -168,8 +175,9 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     let deleted = 0;
 
     for (const branch of branches) {
-      const deleteResult =
-        await $`gh api -X DELETE repos/${owner}/${repo}/git/refs/heads/${branch}`.nothrow();
+      const deleteResult = await $`gh api -X DELETE repos/${owner}/${repo}/git/refs/heads/${branch}`
+        .quiet()
+        .nothrow();
       if (deleteResult.exitCode === 0) {
         deleted++;
       }

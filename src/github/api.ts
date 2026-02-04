@@ -76,7 +76,7 @@ export async function getDefaultBranch(): Promise<string> {
   }
 
   // Try git config first
-  const configResult = await $`git config --get spry.defaultBranch`.nothrow();
+  const configResult = await $`git config --get spry.defaultBranch`.quiet().nothrow();
   if (configResult.exitCode === 0) {
     cachedDefaultBranch = configResult.stdout.toString().trim();
     return cachedDefaultBranch;

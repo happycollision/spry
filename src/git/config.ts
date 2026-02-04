@@ -48,13 +48,13 @@ export async function getSpryConfig(): Promise<SpryConfig> {
     includePrTemplateResult,
     prTemplateLocationResult,
   ] = await Promise.all([
-    $`git config --get spry.remote`.nothrow(),
-    $`git config --get spry.branchPrefix`.nothrow(),
-    $`git config --get spry.defaultBranch`.nothrow(),
-    $`git config --get spry.tempCommitPrefixes`.nothrow(),
-    $`git config --get spry.showStackLinks`.nothrow(),
-    $`git config --get spry.includePrTemplate`.nothrow(),
-    $`git config --get spry.prTemplateLocation`.nothrow(),
+    $`git config --get spry.remote`.quiet().nothrow(),
+    $`git config --get spry.branchPrefix`.quiet().nothrow(),
+    $`git config --get spry.defaultBranch`.quiet().nothrow(),
+    $`git config --get spry.tempCommitPrefixes`.quiet().nothrow(),
+    $`git config --get spry.showStackLinks`.quiet().nothrow(),
+    $`git config --get spry.includePrTemplate`.quiet().nothrow(),
+    $`git config --get spry.prTemplateLocation`.quiet().nothrow(),
   ]);
 
   // Detect remote first (may auto-persist if single remote)
@@ -154,9 +154,7 @@ export async function detectRemote(configuredRemote?: string): Promise<string> {
     .filter((r) => r.length > 0);
 
   if (remotes.length === 0) {
-    throw new Error(
-      "No git remotes found. Add a remote with:\n  git remote add origin <url>",
-    );
+    throw new Error("No git remotes found. Add a remote with:\n  git remote add origin <url>");
   }
 
   // 2. If only one remote, use it and persist to config for future-proofing
