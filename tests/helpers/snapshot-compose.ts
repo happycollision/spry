@@ -121,23 +121,29 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
 
   /**
    * Wrap a test function to set metadata and handle snapshot errors.
+   *
+   * Important: The returned function must match the original's arity (fn.length).
+   * bun:test treats functions with parameters as done-callback-style tests,
+   * which would cause hangs if the wrapper has a parameter the original doesn't.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function wrapTestFn(testName: string, fn: any): any {
     ensureAfterEach();
 
-    // Return a function with the same signature
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return async (context?: any) => {
-      // Set test metadata for snapshot context
-      setTestMetadata(resolvedTestFile, testName);
-
-      // Call original test function (snapshot errors will propagate)
-      if (context !== undefined) {
-        await fn(context);
-      } else {
+    // If the original function takes no arguments (e.g., noStory tests),
+    // return a 0-arity wrapper so bun:test doesn't inject a done callback.
+    if (fn.length === 0) {
+      return async () => {
+        setTestMetadata(resolvedTestFile, testName);
         await fn();
-      }
+      };
+    }
+
+    // Otherwise, pass through the context (e.g., story context)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return async (context: any) => {
+      setTestMetadata(resolvedTestFile, testName);
+      await fn(context);
     };
   }
 
@@ -208,8 +214,70 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
     };
   };
 
-  // Add noStory support (pass-through to original if available)
-  wrappedTest.noStory = originalTest.noStory || originalTest;
+  // Wrap noStory with snapshot support too (sets test metadata for recording)
+  const originalNoStory = originalTest.noStory || originalTest;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function wrappedNoStory(name: string, fnOrOptions: any, optionsOrFn?: any): void {
+    const fn = typeof fnOrOptions === "function" ? fnOrOptions : optionsOrFn;
+    const options =
+      typeof fnOrOptions === "object"
+        ? fnOrOptions
+        : typeof optionsOrFn === "object"
+          ? optionsOrFn
+          : undefined;
+
+    if (shouldSkipTest(name)) {
+      if (originalNoStory.skip) {
+        originalNoStory.skip(name, fn, options);
+      }
+      return;
+    }
+
+    const wrapped = wrapTestFn(name, fn);
+
+    if (options && typeof fnOrOptions === "object") {
+      originalNoStory(name, options, wrapped);
+    } else if (options) {
+      originalNoStory(name, wrapped, options);
+    } else {
+      originalNoStory(name, wrapped);
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  wrappedNoStory.skip = (name: string, fn: any, options?: TestOptions): void => {
+    if (originalNoStory.skip) {
+      originalNoStory.skip(name, fn, options);
+    }
+  };
+
+  wrappedNoStory.skipIf = (condition: boolean) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (name: string, fn: any, options?: TestOptions): void => {
+      if (condition) {
+        wrappedNoStory.skip(name, fn, options);
+      } else {
+        wrappedNoStory(name, fn, options);
+      }
+    };
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  wrappedNoStory.only = (name: string, fn: any, options?: TestOptions): void => {
+    ensureAfterEach();
+    const wrapped = wrapTestFn(name, fn);
+
+    if (originalNoStory.only) {
+      if (options) {
+        originalNoStory.only(name, wrapped, options);
+      } else {
+        originalNoStory.only(name, wrapped);
+      }
+    }
+  };
+
+  wrappedTest.noStory = wrappedNoStory;
 
   return {
     ...suite,
