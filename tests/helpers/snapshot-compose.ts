@@ -109,11 +109,6 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
     resetGitHubService();
   });
 
-  function ensureHooks(): void {
-    // No-op: hooks are now registered at the top level above.
-    // Kept for call-site compatibility.
-  }
-
   /**
    * Check if a test should be skipped (no snapshots in replay mode).
    */
@@ -135,8 +130,6 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function wrapTestFn(testName: string, fn: any): any {
-    ensureHooks();
-
     // If the original function takes no arguments (e.g., noStory tests),
     // return a 0-arity wrapper so bun:test doesn't inject a done callback.
     if (fn.length === 0) {
@@ -197,7 +190,6 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
   // Add only support
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   wrappedTest.only = (name: string, fn: any, options?: TestOptions): void => {
-    ensureHooks();
     const wrapped = wrapTestFn(name, fn);
 
     if (originalTest.only) {
@@ -272,7 +264,6 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   wrappedNoStory.only = (name: string, fn: any, options?: TestOptions): void => {
-    ensureHooks();
     const wrapped = wrapTestFn(name, fn);
 
     if (originalNoStory.only) {

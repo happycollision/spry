@@ -12,12 +12,8 @@
  * 2. setTestMetadata() - called by the test wrapper with testFile and testName
  *
  * **Subprocess mode** (for tests that run sp CLI via runSpry()):
- * Context is passed via environment variables:
- * - SPRY_SNAPSHOT_MODE: "record" or "replay"
- * - SPRY_SNAPSHOT_FILE: test file name
- * - SPRY_SNAPSHOT_TEST: test name
- * - SPRY_SNAPSHOT_TEST_ID: unique test ID
- * - SPRY_SNAPSHOT_SUBPROCESS: subprocess index (0, 1, 2, ...)
+ * Context is passed via two environment variables:
+ * - SPRY_SNAPSHOT: JSON object with { mode, file, test, testId, subprocess }
  * - SPRY_SNAPSHOT_ROOT: project root for resolving snapshot file paths
  */
 
@@ -77,24 +73,32 @@ export function setTestMetadata(testFile: string, testName: string): void {
  * Get the complete snapshot context.
  * Returns null if the context is incomplete.
  *
- * In subprocess mode (SPRY_SNAPSHOT_MODE set), reads from env vars.
+ * In subprocess mode (SPRY_SNAPSHOT set), reads from the env var.
  * Otherwise, reads from the in-process global context.
  */
 export function getSnapshotContext(): SnapshotContext | null {
-  // Subprocess mode: context comes from env vars
-  if (process.env.SPRY_SNAPSHOT_MODE) {
-    const testFile = process.env.SPRY_SNAPSHOT_FILE;
-    const testName = process.env.SPRY_SNAPSHOT_TEST;
-    const testId = process.env.SPRY_SNAPSHOT_TEST_ID;
-    const subprocess = process.env.SPRY_SNAPSHOT_SUBPROCESS;
-
-    if (testFile && testName && testId) {
-      return {
-        testFile,
-        testName,
-        testId,
-        subprocess: subprocess !== undefined ? parseInt(subprocess, 10) : undefined,
+  // Subprocess mode: context comes from SPRY_SNAPSHOT JSON env var
+  const snapshotEnv = process.env.SPRY_SNAPSHOT;
+  if (snapshotEnv) {
+    try {
+      const parsed = JSON.parse(snapshotEnv) as {
+        mode?: string;
+        file?: string;
+        test?: string;
+        testId?: string;
+        subprocess?: number;
       };
+
+      if (parsed.file && parsed.test && parsed.testId) {
+        return {
+          testFile: parsed.file,
+          testName: parsed.test,
+          testId: parsed.testId,
+          subprocess: parsed.subprocess,
+        };
+      }
+    } catch {
+      // Invalid JSON - fall through to in-process mode
     }
     return null;
   }
@@ -135,6 +139,39 @@ export function resetSubprocessCounter(): void {
 }
 
 /**
+ * Get the snapshot mode from the SPRY_SNAPSHOT env var.
+ * Returns "record", "replay", or null if not in snapshot mode.
+ */
+export function getSnapshotMode(): "record" | "replay" | null {
+  const snapshotEnv = process.env.SPRY_SNAPSHOT;
+  if (!snapshotEnv) return null;
+  try {
+    const parsed = JSON.parse(snapshotEnv) as { mode?: string };
+    if (parsed.mode === "record" || parsed.mode === "replay") {
+      return parsed.mode;
+    }
+  } catch {
+    // Invalid JSON
+  }
+  return null;
+}
+
+/**
+ * Check if we're in any snapshot mode (subprocess).
+ */
+export function isSnapshotMode(): boolean {
+  return !!process.env.SPRY_SNAPSHOT;
+}
+
+/**
+ * Get the project root directory.
+ * Uses SPRY_SNAPSHOT_ROOT in subprocess mode, process.cwd() otherwise.
+ */
+export function getProjectRoot(): string {
+  return PROJECT_ROOT;
+}
+
+/**
  * Get the snapshot file path for a test file.
  * Converts "pr.test.ts" to "tests/snapshots/pr.json"
  *
@@ -146,12 +183,4 @@ export function getSnapshotPath(testFile: string): string {
   const baseName = testFile.replace(/\.test\.(ts|js)$/, "");
   // Use PROJECT_ROOT captured at module load time (not process.cwd())
   return join(PROJECT_ROOT, "tests", "snapshots", `${baseName}.json`);
-}
-
-/**
- * Get the directory for snapshot files.
- * Creates the directory if it doesn't exist.
- */
-export function getSnapshotDir(): string {
-  return join(PROJECT_ROOT, "tests", "snapshots");
 }

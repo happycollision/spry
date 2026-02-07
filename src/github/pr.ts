@@ -774,7 +774,7 @@ export async function waitForPRState(
 }
 
 /**
- * List all open PRs authored by a given user.
+ * List all PRs authored by a given user (open, closed, and merged).
  * Used by `sp view --all` to show PRs across all branches.
  */
 export async function listUserPRs(username: string): Promise<
@@ -795,11 +795,11 @@ export async function listUserPRs(username: string): Promise<
     "--author",
     username,
     "--state",
-    "open",
+    "all",
     "--json",
     "number,title,state,headRefName,url",
     "--limit",
-    "100",
+    "500",
   ];
 
   const result = await ghExecWithLimit(args);

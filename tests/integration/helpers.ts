@@ -5,7 +5,7 @@ import type { GitHubFixture } from "../helpers/github-fixture.ts";
 import {
   getSnapshotContext,
   nextSubprocessIndex,
-  getSnapshotDir,
+  getProjectRoot,
 } from "../../src/github/snapshot-context.ts";
 import { isGitHubIntegrationEnabled } from "../../src/github/service.ts";
 
@@ -40,14 +40,16 @@ export async function runSpry(
   if (ctx) {
     const mode = isGitHubIntegrationEnabled() ? "record" : "replay";
     const subprocessIdx = nextSubprocessIndex();
-    snapshotEnv.SPRY_SNAPSHOT_MODE = mode;
-    snapshotEnv.SPRY_SNAPSHOT_FILE = ctx.testFile;
-    snapshotEnv.SPRY_SNAPSHOT_TEST = ctx.testName;
-    snapshotEnv.SPRY_SNAPSHOT_TEST_ID = ctx.testId;
-    snapshotEnv.SPRY_SNAPSHOT_SUBPROCESS = String(subprocessIdx);
+    snapshotEnv.SPRY_SNAPSHOT = JSON.stringify({
+      mode,
+      file: ctx.testFile,
+      test: ctx.testName,
+      testId: ctx.testId,
+      subprocess: subprocessIdx,
+    });
     // Pass project root so subprocess can find snapshot files
     // (subprocess cwd is the test repo, not the project root)
-    snapshotEnv.SPRY_SNAPSHOT_ROOT = getSnapshotDir().replace(/\/tests\/snapshots$/, "");
+    snapshotEnv.SPRY_SNAPSHOT_ROOT = getProjectRoot();
   }
 
   // Set SPRY_NO_TTY=1 to force non-interactive mode regardless of TTY status

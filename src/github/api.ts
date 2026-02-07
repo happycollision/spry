@@ -1,6 +1,7 @@
 import { $ } from "bun";
 import { ghExecWithLimit } from "./retry.ts";
 import { getSpryConfig } from "../git/config.ts";
+import { isSnapshotMode } from "./snapshot-context.ts";
 
 export class GitHubAuthError extends Error {
   constructor(message: string) {
@@ -142,11 +143,12 @@ async function getRemoteUrl(): Promise<string> {
  * Check if the configured remote is a GitHub repository.
  * Returns false if remote is not set or is not on github.com.
  *
- * In snapshot replay mode (SPRY_SNAPSHOT_MODE=replay), always returns true
- * since the snapshot service will handle GitHub API calls.
+ * In snapshot mode (test subprocesses), always returns true since
+ * the snapshot service handles GitHub API calls and test repos
+ * use local bare origins that aren't on github.com.
  */
 export async function isGitHubOrigin(): Promise<boolean> {
-  if (process.env.SPRY_SNAPSHOT_MODE === "replay") {
+  if (isSnapshotMode()) {
     return true;
   }
   try {
@@ -161,10 +163,10 @@ export async function isGitHubOrigin(): Promise<boolean> {
  * Require that the configured remote is a GitHub repository.
  * Throws a descriptive error if it's not.
  *
- * In snapshot replay mode, this is a no-op (always passes).
+ * In snapshot mode, this is a no-op since test repos use local origins.
  */
 export async function requireGitHubOrigin(): Promise<void> {
-  if (process.env.SPRY_SNAPSHOT_MODE === "replay") {
+  if (isSnapshotMode()) {
     return;
   }
   const url = await getRemoteUrl();

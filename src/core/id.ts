@@ -1,4 +1,5 @@
 import { randomBytes } from "crypto";
+import { isSnapshotMode } from "../github/snapshot-context.ts";
 
 /**
  * Counter for deterministic commit IDs in snapshot mode.
@@ -18,11 +19,11 @@ let deterministicCounter = 0;
  * - Spry-Commit-Id: Assigned to every commit
  * - Spry-Group-Start / Spry-Group-End: Marks group boundaries
  *
- * In snapshot mode (SPRY_SNAPSHOT_MODE), generates deterministic IDs
+ * In snapshot mode (SPRY_SNAPSHOT env var), generates deterministic IDs
  * so that branch names are consistent across record/replay runs.
  */
 export function generateCommitId(): string {
-  if (process.env.SPRY_SNAPSHOT_MODE) {
+  if (isSnapshotMode()) {
     deterministicCounter++;
     return deterministicCounter.toString(16).padStart(8, "0");
   }

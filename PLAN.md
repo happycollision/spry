@@ -45,6 +45,38 @@ Migrated sync, land, view, and clean integration tests to the snapshot replay sy
 - Replay mode: 89 pass, 23 skip, 0 fail (up from 73 pass, 39 skip — 16 more tests passing)
 - Remaining 23 skips: CI-dependent tests requiring real CI runs (branch protection, waitForCI, land with CI checks, etc.)
 
+**Phase 3.6 (Review cleanup)** - DONE
+
+Address code review findings from Phase 3.5 commit. Goals: reduce env var surface,
+remove test-awareness from production code, delete dead code.
+
+1. **Replace raw `SPRY_SNAPSHOT_MODE` checks with `isSnapshotMode()` helper** (`api.ts`, `id.ts`)
+   - `api.ts`: `isGitHubOrigin()` and `requireGitHubOrigin()` still need guards (test repos use local
+     bare origins that aren't on github.com). Changed from raw env var check to `isSnapshotMode()`.
+     Note: fake remote approach doesn't work because test repos need their local origin for git operations.
+   - `id.ts`: `generateCommitId()` deterministic mode is needed — testId substitution doesn't handle
+     commit IDs in branch names. Changed from raw env var check to `isSnapshotMode()`.
+
+2. **Collapse 6 env vars to 2**
+   - Current: `SPRY_SNAPSHOT_MODE`, `SPRY_SNAPSHOT_FILE`, `SPRY_SNAPSHOT_TEST`, `SPRY_SNAPSHOT_TEST_ID`, `SPRY_SNAPSHOT_SUBPROCESS`, `SPRY_SNAPSHOT_ROOT`
+   - Target: `SPRY_SNAPSHOT` (JSON-encoded object with mode, file, test, testId, subprocess) + `SPRY_SNAPSHOT_ROOT`
+   - Update: `snapshot-context.ts` (read), `tests/integration/helpers.ts` (write), `service.ts` (check mode)
+
+3. **Fix `listUserPRs` behavioral regression**
+   - Old code (inline in view.ts): `--state all --limit 500`
+   - New code (pr.ts function): `--state open --limit 100`
+   - `formatAllPRsView` groups PRs by state (OPEN, MERGED, CLOSED) — change broke merged/closed display
+   - Fix: restore `--state all --limit 500`
+
+4. **Delete dead code**
+   - `hasSnapshotForTest` export in `service.snapshot.ts` — duplicate of local function in `snapshot-compose.ts`
+   - `ensureHooks()` no-op function + its call sites in `snapshot-compose.ts`
+   - Duplicate comment in `service.ts` (if any)
+
+5. **Fix `SPRY_SNAPSHOT_ROOT` derivation**
+   - Current: `getSnapshotDir().replace(/\/tests\/snapshots$/, "")` — fragile regex
+   - Fix: Export `PROJECT_ROOT` from `snapshot-context.ts` or add a `getProjectRoot()` helper
+
 ---
 
 ## Quick Summary

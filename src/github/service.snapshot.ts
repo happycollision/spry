@@ -485,18 +485,3 @@ export function loadSnapshotContext(testFile: string): SnapshotFileContext | nul
     return null;
   }
 }
-
-/**
- * Check if a snapshot file has any entries for a given test.
- * Used by snapshot-compose.ts to determine whether to skip tests in replay mode.
- */
-export function hasSnapshotForTest(testFile: string, testName: string): boolean {
-  const path = getSnapshotPath(testFile);
-  try {
-    const content = require("fs").readFileSync(path, "utf-8");
-    const file = JSON.parse(content) as SnapshotFile;
-    return file.entries.some((e) => e.testContext === testName);
-  } catch {
-    return false;
-  }
-}

@@ -31,6 +31,7 @@ import type {
   LandResult,
 } from "./pr.ts";
 import { asserted } from "../utils/assert.ts";
+import { getSnapshotMode, isSnapshotMode } from "./snapshot-context.ts";
 
 /** User PR info returned by listUserPRs */
 export interface UserPR {
@@ -97,7 +98,7 @@ function isTestEnvironment(): boolean {
   return (
     process.env.NODE_ENV === "test" ||
     (typeof Bun !== "undefined" && !!Bun.env.BUN_TEST) ||
-    !!process.env.SPRY_SNAPSHOT_MODE
+    isSnapshotMode()
   );
 }
 
@@ -106,11 +107,12 @@ function isTestEnvironment(): boolean {
  * When enabled, the snapshot service records to disk.
  * When disabled, the snapshot service replays from disk.
  *
- * Also checks SPRY_SNAPSHOT_MODE for subprocess mode.
+ * In subprocess mode, checks the snapshot mode from SPRY_SNAPSHOT env var.
  */
 export function isGitHubIntegrationEnabled(): boolean {
-  if (process.env.SPRY_SNAPSHOT_MODE === "record") return true;
-  if (process.env.SPRY_SNAPSHOT_MODE === "replay") return false;
+  const mode = getSnapshotMode();
+  if (mode === "record") return true;
+  if (mode === "replay") return false;
   return process.env.GITHUB_INTEGRATION_TESTS === "1";
 }
 
