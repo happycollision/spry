@@ -1,144 +1,148 @@
 {
   "version": 1,
+  "context": {
+    "owner": "happycollision",
+    "repo": "spry-check"
+  },
   "entries": [
     {
       "testContext": "gets username",
-      "recordedTestId": "brave-raven-8b0",
+      "recordedTestId": "noble-gecko-v9v",
       "method": "getUsername",
       "args": [],
       "result": "happycollision",
       "isError": false,
-      "timestamp": "2026-02-04T05:18:30.221Z"
+      "timestamp": "2026-02-07T04:51:18.048Z"
     },
     {
       "testContext": "creates and finds PR",
-      "recordedTestId": "brave-fox-ujj",
+      "recordedTestId": "zesty-crab-3al",
       "method": "createPR",
       "args": [
         {
-          "title": "Test Feature brave-fox-ujj",
-          "head": "feature-brave-fox-ujj",
+          "title": "Test Feature zesty-crab-3al",
+          "head": "feature-zesty-crab-3al",
           "base": "main",
-          "body": "This is a test PR for brave-fox-ujj",
+          "body": "This is a test PR for zesty-crab-3al",
           "repo": "happycollision/spry-check"
         }
       ],
       "result": {
-        "number": 281,
-        "url": "https://github.com/happycollision/spry-check/pull/281"
+        "number": 287,
+        "url": "https://github.com/happycollision/spry-check/pull/287"
       },
       "isError": false,
-      "timestamp": "2026-02-04T05:18:33.565Z"
+      "timestamp": "2026-02-07T04:51:21.949Z"
     },
     {
       "testContext": "creates and finds PR",
-      "recordedTestId": "brave-fox-ujj",
+      "recordedTestId": "zesty-crab-3al",
       "method": "findPRByBranch",
-      "args": ["feature-brave-fox-ujj"],
+      "args": ["feature-zesty-crab-3al"],
       "result": {
-        "number": 281,
+        "number": 287,
         "state": "OPEN",
-        "title": "Test Feature brave-fox-ujj",
-        "url": "https://github.com/happycollision/spry-check/pull/281"
+        "title": "Test Feature zesty-crab-3al",
+        "url": "https://github.com/happycollision/spry-check/pull/287"
       },
       "isError": false,
-      "timestamp": "2026-02-04T05:18:33.894Z"
+      "timestamp": "2026-02-07T04:51:22.392Z"
     },
     {
       "testContext": "creates and finds PR",
-      "recordedTestId": "brave-fox-ujj",
+      "recordedTestId": "zesty-crab-3al",
       "method": "getPRState",
-      "args": [281],
+      "args": [287],
       "result": "OPEN",
       "isError": false,
-      "timestamp": "2026-02-04T05:18:34.191Z"
+      "timestamp": "2026-02-07T04:51:22.703Z"
     },
     {
       "testContext": "creates and finds PR",
-      "recordedTestId": "brave-fox-ujj",
+      "recordedTestId": "zesty-crab-3al",
       "method": "getPRBody",
-      "args": [281],
-      "result": "This is a test PR for brave-fox-ujj",
+      "args": [287],
+      "result": "This is a test PR for zesty-crab-3al",
       "isError": false,
-      "timestamp": "2026-02-04T05:18:34.475Z"
+      "timestamp": "2026-02-07T04:51:22.966Z"
     },
     {
       "testContext": "finds PRs by multiple branches",
-      "recordedTestId": "eager-koala-kl6",
+      "recordedTestId": "warm-cobra-axp",
       "method": "createPR",
       "args": [
         {
-          "title": "Feature 1 eager-koala-kl6",
-          "head": "feature-1-eager-koala-kl6",
+          "title": "Feature 1 warm-cobra-axp",
+          "head": "feature-1-warm-cobra-axp",
           "base": "main",
           "repo": "happycollision/spry-check"
         }
       ],
       "result": {
-        "number": 282,
-        "url": "https://github.com/happycollision/spry-check/pull/282"
+        "number": 288,
+        "url": "https://github.com/happycollision/spry-check/pull/288"
       },
       "isError": false,
-      "timestamp": "2026-02-04T05:18:38.939Z"
+      "timestamp": "2026-02-07T04:51:27.514Z"
     },
     {
       "testContext": "finds PRs by multiple branches",
-      "recordedTestId": "eager-koala-kl6",
+      "recordedTestId": "warm-cobra-axp",
       "method": "createPR",
       "args": [
         {
-          "title": "Feature 2 eager-koala-kl6",
-          "head": "feature-2-eager-koala-kl6",
+          "title": "Feature 2 warm-cobra-axp",
+          "head": "feature-2-warm-cobra-axp",
           "base": "main",
           "repo": "happycollision/spry-check"
         }
       ],
       "result": {
-        "number": 283,
-        "url": "https://github.com/happycollision/spry-check/pull/283"
+        "number": 289,
+        "url": "https://github.com/happycollision/spry-check/pull/289"
       },
       "isError": false,
-      "timestamp": "2026-02-04T05:18:41.113Z"
+      "timestamp": "2026-02-07T04:51:29.630Z"
     },
     {
       "testContext": "finds PRs by multiple branches",
-      "recordedTestId": "eager-koala-kl6",
+      "recordedTestId": "warm-cobra-axp",
       "method": "findPRsByBranches",
-      "args": [["feature-1-eager-koala-kl6", "feature-2-eager-koala-kl6", "nonexistent-branch"]],
+      "args": [["feature-1-warm-cobra-axp", "feature-2-warm-cobra-axp", "nonexistent-branch"]],
       "result": [
         [
-          "feature-1-eager-koala-kl6",
+          "feature-1-warm-cobra-axp",
           {
             "body": "",
-            "number": 282,
+            "number": 288,
             "state": "OPEN",
-            "title": "Feature 1 eager-koala-kl6",
-            "url": "https://github.com/happycollision/spry-check/pull/282"
+            "title": "Feature 1 warm-cobra-axp",
+            "url": "https://github.com/happycollision/spry-check/pull/288"
           }
         ],
         [
-          "feature-2-eager-koala-kl6",
+          "feature-2-warm-cobra-axp",
           {
             "body": "",
-            "number": 283,
+            "number": 289,
             "state": "OPEN",
-            "title": "Feature 2 eager-koala-kl6",
-            "url": "https://github.com/happycollision/spry-check/pull/283"
+            "title": "Feature 2 warm-cobra-axp",
+            "url": "https://github.com/happycollision/spry-check/pull/289"
           }
         ],
         ["nonexistent-branch", null]
       ],
       "isError": false,
-      "timestamp": "2026-02-04T05:18:41.461Z"
+      "timestamp": "2026-02-07T04:51:30.020Z"
     },
     {
       "testContext": "handles missing snapshot gracefully",
-      "recordedTestId": "zesty-crab-s38",
+      "recordedTestId": "steady-otter-wss",
       "method": "getUsername",
       "args": [],
       "result": "happycollision",
       "isError": false,
-      "timestamp": "2026-02-04T05:18:45.062Z"
+      "timestamp": "2026-02-07T04:51:33.930Z"
     }
   ]
 }

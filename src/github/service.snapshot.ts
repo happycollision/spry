@@ -60,10 +60,20 @@ interface SnapshotEntry {
   timestamp: string;
 }
 
+/** Snapshot-level context recorded alongside entries */
+export interface SnapshotFileContext {
+  /** GitHub repo owner (e.g., "happycollision") */
+  owner: string;
+  /** GitHub repo name (e.g., "spry-check") */
+  repo: string;
+}
+
 /** The complete snapshot file structure */
 interface SnapshotFile {
   /** Version for future compatibility */
   version: 1;
+  /** Context from the recording environment */
+  context?: SnapshotFileContext;
   /** Array of recorded entries */
   entries: SnapshotEntry[];
 }
@@ -132,7 +142,8 @@ async function recordSnapshot(
   // This ensures stale entries from deleted/renamed tests are removed
   if (!clearedForRecording.has(path)) {
     clearedForRecording.add(path);
-    snapshotCache.set(path, { version: 1, entries: [] });
+    const existing = snapshotCache.get(path);
+    snapshotCache.set(path, { version: 1, context: existing?.context, entries: [] });
   }
 
   const file = await loadSnapshots(context.testFile);
@@ -405,4 +416,33 @@ export async function flushSnapshots(): Promise<void> {
  */
 export function clearSnapshotCache(): void {
   snapshotCache.clear();
+}
+
+/**
+ * Set the context (owner/repo) on a snapshot file.
+ * Called in record mode after the GitHub fixture is created.
+ * The context is persisted on the next `saveSnapshots()` call.
+ */
+export async function setSnapshotFileContext(
+  testFile: string,
+  context: SnapshotFileContext,
+): Promise<void> {
+  const file = await loadSnapshots(testFile);
+  file.context = context;
+  await saveSnapshots(testFile, file);
+}
+
+/**
+ * Load the context from a snapshot file.
+ * Returns null if the file doesn't exist or has no context.
+ */
+export function loadSnapshotContext(testFile: string): SnapshotFileContext | null {
+  const path = getSnapshotPath(testFile);
+  try {
+    const content = require("fs").readFileSync(path, "utf-8");
+    const file = JSON.parse(content) as SnapshotFile;
+    return file.context ?? null;
+  } catch {
+    return null;
+  }
 }

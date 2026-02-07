@@ -1,0 +1,27 @@
+{
+  "$schema": "https://github.com/happycollision/ribbin/schemas/v1/ribbin.schema.json",
+
+  // ribbin - Intercept commands and redirect to project-approved alternatives
+  //
+  // Config reference: https://github.com/happycollision/ribbin/blob/main/docs/reference/config-schema.md
+  //
+  // Common use cases:
+  //   Block commands:      https://github.com/happycollision/ribbin/blob/main/docs/how-to/block-commands.md
+  //   Redirect commands:   https://github.com/happycollision/ribbin/blob/main/docs/how-to/redirect-commands.md
+  //   AI agent guardrails: https://github.com/happycollision/ribbin/blob/main/docs/how-to/integrate-ai-agents.md
+  //
+  // Run 'ribbin config --example' to see a comprehensive example config.
+
+  "wrappers": {
+    "gh": {
+      "action": "block",
+      "message": "Temporarily blocked to test snapshots",
+    },
+  },
+
+  // Scopes: Apply different rules to different directories.
+  // Great for monorepos, or defining config outside the project entirely.
+  //   Monorepo guide:     https://github.com/happycollision/ribbin/blob/main/docs/how-to/monorepo-scopes.md
+  //   External config:    https://github.com/happycollision/ribbin/blob/main/docs/how-to/external-config.md
+  // "scopes": {}
+}

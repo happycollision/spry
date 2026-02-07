@@ -7,11 +7,17 @@
 
 import { $ } from "bun";
 import { beforeAll, beforeEach, afterEach } from "bun:test";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { rm } from "node:fs/promises";
 import { createGitHubFixture, type GitHubFixture } from "./github-fixture.ts";
 import { generateUniqueId } from "./unique-id.ts";
 import { registerRepoContext } from "../../src/github/snapshot-context.ts";
+import { isGitHubIntegrationEnabled } from "../../src/github/service.ts";
+import {
+  loadSnapshotContext,
+  setSnapshotFileContext,
+  type SnapshotFileContext,
+} from "../../src/github/service.snapshot.ts";
 import {
   createLocalRepo as createLocalRepoCore,
   type LocalRepo,
@@ -266,6 +272,178 @@ async function cloneGitHubRepo(
 }
 
 // ============================================================================
+// Record/Replay mode GitHub repo managers
+// ============================================================================
+
+/**
+ * Create a stub GitHubFixture from snapshot context.
+ * All methods that require gh CLI throw — only data properties are usable.
+ */
+function createStubFixture(snapshotContext: SnapshotFileContext): GitHubFixture {
+  const { owner, repo } = snapshotContext;
+  const repoUrl = `https://github.com/${owner}/${repo}`;
+
+  const notAvailable = (method: string) => () => {
+    throw new Error(`${method}() is not available in snapshot replay mode`);
+  };
+
+  return {
+    owner,
+    repo,
+    repoUrl,
+    closeAllPRs: notAvailable("closeAllPRs"),
+    deleteAllBranches: notAvailable("deleteAllBranches"),
+    reset: notAvailable("reset"),
+    enableBranchProtection: notAvailable("enableBranchProtection"),
+    disableBranchProtection: notAvailable("disableBranchProtection"),
+    getBranchProtection: notAvailable("getBranchProtection"),
+    waitForCI: notAvailable("waitForCI"),
+    waitForCIToStart: notAvailable("waitForCIToStart"),
+    getCIStatus: notAvailable("getCIStatus"),
+    mergePR: notAvailable("mergePR"),
+  };
+}
+
+/**
+ * Wrap a LocalRepo as a GitHubRepo for replay mode.
+ * Adds the github fixture and stubs for PR-related repo methods.
+ */
+function wrapAsGitHubRepo(
+  localRepo: LocalRepo,
+  fixture: GitHubFixture,
+  ctx: TestContext,
+): GitHubRepo {
+  const methods = createRepoMethods({
+    path: localRepo.path,
+    ctx,
+    cleanupFn: () => localRepo.cleanup(),
+  });
+
+  const notAvailable = (method: string) => () => {
+    throw new Error(`${method}() is not available in snapshot replay mode`);
+  };
+
+  return {
+    path: localRepo.path,
+    github: fixture,
+    defaultBranch: localRepo.defaultBranch,
+    ...methods,
+    findPR: notAvailable("findPR"),
+    findPRs: notAvailable("findPRs"),
+    waitForBranchGone: notAvailable("waitForBranchGone"),
+  };
+}
+
+/**
+ * GitHub repo manager for RECORD mode.
+ * Uses real GitHub fixture, clones from GitHub, resets between tests.
+ */
+function createRecordModeGitHubManager(ctx: TestContext): GitHubRepoManager {
+  const activeRepos: GitHubRepo[] = [];
+  let githubFixture: GitHubFixture | null = null;
+  const testFile = basename(Bun.main);
+
+  beforeAll(async () => {
+    githubFixture = await createGitHubFixture();
+    // Save owner/repo to snapshot file for replay mode
+    await setSnapshotFileContext(testFile, {
+      owner: githubFixture.owner,
+      repo: githubFixture.repo,
+    });
+  });
+
+  beforeEach(async () => {
+    ctx.uniqueId = generateUniqueId();
+    registerRepoContext(ctx.uniqueId);
+    await githubFixture?.reset();
+  });
+
+  afterEach(async () => {
+    await githubFixture?.reset();
+    for (const repo of activeRepos) {
+      await repo.cleanup();
+    }
+    activeRepos.length = 0;
+  });
+
+  return {
+    async clone(options?: CreateRepoOptions): Promise<GitHubRepo> {
+      if (!githubFixture) {
+        throw new Error("GitHub fixture not initialized - beforeAll hasn't run yet");
+      }
+      const repo = await cloneGitHubRepo(githubFixture, ctx, options);
+      activeRepos.push(repo);
+      return repo;
+    },
+
+    async cleanup(): Promise<void> {
+      for (const repo of activeRepos) {
+        await repo.cleanup();
+      }
+      activeRepos.length = 0;
+    },
+
+    get github(): GitHubFixture {
+      if (!githubFixture) {
+        throw new Error("GitHub fixture not initialized - beforeAll hasn't run yet");
+      }
+      return githubFixture;
+    },
+
+    get uniqueId(): string {
+      return ctx.uniqueId;
+    },
+  };
+}
+
+/**
+ * GitHub repo manager for REPLAY mode.
+ * Uses local bare repos instead of GitHub. No gh CLI needed.
+ */
+function createReplayModeGitHubManager(ctx: TestContext): GitHubRepoManager {
+  const activeRepos: GitHubRepo[] = [];
+  const testFile = basename(Bun.main);
+  const snapshotContext = loadSnapshotContext(testFile) ?? { owner: "unknown", repo: "unknown" };
+  const fixture = createStubFixture(snapshotContext);
+
+  beforeEach(() => {
+    ctx.uniqueId = generateUniqueId();
+    registerRepoContext(ctx.uniqueId);
+  });
+
+  afterEach(async () => {
+    for (const repo of activeRepos) {
+      await repo.cleanup();
+    }
+    activeRepos.length = 0;
+  });
+
+  return {
+    async clone(options?: CreateRepoOptions): Promise<GitHubRepo> {
+      const localRepo = await createLocalRepo(ctx, options);
+      const repo = wrapAsGitHubRepo(localRepo, fixture, ctx);
+      activeRepos.push(repo);
+      return repo;
+    },
+
+    async cleanup(): Promise<void> {
+      for (const repo of activeRepos) {
+        await repo.cleanup();
+      }
+      activeRepos.length = 0;
+    },
+
+    get github(): GitHubFixture {
+      return fixture;
+    },
+
+    get uniqueId(): string {
+      return ctx.uniqueId;
+    },
+  };
+}
+
+// ============================================================================
 // Repo managers (with function overloads for type safety)
 // ============================================================================
 
@@ -323,55 +501,13 @@ export function repoManager(options?: { github?: boolean }): LocalRepoManager | 
   const ctx: TestContext = { uniqueId: generateUniqueId() };
 
   if (options?.github) {
-    const activeRepos: GitHubRepo[] = [];
-    let githubFixture: GitHubFixture | null = null;
-
-    beforeAll(async () => {
-      githubFixture = await createGitHubFixture();
-    });
-
-    beforeEach(async () => {
-      ctx.uniqueId = generateUniqueId();
-      registerRepoContext(ctx.uniqueId);
-      await githubFixture?.reset();
-    });
-
-    afterEach(async () => {
-      await githubFixture?.reset();
-      for (const repo of activeRepos) {
-        await repo.cleanup();
-      }
-      activeRepos.length = 0;
-    });
-
-    return {
-      async clone(options?: CreateRepoOptions): Promise<GitHubRepo> {
-        if (!githubFixture) {
-          throw new Error("GitHub fixture not initialized - beforeAll hasn't run yet");
-        }
-        const repo = await cloneGitHubRepo(githubFixture, ctx, options);
-        activeRepos.push(repo);
-        return repo;
-      },
-
-      async cleanup(): Promise<void> {
-        for (const repo of activeRepos) {
-          await repo.cleanup();
-        }
-        activeRepos.length = 0;
-      },
-
-      get github(): GitHubFixture {
-        if (!githubFixture) {
-          throw new Error("GitHub fixture not initialized - beforeAll hasn't run yet");
-        }
-        return githubFixture;
-      },
-
-      get uniqueId(): string {
-        return ctx.uniqueId;
-      },
-    };
+    if (isGitHubIntegrationEnabled()) {
+      // RECORD mode: use real GitHub fixture
+      return createRecordModeGitHubManager(ctx);
+    } else {
+      // REPLAY mode: use local repos, no gh CLI needed
+      return createReplayModeGitHubManager(ctx);
+    }
   }
 
   // Local-only repos

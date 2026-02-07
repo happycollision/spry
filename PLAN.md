@@ -1,6 +1,6 @@
 # Plan: GitHub Service with Record/Replay Testing
 
-## Status: Phase 2 Complete ✅
+## Status: Phase 3 in progress
 
 **Phase 1 (Infrastructure)** - DONE
 
@@ -13,6 +13,13 @@
 - Snapshots recorded for service.snapshot.test.ts
 - Replay mode verified (~8s vs ~17s record mode)
 - Snapshot file cleared on re-recording (no stale entries)
+
+**Phase 2.5 (Offline Replay)** - DONE
+
+- `repoManager({ github: true })` now uses local bare repos in replay mode (no `gh` CLI needed)
+- Snapshot files store `context` (`owner`/`repo`) for replay-mode fixture stubs
+- Replay mode runs in ~900ms (down from ~12s) with zero network calls
+- Verified with `ribbin activate` (blocks `gh` CLI) — all 4 tests pass
 
 **Phase 3 (Migration)** - Next
 
@@ -428,7 +435,24 @@ bun test tests/github/service.snapshot.test.ts
 - Test IDs substituted in responses
 - Test passes, fast (< 1s)
 
-### 5. Verify Skip Behavior
+### 5. Verify Offline Replay (no `gh` CLI)
+
+Use `ribbin` to block the `gh` CLI and confirm snapshots work without any GitHub access:
+
+```bash
+# Block gh CLI
+ribbin activate
+
+# Run snapshot tests — should pass in ~1s with no network
+bun test tests/github/service.snapshot.test.ts
+
+# Restore gh CLI
+ribbin deactivate
+```
+
+This should be done for every new test file that gets snapshot support during Phase 3 migration. It proves the snapshot replay truly uses recorded data and doesn't fall back to `gh`.
+
+### 6. Verify Skip Behavior
 
 - Add new test without recording snapshot
 - Run without ENV var
