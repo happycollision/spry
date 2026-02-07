@@ -14,10 +14,12 @@ import { $ } from "bun";
 import { repoManager } from "../helpers/local-repo.ts";
 import { createStoryTest } from "../helpers/story-test.ts";
 import { scenarios } from "../../src/scenario/definitions.ts";
+import { withGitHubSnapshots } from "../helpers/snapshot-compose.ts";
 import { SKIP_GITHUB_TESTS, SKIP_CI_TESTS, runSync, runLand } from "./helpers.ts";
 
-// Create story-enabled test wrapper for documentation generation
-const { test: storyTest } = createStoryTest("land.test.ts");
+// Create story-enabled test wrapper with GitHub snapshot support
+const base = createStoryTest(import.meta.file);
+const { test: storyTest } = withGitHubSnapshots(base);
 
 // ============================================================================
 // Part 1: Local CLI Tests (no network required)
@@ -88,7 +90,7 @@ describe("land: local behavior", () => {
 // These tests interact with real GitHub API
 // ============================================================================
 
-describe.skipIf(SKIP_GITHUB_TESTS)("land: GitHub integration", () => {
+describe("land: GitHub integration", () => {
   const repos = repoManager({ github: true });
 
   storyTest(

@@ -1,11 +1,14 @@
 import { expect, describe } from "bun:test";
 import { repoManager } from "../helpers/local-repo.ts";
 import { createStoryTest } from "../helpers/story-test.ts";
-import { SKIP_GITHUB_TESTS, runSync, runView } from "./helpers.ts";
+import { withGitHubSnapshots } from "../helpers/snapshot-compose.ts";
+import { isGitHubIntegrationEnabled } from "../../src/github/service.ts";
+import { runSync, runView } from "./helpers.ts";
 
-const { test } = createStoryTest("view.test.ts");
+const base = createStoryTest(import.meta.file);
+const { test } = withGitHubSnapshots(base);
 
-describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: view command", () => {
+describe("GitHub Integration: view command", () => {
   const repos = repoManager({ github: true });
 
   test(
@@ -96,6 +99,9 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: view command", () => {
       // Create a PR first
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
+
+      // GitHub's PR search index has eventual consistency - wait for indexing
+      if (isGitHubIntegrationEnabled()) await Bun.sleep(3000);
 
       story.narrate("With --all, view shows PRs from any branch:");
       const result = await runView(repo.path, { all: true });

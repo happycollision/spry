@@ -33,15 +33,8 @@ import {
 } from "../../github/api.ts";
 import { getBranchNameConfig, getBranchName, pushBranch } from "../../github/branches.ts";
 import { getSpryConfig, isTempCommit, getDefaultBranchRef } from "../../git/config.ts";
-import {
-  findPRsByBranches,
-  createPR,
-  deleteRemoteBranch,
-  getPRBaseBranch,
-  retargetPR,
-  updatePRBody,
-  type PRInfo,
-} from "../../github/pr.ts";
+import { deleteRemoteBranch, type PRInfo } from "../../github/pr.ts";
+import { getGitHubService } from "../../github/service.ts";
 import { asserted } from "../../utils/assert.ts";
 import { getAllSyncStatuses, getSyncSummary, hasChanges } from "../../git/remote.ts";
 import type { PRUnit, CommitInfo } from "../../types.ts";
@@ -113,7 +106,7 @@ async function cleanupMergedPRs(
 
   // Batch fetch all PR info in a single API call
   const branchNames = units.map((u) => getBranchName(u.id, branchConfig));
-  const prMap = await findPRsByBranches(branchNames, { includeAll: true });
+  const prMap = await getGitHubService().findPRsByBranches(branchNames, { includeAll: true });
 
   for (const unit of units) {
     const branchName = getBranchName(unit.id, branchConfig);
@@ -134,10 +127,10 @@ async function cleanupMergedPRs(
     for (const { pr } of active) {
       if (pr?.state === "OPEN") {
         try {
-          const baseBranch = await getPRBaseBranch(pr.number);
+          const baseBranch = await getGitHubService().getPRBaseBranch(pr.number);
           if (mergedBranchNames.has(baseBranch)) {
             console.log(`Retargeting PR #${pr.number} to ${defaultBranch}...`);
-            await retargetPR(pr.number, defaultBranch);
+            await getGitHubService().retargetPR(pr.number, defaultBranch);
           }
         } catch {
           // Ignore errors - PR might already be retargeted or closed
@@ -547,7 +540,7 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
           } else {
             process.stdout.write(`Creating PR for "${unitTitle}"... `);
           }
-          const pr = await createPR({
+          const pr = await getGitHubService().createPR({
             title: unitTitle,
             head: headBranch,
             base: baseBranch,
@@ -614,7 +607,7 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
           showStackLinks: true,
         });
 
-        await updatePRBody(prNumber, updatedBody);
+        await getGitHubService().updatePRBody(prNumber, updatedBody);
         newContentHashes[unit.id] = contentHash;
       }
 

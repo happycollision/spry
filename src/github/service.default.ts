@@ -18,10 +18,14 @@ import {
   getPRState,
   getPRBody,
   getPRBaseBranch,
+  getPRChecksAndReviewStatus,
   createPR,
   retargetPR,
   updatePRBody,
   closePR,
+  landPR,
+  waitForPRState,
+  listUserPRs,
   type CreatePROptions,
 } from "./pr.ts";
 
@@ -63,5 +67,22 @@ export function createDefaultGitHubService(): GitHubService {
     updatePRBody: (prNumber: number, body: string) => updatePRBody(prNumber, body),
 
     closePR: (prNumber: number, comment?: string) => closePR(prNumber, comment),
+
+    // PR Checks + Review (combined)
+    getPRChecksAndReviewStatus: (prNumber: number, repo?: string) =>
+      getPRChecksAndReviewStatus(prNumber, repo),
+
+    // PR Landing
+    landPR: (prNumber: number, targetBranch: string) => landPR(prNumber, targetBranch),
+
+    waitForPRState: (
+      prNumber: number,
+      expectedState: "OPEN" | "CLOSED" | "MERGED",
+      maxWaitMs?: number,
+      pollIntervalMs?: number,
+    ) => waitForPRState(prNumber, expectedState, maxWaitMs, pollIntervalMs),
+
+    // User PRs
+    listUserPRs: (username: string) => listUserPRs(username),
   };
 }

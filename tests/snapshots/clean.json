@@ -1,8 +1,19 @@
 {
   "version": 1,
-  "entries": [],
   "context": {
     "owner": "happycollision",
     "repo": "spry-check"
-  }
+  },
+  "entries": [
+    {
+      "testContext": "No orphaned branches",
+      "recordedTestId": "mighty-crab-qpl",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:44:50.339Z"
+    }
+  ]
 }

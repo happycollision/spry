@@ -1,5 +1,5 @@
 import { $ } from "bun";
-import { getGitHubUsername } from "./api.ts";
+import { getGitHubService } from "./service.ts";
 import type { GitOptions } from "../git/commands.ts";
 import { getSpryConfig } from "../git/config.ts";
 import { validateBranchName } from "../core/validation.ts";
@@ -14,13 +14,19 @@ let cachedBranchConfig: BranchNameConfig | null = null;
 /**
  * Get the configuration for branch naming.
  * Result is memoized for the lifetime of the process.
+ *
+ * Uses the GitHub service (instead of direct API call) so that
+ * snapshot record/replay works for subprocess CLI invocations.
  */
 export async function getBranchNameConfig(): Promise<BranchNameConfig> {
   if (cachedBranchConfig) {
     return cachedBranchConfig;
   }
 
-  const [spryConfig, username] = await Promise.all([getSpryConfig(), getGitHubUsername()]);
+  const [spryConfig, username] = await Promise.all([
+    getSpryConfig(),
+    getGitHubService().getUsername(),
+  ]);
 
   cachedBranchConfig = { prefix: spryConfig.branchPrefix, username };
   return cachedBranchConfig;

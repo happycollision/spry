@@ -1,6 +1,12 @@
 import { randomBytes } from "crypto";
 
 /**
+ * Counter for deterministic commit IDs in snapshot mode.
+ * Each subprocess starts at 0 (module reloaded per process).
+ */
+let deterministicCounter = 0;
+
+/**
  * Generates a unique 8-character hex ID for commit tracking.
  *
  * Properties:
@@ -11,7 +17,14 @@ import { randomBytes } from "crypto";
  * Used for:
  * - Spry-Commit-Id: Assigned to every commit
  * - Spry-Group-Start / Spry-Group-End: Marks group boundaries
+ *
+ * In snapshot mode (SPRY_SNAPSHOT_MODE), generates deterministic IDs
+ * so that branch names are consistent across record/replay runs.
  */
 export function generateCommitId(): string {
+  if (process.env.SPRY_SNAPSHOT_MODE) {
+    deterministicCounter++;
+    return deterministicCounter.toString(16).padStart(8, "0");
+  }
   return randomBytes(4).toString("hex");
 }

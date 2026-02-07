@@ -2,6 +2,12 @@ import { $ } from "bun";
 import { join } from "node:path";
 import { rm } from "node:fs/promises";
 import type { GitHubFixture } from "../helpers/github-fixture.ts";
+import {
+  getSnapshotContext,
+  nextSubprocessIndex,
+  getSnapshotDir,
+} from "../../src/github/snapshot-context.ts";
+import { isGitHubIntegrationEnabled } from "../../src/github/service.ts";
 
 // Skip these tests unless explicitly enabled
 export const SKIP_GITHUB_TESTS = !process.env.GITHUB_INTEGRATION_TESTS;
@@ -28,10 +34,28 @@ export async function runSpry(
   command: string,
   args: string[] = [],
 ): Promise<CommandResult> {
+  // Build snapshot env vars for subprocess (if in snapshot test context)
+  const snapshotEnv: Record<string, string> = {};
+  const ctx = getSnapshotContext();
+  if (ctx) {
+    const mode = isGitHubIntegrationEnabled() ? "record" : "replay";
+    const subprocessIdx = nextSubprocessIndex();
+    snapshotEnv.SPRY_SNAPSHOT_MODE = mode;
+    snapshotEnv.SPRY_SNAPSHOT_FILE = ctx.testFile;
+    snapshotEnv.SPRY_SNAPSHOT_TEST = ctx.testName;
+    snapshotEnv.SPRY_SNAPSHOT_TEST_ID = ctx.testId;
+    snapshotEnv.SPRY_SNAPSHOT_SUBPROCESS = String(subprocessIdx);
+    // Pass project root so subprocess can find snapshot files
+    // (subprocess cwd is the test repo, not the project root)
+    snapshotEnv.SPRY_SNAPSHOT_ROOT = getSnapshotDir().replace(/\/tests\/snapshots$/, "");
+  }
+
   // Set SPRY_NO_TTY=1 to force non-interactive mode regardless of TTY status
+  const env = { ...process.env, SPRY_NO_TTY: "1", ...snapshotEnv };
   const result =
-    await $`SPRY_NO_TTY=1 bun run ${join(import.meta.dir, "../../src/cli/index.ts")} ${command} ${args}`
+    await $`bun run ${join(import.meta.dir, "../../src/cli/index.ts")} ${command} ${args}`
       .cwd(cwd)
+      .env(env)
       .nothrow()
       .quiet();
 

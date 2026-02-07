@@ -4,17 +4,12 @@ import { formatValidationError } from "../output.ts";
 import { getBranchNameConfig, getBranchName } from "../../github/branches.ts";
 import { resolveUnitTitle } from "../../core/title.ts";
 import {
-  findPRsByBranches,
-  landPR,
   deleteRemoteBranch,
-  getPRMergeStatus,
-  getPRBaseBranch,
-  retargetPR,
-  waitForPRState,
   PRNotFastForwardError,
   PRNotFoundError,
   PRNotReadyError,
 } from "../../github/pr.ts";
+import { getGitHubService } from "../../github/service.ts";
 import { requireGitHubOrigin, NonGitHubOriginError } from "../../github/api.ts";
 import { getSpryConfig } from "../../git/config.ts";
 import type { PRUnit, EnrichedPRUnit } from "../../types.ts";
@@ -46,7 +41,7 @@ async function enrichUnitsWithPRInfo(units: PRUnit[]): Promise<EnrichedPRUnit[]>
   const branchNames = units.map((unit) => getBranchName(unit.id, config));
 
   // Batch fetch all PRs in a single API call (open PRs only)
-  const prMap = await findPRsByBranches(branchNames);
+  const prMap = await getGitHubService().findPRsByBranches(branchNames);
 
   // Enrich units with PR info
   return units.map((unit): EnrichedPRUnit => {
@@ -82,10 +77,10 @@ async function landSinglePR(
 ): Promise<string> {
   console.log(`Merging PR #${unit.pr.number} (${resolveUnitTitle(unit)})...`);
 
-  await landPR(unit.pr.number, defaultBranch);
+  await getGitHubService().landPR(unit.pr.number, defaultBranch);
 
   // Verify PR is actually merged on GitHub before proceeding (wait up to 30s)
-  const isMerged = await waitForPRState(unit.pr.number, "MERGED", 30000);
+  const isMerged = await getGitHubService().waitForPRState(unit.pr.number, "MERGED", 30000);
   if (!isMerged) {
     throw new Error(`PR #${unit.pr.number} was not marked as merged by GitHub after landing`);
   }
@@ -131,7 +126,7 @@ export async function landCommand(options: LandCommandOptions = {}): Promise<voi
     const mergeStatusMap = new Map<number, PRMergeStatus>();
     await Promise.all(
       openPRs.map(async (unit) => {
-        const status = await getPRMergeStatus(unit.pr.number);
+        const status = await getGitHubService().getPRMergeStatus(unit.pr.number);
         mergeStatusMap.set(unit.pr.number, status);
       }),
     );
@@ -159,19 +154,19 @@ export async function landCommand(options: LandCommandOptions = {}): Promise<voi
 
         // Before merging, retarget this PR to default branch if needed (after first merge)
         if (mergedBranches.length > 0) {
-          const currentBase = await getPRBaseBranch(unit.pr.number);
+          const currentBase = await getGitHubService().getPRBaseBranch(unit.pr.number);
           if (currentBase !== defaultBranch) {
             console.log(`Retargeting PR #${unit.pr.number} to ${defaultBranch}...`);
-            await retargetPR(unit.pr.number, defaultBranch);
+            await getGitHubService().retargetPR(unit.pr.number, defaultBranch);
           }
         }
 
         // Before merging, also retarget the NEXT PR to default branch (so it doesn't get closed when we delete this branch)
         if (nextUnit) {
-          const nextBase = await getPRBaseBranch(nextUnit.pr.number);
+          const nextBase = await getGitHubService().getPRBaseBranch(nextUnit.pr.number);
           if (nextBase !== defaultBranch) {
             console.log(`Retargeting PR #${nextUnit.pr.number} to ${defaultBranch}...`);
-            await retargetPR(nextUnit.pr.number, defaultBranch);
+            await getGitHubService().retargetPR(nextUnit.pr.number, defaultBranch);
           }
         }
 
@@ -214,10 +209,10 @@ export async function landCommand(options: LandCommandOptions = {}): Promise<voi
       // This prevents the next PR from being closed when its base branch is deleted
       const nextPR = openPRs[1];
       if (nextPR) {
-        const nextBase = await getPRBaseBranch(nextPR.pr.number);
+        const nextBase = await getGitHubService().getPRBaseBranch(nextPR.pr.number);
         if (nextBase !== defaultBranch) {
           console.log(`Retargeting PR #${nextPR.pr.number} to ${defaultBranch}...`);
-          await retargetPR(nextPR.pr.number, defaultBranch);
+          await getGitHubService().retargetPR(nextPR.pr.number, defaultBranch);
         }
       }
 

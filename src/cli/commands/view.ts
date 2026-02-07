@@ -1,14 +1,10 @@
-import { $ } from "bun";
 import { getStackCommitsWithTrailers, getCurrentBranch } from "../../git/commands.ts";
 import { parseStack } from "../../core/stack.ts";
 import { formatStackView, formatValidationError, formatAllPRsView } from "../output.ts";
 import { getBranchNameConfig, getBranchName } from "../../github/branches.ts";
-import {
-  findPRsByBranches,
-  getPRChecksAndReviewStatus,
-  getPRCommentStatus,
-} from "../../github/pr.ts";
-import { ensureGhInstalled, isGitHubOrigin } from "../../github/api.ts";
+import { getGitHubService } from "../../github/service.ts";
+export type { UserPR } from "../../github/service.ts";
+import { isGitHubOrigin } from "../../github/api.ts";
 import { readGroupTitles } from "../../git/group-titles.ts";
 import type { PRUnit, EnrichedPRUnit, PRStatus } from "../../types.ts";
 
@@ -18,24 +14,26 @@ export interface ViewOptions {
 }
 
 async function fetchPRStatus(prNumber: number): Promise<PRStatus> {
+  const service = getGitHubService();
   // Fetch checks + review in one call, comments separately
   // (comments requires GraphQL, so can't easily combine)
   const [{ checks, review }, comments] = await Promise.all([
-    getPRChecksAndReviewStatus(prNumber),
-    getPRCommentStatus(prNumber),
+    service.getPRChecksAndReviewStatus(prNumber),
+    service.getPRCommentStatus(prNumber),
   ]);
 
   return { checks, review, comments };
 }
 
 async function enrichUnitsWithPRInfo(units: PRUnit[]): Promise<EnrichedPRUnit[]> {
+  const service = getGitHubService();
   const config = await getBranchNameConfig();
 
   // Build branch name lookup for all units
   const branchNames = units.map((unit) => getBranchName(unit.id, config));
 
   // Batch fetch all PRs in a single API call
-  const prMap = await findPRsByBranches(branchNames, { includeAll: true });
+  const prMap = await service.findPRsByBranches(branchNames, { includeAll: true });
 
   // Find open PRs that need status fetching
   const openPRNumbers: number[] = [];
@@ -119,36 +117,10 @@ function enrichUnitsWithMockPRInfo(units: PRUnit[]): EnrichedPRUnit[] {
   });
 }
 
-export interface UserPR {
-  number: number;
-  title: string;
-  state: "OPEN" | "CLOSED" | "MERGED";
-  headRefName: string;
-  url: string;
-}
-
 async function viewAllPRs(): Promise<void> {
-  await ensureGhInstalled();
-
-  // Get current GitHub username
-  const usernameResult = await $`gh api user --jq .login`.quiet().nothrow();
-  if (usernameResult.exitCode !== 0) {
-    throw new Error("Failed to get GitHub username. Are you authenticated with `gh auth login`?");
-  }
-  const username = usernameResult.stdout.toString().trim();
-
-  // Get all PRs authored by the current user
-  // Use --limit 500 to handle users with many PRs (gh defaults to 30)
-  const result =
-    await $`gh pr list --author ${username} --state all --json number,title,state,headRefName,url --limit 500`
-      .quiet()
-      .nothrow();
-
-  if (result.exitCode !== 0) {
-    throw new Error(`Failed to list PRs: ${result.stderr.toString()}`);
-  }
-
-  const prs = JSON.parse(result.stdout.toString()) as UserPR[];
+  const service = getGitHubService();
+  const username = await service.getUsername();
+  const prs = await service.listUserPRs(username);
   console.log(formatAllPRsView(prs, username));
 }
 

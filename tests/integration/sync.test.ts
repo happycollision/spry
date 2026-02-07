@@ -17,10 +17,13 @@ import { createGitHubFixture, type GitHubFixture } from "../helpers/github-fixtu
 import { createStoryTest } from "../helpers/story-test.ts";
 import { getStackCommitsWithTrailers } from "../../src/git/commands.ts";
 import { scenarios } from "../../src/scenario/definitions.ts";
+import { withGitHubSnapshots } from "../helpers/snapshot-compose.ts";
+import { isGitHubIntegrationEnabled } from "../../src/github/service.ts";
 import { SKIP_GITHUB_TESTS, SKIP_CI_TESTS, runSync, runSpry } from "./helpers.ts";
 
-// Create story-enabled test wrapper for documentation generation
-const { test: storyTest } = createStoryTest("sync.test.ts");
+// Create story-enabled test wrapper with GitHub snapshot support
+const base = createStoryTest(import.meta.file);
+const { test: storyTest } = withGitHubSnapshots(base);
 
 // ============================================================================
 // Part 1: Local CLI Tests (no network required)
@@ -413,7 +416,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync: GitHub fixture setup", () => {
   });
 });
 
-describe.skipIf(SKIP_GITHUB_TESTS)("sync --open: PR creation", () => {
+describe("sync --open: PR creation", () => {
   const repos = repoManager({ github: true });
 
   storyTest(
@@ -436,8 +439,10 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync --open: PR creation", () => {
       expect(result.stdout).toContain("WIP: work in progress");
 
       // Verify NO PR was created (search by uniqueId to isolate from other tests)
-      const prs = await repo.findPRs(repo.uniqueId);
-      expect(prs.length).toBe(0);
+      if (isGitHubIntegrationEnabled()) {
+        const prs = await repo.findPRs(repo.uniqueId);
+        expect(prs.length).toBe(0);
+      }
     },
     { timeout: 60000 },
   );
@@ -462,8 +467,10 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync --open: PR creation", () => {
       expect(result.stdout).toContain("fixup! original commit");
 
       // Verify NO PR was created
-      const prs = await repo.findPRs(repo.uniqueId);
-      expect(prs.length).toBe(0);
+      if (isGitHubIntegrationEnabled()) {
+        const prs = await repo.findPRs(repo.uniqueId);
+        expect(prs.length).toBe(0);
+      }
     },
     { timeout: 60000 },
   );
@@ -489,8 +496,10 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync --open: PR creation", () => {
       expect(result.stdout).toContain("Skipped PR for 1 temporary commit");
 
       // Verify only 1 PR was created (for the non-WIP commit)
-      const prs = await repo.findPRs(repo.uniqueId);
-      expect(prs.length).toBe(1);
+      if (isGitHubIntegrationEnabled()) {
+        const prs = await repo.findPRs(repo.uniqueId);
+        expect(prs.length).toBe(1);
+      }
     },
     { timeout: 60000 },
   );
@@ -516,8 +525,10 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync --open: PR creation", () => {
       expect(result.stdout).toMatch(/Creating PR for .+\.\.\. #\d+/);
 
       // Verify PR was created
-      const prs = await repo.findPRs(repo.uniqueId);
-      expect(prs.length).toBeGreaterThanOrEqual(1);
+      if (isGitHubIntegrationEnabled()) {
+        const prs = await repo.findPRs(repo.uniqueId);
+        expect(prs.length).toBeGreaterThanOrEqual(1);
+      }
     },
     { timeout: 90000 },
   );
@@ -542,8 +553,10 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync --open: PR creation", () => {
       expect(syncResult.exitCode).toBe(0);
 
       // Verify no PRs were created yet (search by uniqueId to isolate from other tests)
-      const prsBefore = await repo.findPRs(repo.uniqueId);
-      expect(prsBefore.length).toBe(0);
+      if (isGitHubIntegrationEnabled()) {
+        const prsBefore = await repo.findPRs(repo.uniqueId);
+        expect(prsBefore.length).toBe(0);
+      }
 
       // Now run sp sync WITH --open
       story.narrate("Then, sync with --open to create PRs:");
@@ -556,8 +569,10 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync --open: PR creation", () => {
       expect(openResult.stdout).toContain("Creating PR for");
 
       // Verify PRs were created
-      const prsAfter = await repo.findPRs(repo.uniqueId);
-      expect(prsAfter.length).toBe(2);
+      if (isGitHubIntegrationEnabled()) {
+        const prsAfter = await repo.findPRs(repo.uniqueId);
+        expect(prsAfter.length).toBe(2);
+      }
     },
     { timeout: 90000 },
   );
@@ -604,8 +619,10 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync --open: PR creation", () => {
       expect(result.stdout).toContain(`Pushed ${middleIndex} branch(es)`);
 
       // Verify only 1 PR was created
-      const prs = await repo.findPRs(repo.uniqueId);
-      expect(prs.length).toBe(1);
+      if (isGitHubIntegrationEnabled()) {
+        const prs = await repo.findPRs(repo.uniqueId);
+        expect(prs.length).toBe(1);
+      }
 
       // Verify only branches up to middleIndex were pushed
       const remoteBranches = (
@@ -620,7 +637,7 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync --open: PR creation", () => {
   );
 });
 
-describe.skipIf(SKIP_GITHUB_TESTS)("sync: PR body generation", () => {
+describe("sync: PR body generation", () => {
   const repos = repoManager({ github: true });
 
   /** Helper to get PR body via gh CLI */
@@ -654,17 +671,19 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync: PR body generation", () => {
 
       expect(result.exitCode).toBe(0);
 
-      const pr = await repo.findPR(repo.uniqueId);
-      const body = await getPRBody(repo.github, pr.number);
+      if (isGitHubIntegrationEnabled()) {
+        const pr = await repo.findPR(repo.uniqueId);
+        const body = await getPRBody(repo.github, pr.number);
 
-      // Body should contain spry markers
-      expect(body).toContain("<!-- spry:body:begin -->");
-      expect(body).toContain("<!-- spry:body:end -->");
-      // Body should contain the commit description
-      expect(body).toContain("This is a detailed description of the feature.");
-      // Footer should be present
-      expect(body).toContain("<!-- spry:footer:begin -->");
-      expect(body).toContain("Spry");
+        // Body should contain spry markers
+        expect(body).toContain("<!-- spry:body:begin -->");
+        expect(body).toContain("<!-- spry:body:end -->");
+        // Body should contain the commit description
+        expect(body).toContain("This is a detailed description of the feature.");
+        // Footer should be present
+        expect(body).toContain("<!-- spry:footer:begin -->");
+        expect(body).toContain("Spry");
+      }
     },
     { timeout: 60000 },
   );
@@ -688,20 +707,22 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync: PR body generation", () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Created 2 PR");
 
-      const prs = await repo.findPRs(repo.uniqueId);
-      expect(prs.length).toBe(2);
+      if (isGitHubIntegrationEnabled()) {
+        const prs = await repo.findPRs(repo.uniqueId);
+        expect(prs.length).toBe(2);
 
-      // Check first PR body has stack links
-      const firstPR = prs.find((p) => p.title.includes("First commit"));
-      if (!firstPR) throw new Error("First PR not found");
+        // Check first PR body has stack links
+        const firstPR = prs.find((p) => p.title.includes("First commit"));
+        if (!firstPR) throw new Error("First PR not found");
 
-      const body = await getPRBody(repo.github, firstPR.number);
+        const body = await getPRBody(repo.github, firstPR.number);
 
-      // Should have stack links section
-      expect(body).toContain("<!-- spry:stack-links:begin -->");
-      expect(body).toContain("<!-- spry:stack-links:end -->");
-      expect(body).toContain("**Stack**");
-      expect(body).toContain("← this PR");
+        // Should have stack links section
+        expect(body).toContain("<!-- spry:stack-links:begin -->");
+        expect(body).toContain("<!-- spry:stack-links:end -->");
+        expect(body).toContain("**Stack**");
+        expect(body).toContain("← this PR");
+      }
     },
     { timeout: 90000 },
   );
@@ -740,13 +761,15 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync: PR body generation", () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Created 1 PR");
 
-      const pr = await repo.findPR(repo.uniqueId);
-      const body = await getPRBody(repo.github, pr.number);
+      if (isGitHubIntegrationEnabled()) {
+        const pr = await repo.findPR(repo.uniqueId);
+        const body = await getPRBody(repo.github, pr.number);
 
-      // Body should list all commit subjects
-      expect(body).toContain("- Start feature X");
-      expect(body).toContain("- Continue feature X");
-      expect(body).toContain("- Complete feature X");
+        // Body should list all commit subjects
+        expect(body).toContain("- Start feature X");
+        expect(body).toContain("- Continue feature X");
+        expect(body).toContain("- Complete feature X");
+      }
     },
     { timeout: 60000 },
   );

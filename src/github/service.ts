@@ -28,8 +28,18 @@ import type {
   ReviewDecision,
   CommentStatus,
   PRMergeStatus,
+  LandResult,
 } from "./pr.ts";
 import { asserted } from "../utils/assert.ts";
+
+/** User PR info returned by listUserPRs */
+export interface UserPR {
+  number: number;
+  title: string;
+  state: "OPEN" | "CLOSED" | "MERGED";
+  headRefName: string;
+  url: string;
+}
 
 /**
  * The GitHub service interface.
@@ -52,12 +62,28 @@ export interface GitHubService {
   getPRState(prNumber: number): Promise<"OPEN" | "CLOSED" | "MERGED">;
   getPRBody(prNumber: number): Promise<string>;
   getPRBaseBranch(prNumber: number): Promise<string>;
+  getPRChecksAndReviewStatus(
+    prNumber: number,
+    repo?: string,
+  ): Promise<{ checks: ChecksStatus; review: ReviewDecision }>;
 
   // PR Mutations
   createPR(options: CreatePROptions): Promise<{ number: number; url: string }>;
   retargetPR(prNumber: number, newBase: string): Promise<void>;
   updatePRBody(prNumber: number, body: string): Promise<void>;
   closePR(prNumber: number, comment?: string): Promise<void>;
+
+  // PR Landing
+  landPR(prNumber: number, targetBranch: string): Promise<LandResult>;
+  waitForPRState(
+    prNumber: number,
+    expectedState: "OPEN" | "CLOSED" | "MERGED",
+    maxWaitMs?: number,
+    pollIntervalMs?: number,
+  ): Promise<boolean>;
+
+  // User PRs
+  listUserPRs(username: string): Promise<UserPR[]>;
 }
 
 // DI state
@@ -65,18 +91,26 @@ let githubService: GitHubService | null = null;
 
 /**
  * Check if we're running in a test environment.
+ * Detects both in-process tests (BUN_TEST) and subprocess snapshot mode.
  */
 function isTestEnvironment(): boolean {
-  // Bun test sets this
-  return process.env.NODE_ENV === "test" || (typeof Bun !== "undefined" && !!Bun.env.BUN_TEST);
+  return (
+    process.env.NODE_ENV === "test" ||
+    (typeof Bun !== "undefined" && !!Bun.env.BUN_TEST) ||
+    !!process.env.SPRY_SNAPSHOT_MODE
+  );
 }
 
 /**
  * Check if GitHub integration tests are enabled.
  * When enabled, the snapshot service records to disk.
  * When disabled, the snapshot service replays from disk.
+ *
+ * Also checks SPRY_SNAPSHOT_MODE for subprocess mode.
  */
 export function isGitHubIntegrationEnabled(): boolean {
+  if (process.env.SPRY_SNAPSHOT_MODE === "record") return true;
+  if (process.env.SPRY_SNAPSHOT_MODE === "replay") return false;
   return process.env.GITHUB_INTEGRATION_TESTS === "1";
 }
 
@@ -92,7 +126,6 @@ export function getGitHubService(): GitHubService {
     return githubService;
   }
 
-  // Lazy import to avoid circular dependencies
   // Lazy import to avoid circular dependencies
   if (isTestEnvironment()) {
     // Import snapshot service dynamically

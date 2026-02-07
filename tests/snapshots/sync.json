@@ -1,8 +1,850 @@
 {
   "version": 1,
-  "entries": [],
   "context": {
     "owner": "happycollision",
     "repo": "spry-check"
-  }
+  },
+  "entries": [
+    {
+      "testContext": "Skipping WIP commits",
+      "recordedTestId": "fresh-otter-ugy",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:44:53.762Z"
+    },
+    {
+      "testContext": "Skipping WIP commits",
+      "recordedTestId": "fresh-otter-ugy",
+      "method": "findPRsByBranches",
+      "args": [
+        ["spry/happycollision/00000001"],
+        {
+          "includeAll": true
+        }
+      ],
+      "result": [
+        [
+          "spry/happycollision/00000001",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\nThis is a detailed description of the feature. [gentle-otter-k6o]\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 506,
+            "state": "CLOSED",
+            "title": "Add feature [gentle-otter-k6o]",
+            "url": "https://github.com/happycollision/spry-check/pull/506"
+          }
+        ]
+      ],
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:44:56.221Z"
+    },
+    {
+      "testContext": "Skipping fixup! commits",
+      "recordedTestId": "sharp-shark-v88",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:45:00.400Z"
+    },
+    {
+      "testContext": "Skipping fixup! commits",
+      "recordedTestId": "sharp-shark-v88",
+      "method": "findPRsByBranches",
+      "args": [
+        ["spry/happycollision/00000001"],
+        {
+          "includeAll": true
+        }
+      ],
+      "result": [
+        [
+          "spry/happycollision/00000001",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\nThis is a detailed description of the feature. [gentle-otter-k6o]\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 506,
+            "state": "CLOSED",
+            "title": "Add feature [gentle-otter-k6o]",
+            "url": "https://github.com/happycollision/spry-check/pull/506"
+          }
+        ]
+      ],
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:45:02.506Z"
+    },
+    {
+      "testContext": "Mixed stack with temp commits",
+      "recordedTestId": "neat-whale-eb9",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:45:06.507Z"
+    },
+    {
+      "testContext": "Mixed stack with temp commits",
+      "recordedTestId": "neat-whale-eb9",
+      "method": "findPRsByBranches",
+      "args": [
+        ["spry/happycollision/00000001", "spry/happycollision/00000002"],
+        {
+          "includeAll": true
+        }
+      ],
+      "result": [
+        [
+          "spry/happycollision/00000001",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\nThis is a detailed description of the feature. [gentle-otter-k6o]\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 506,
+            "state": "CLOSED",
+            "title": "Add feature [gentle-otter-k6o]",
+            "url": "https://github.com/happycollision/spry-check/pull/506"
+          }
+        ],
+        [
+          "spry/happycollision/00000002",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:stack-links:begin -->\n**Stack** (oldest → newest, targeting `main`):\n- #503\n- #504 ← this PR\n<!-- spry:stack-links:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 504,
+            "state": "CLOSED",
+            "title": "Second commit in stack [wise-panda-sya]",
+            "url": "https://github.com/happycollision/spry-check/pull/504"
+          }
+        ]
+      ],
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:45:08.972Z"
+    },
+    {
+      "testContext": "Mixed stack with temp commits",
+      "recordedTestId": "neat-whale-eb9",
+      "method": "createPR",
+      "args": [
+        {
+          "title": "Add feature A [neat-whale-eb9]",
+          "head": "spry/happycollision/00000001",
+          "base": "main",
+          "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+        }
+      ],
+      "result": {
+        "number": 507,
+        "url": "https://github.com/happycollision/spry-check/pull/507"
+      },
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:45:11.261Z"
+    },
+    {
+      "testContext": "Single commit PR creation",
+      "recordedTestId": "eager-sloth-icd",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:45:17.025Z"
+    },
+    {
+      "testContext": "Single commit PR creation",
+      "recordedTestId": "eager-sloth-icd",
+      "method": "findPRsByBranches",
+      "args": [
+        ["spry/happycollision/00000001"],
+        {
+          "includeAll": true
+        }
+      ],
+      "result": [
+        [
+          "spry/happycollision/00000001",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 507,
+            "state": "CLOSED",
+            "title": "Add feature A [neat-whale-eb9]",
+            "url": "https://github.com/happycollision/spry-check/pull/507"
+          }
+        ]
+      ],
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:45:19.409Z"
+    },
+    {
+      "testContext": "Single commit PR creation",
+      "recordedTestId": "eager-sloth-icd",
+      "method": "createPR",
+      "args": [
+        {
+          "title": "single-pr 1 [eager-sloth-icd]",
+          "head": "spry/happycollision/00000001",
+          "base": "main",
+          "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+        }
+      ],
+      "result": {
+        "number": 509,
+        "url": "https://github.com/happycollision/spry-check/pull/509"
+      },
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:45:22.786Z"
+    },
+    {
+      "testContext": "Opening PRs for existing branches",
+      "recordedTestId": "mellow-otter-qag",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:45:28.721Z"
+    },
+    {
+      "testContext": "Opening PRs for existing branches",
+      "recordedTestId": "mellow-otter-qag",
+      "method": "findPRsByBranches",
+      "args": [
+        ["spry/happycollision/00000001", "spry/happycollision/00000002"],
+        {
+          "includeAll": true
+        }
+      ],
+      "result": [
+        [
+          "spry/happycollision/00000001",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 509,
+            "state": "CLOSED",
+            "title": "single-pr 1 [eager-sloth-icd]",
+            "url": "https://github.com/happycollision/spry-check/pull/509"
+          }
+        ],
+        [
+          "spry/happycollision/00000002",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:stack-links:begin -->\n**Stack** (oldest → newest, targeting `main`):\n- #503\n- #504 ← this PR\n<!-- spry:stack-links:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 504,
+            "state": "CLOSED",
+            "title": "Second commit in stack [wise-panda-sya]",
+            "url": "https://github.com/happycollision/spry-check/pull/504"
+          }
+        ]
+      ],
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:45:30.873Z"
+    },
+    {
+      "testContext": "Opening PRs for existing branches",
+      "recordedTestId": "mellow-otter-qag",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 1,
+      "timestamp": "2026-02-07T19:45:32.744Z"
+    },
+    {
+      "testContext": "Opening PRs for existing branches",
+      "recordedTestId": "mellow-otter-qag",
+      "method": "findPRsByBranches",
+      "args": [
+        ["spry/happycollision/00000001", "spry/happycollision/00000002"],
+        {
+          "includeAll": true
+        }
+      ],
+      "result": [
+        [
+          "spry/happycollision/00000001",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 509,
+            "state": "CLOSED",
+            "title": "single-pr 1 [eager-sloth-icd]",
+            "url": "https://github.com/happycollision/spry-check/pull/509"
+          }
+        ],
+        [
+          "spry/happycollision/00000002",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:stack-links:begin -->\n**Stack** (oldest → newest, targeting `main`):\n- #503\n- #504 ← this PR\n<!-- spry:stack-links:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 504,
+            "state": "CLOSED",
+            "title": "Second commit in stack [wise-panda-sya]",
+            "url": "https://github.com/happycollision/spry-check/pull/504"
+          }
+        ]
+      ],
+      "isError": false,
+      "subprocess": 1,
+      "timestamp": "2026-02-07T19:45:35.283Z"
+    },
+    {
+      "testContext": "Opening PRs for existing branches",
+      "recordedTestId": "mellow-otter-qag",
+      "method": "createPR",
+      "args": [
+        {
+          "title": "open-existing 1 [mellow-otter-qag]",
+          "head": "spry/happycollision/00000001",
+          "base": "main",
+          "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+        }
+      ],
+      "result": {
+        "number": 510,
+        "url": "https://github.com/happycollision/spry-check/pull/510"
+      },
+      "isError": false,
+      "subprocess": 1,
+      "timestamp": "2026-02-07T19:45:37.662Z"
+    },
+    {
+      "testContext": "Opening PRs for existing branches",
+      "recordedTestId": "mellow-otter-qag",
+      "method": "createPR",
+      "args": [
+        {
+          "title": "open-existing 2 [mellow-otter-qag]",
+          "head": "spry/happycollision/00000002",
+          "base": "spry/happycollision/00000001",
+          "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+        }
+      ],
+      "result": {
+        "number": 511,
+        "url": "https://github.com/happycollision/spry-check/pull/511"
+      },
+      "isError": false,
+      "subprocess": 1,
+      "timestamp": "2026-02-07T19:45:40.255Z"
+    },
+    {
+      "testContext": "Opening PRs for existing branches",
+      "recordedTestId": "mellow-otter-qag",
+      "method": "updatePRBody",
+      "args": [
+        510,
+        "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:stack-links:begin -->\n**Stack** (oldest → newest, targeting `main`):\n- #510 ← this PR\n- #511\n<!-- spry:stack-links:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+      ],
+      "isError": false,
+      "subprocess": 1,
+      "timestamp": "2026-02-07T19:45:41.913Z"
+    },
+    {
+      "testContext": "Opening PRs for existing branches",
+      "recordedTestId": "mellow-otter-qag",
+      "method": "updatePRBody",
+      "args": [
+        511,
+        "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:stack-links:begin -->\n**Stack** (oldest → newest, targeting `main`):\n- #510\n- #511 ← this PR\n<!-- spry:stack-links:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+      ],
+      "isError": false,
+      "subprocess": 1,
+      "timestamp": "2026-02-07T19:45:43.110Z"
+    },
+    {
+      "testContext": "Only pushes branches up to the last PR (--apply filtering)",
+      "recordedTestId": "fresh-elk-q6b",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:45:50.217Z"
+    },
+    {
+      "testContext": "Only pushes branches up to the last PR (--apply filtering)",
+      "recordedTestId": "fresh-elk-q6b",
+      "method": "findPRsByBranches",
+      "args": [
+        [
+          "spry/happycollision/abc12345",
+          "spry/happycollision/def67890",
+          "spry/happycollision/cde11111",
+          "spry/happycollision/fab22222",
+          "spry/happycollision/edc33333"
+        ],
+        {
+          "includeAll": true
+        }
+      ],
+      "result": [
+        ["spry/happycollision/abc12345", null],
+        [
+          "spry/happycollision/def67890",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (alpha). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 224,
+            "state": "CLOSED",
+            "title": "Second commit [steady-finch-r6t]",
+            "url": "https://github.com/happycollision/spry-check/pull/224"
+          }
+        ],
+        [
+          "spry/happycollision/cde11111",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 498,
+            "state": "CLOSED",
+            "title": "Third commit [pure-moose-95a]",
+            "url": "https://github.com/happycollision/spry-check/pull/498"
+          }
+        ],
+        ["spry/happycollision/fab22222", null],
+        ["spry/happycollision/edc33333", null]
+      ],
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:45:52.897Z"
+    },
+    {
+      "testContext": "Only pushes branches up to the last PR (--apply filtering)",
+      "recordedTestId": "fresh-elk-q6b",
+      "method": "createPR",
+      "args": [
+        {
+          "title": "Third commit [fresh-elk-q6b]",
+          "head": "spry/happycollision/cde11111",
+          "base": "spry/happycollision/def67890",
+          "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+        }
+      ],
+      "result": {
+        "number": 512,
+        "url": "https://github.com/happycollision/spry-check/pull/512"
+      },
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:45:56.576Z"
+    },
+    {
+      "testContext": "PR body from commit message",
+      "recordedTestId": "tiny-otter-mqa",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T20:11:18.756Z"
+    },
+    {
+      "testContext": "PR body from commit message",
+      "recordedTestId": "tiny-otter-mqa",
+      "method": "findPRsByBranches",
+      "args": [
+        ["spry/happycollision/00000001"],
+        {
+          "includeAll": true
+        }
+      ],
+      "result": [
+        [
+          "spry/happycollision/00000001",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 521,
+            "state": "CLOSED",
+            "title": "all 1 [silver-deer-cqh]",
+            "url": "https://github.com/happycollision/spry-check/pull/521"
+          }
+        ]
+      ],
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T20:11:21.074Z"
+    },
+    {
+      "testContext": "PR body from commit message",
+      "recordedTestId": "tiny-otter-mqa",
+      "method": "createPR",
+      "args": [
+        {
+          "title": "Add feature [tiny-otter-mqa]",
+          "head": "spry/happycollision/00000001",
+          "base": "main",
+          "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\nThis is a detailed description of the feature. [tiny-otter-mqa]\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+        }
+      ],
+      "result": {
+        "number": 522,
+        "url": "https://github.com/happycollision/spry-check/pull/522"
+      },
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T20:11:23.792Z"
+    },
+    {
+      "testContext": "Stack links in PR body",
+      "recordedTestId": "golden-crab-mai",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 1,
+      "timestamp": "2026-02-07T19:46:12.897Z"
+    },
+    {
+      "testContext": "Stack links in PR body",
+      "recordedTestId": "golden-crab-mai",
+      "method": "findPRsByBranches",
+      "args": [
+        ["spry/happycollision/00000001", "spry/happycollision/00000002"],
+        {
+          "includeAll": true
+        }
+      ],
+      "result": [
+        [
+          "spry/happycollision/00000001",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\nThis is a detailed description of the feature. [humble-bear-rgz]\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 513,
+            "state": "CLOSED",
+            "title": "Add feature [humble-bear-rgz]",
+            "url": "https://github.com/happycollision/spry-check/pull/513"
+          }
+        ],
+        [
+          "spry/happycollision/00000002",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:stack-links:begin -->\n**Stack** (oldest → newest, targeting `main`):\n- #510\n- #511 ← this PR\n<!-- spry:stack-links:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 511,
+            "state": "CLOSED",
+            "title": "open-existing 2 [mellow-otter-qag]",
+            "url": "https://github.com/happycollision/spry-check/pull/511"
+          }
+        ]
+      ],
+      "isError": false,
+      "subprocess": 1,
+      "timestamp": "2026-02-07T19:46:15.391Z"
+    },
+    {
+      "testContext": "Stack links in PR body",
+      "recordedTestId": "golden-crab-mai",
+      "method": "createPR",
+      "args": [
+        {
+          "title": "First commit in stack [golden-crab-mai]",
+          "head": "spry/happycollision/00000001",
+          "base": "main",
+          "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+        }
+      ],
+      "result": {
+        "number": 514,
+        "url": "https://github.com/happycollision/spry-check/pull/514"
+      },
+      "isError": false,
+      "subprocess": 1,
+      "timestamp": "2026-02-07T19:46:17.568Z"
+    },
+    {
+      "testContext": "Stack links in PR body",
+      "recordedTestId": "golden-crab-mai",
+      "method": "createPR",
+      "args": [
+        {
+          "title": "Second commit in stack [golden-crab-mai]",
+          "head": "spry/happycollision/00000002",
+          "base": "spry/happycollision/00000001",
+          "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+        }
+      ],
+      "result": {
+        "number": 515,
+        "url": "https://github.com/happycollision/spry-check/pull/515"
+      },
+      "isError": false,
+      "subprocess": 1,
+      "timestamp": "2026-02-07T19:46:20.640Z"
+    },
+    {
+      "testContext": "Stack links in PR body",
+      "recordedTestId": "golden-crab-mai",
+      "method": "updatePRBody",
+      "args": [
+        514,
+        "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:stack-links:begin -->\n**Stack** (oldest → newest, targeting `main`):\n- #514 ← this PR\n- #515\n<!-- spry:stack-links:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+      ],
+      "isError": false,
+      "subprocess": 1,
+      "timestamp": "2026-02-07T19:46:21.870Z"
+    },
+    {
+      "testContext": "Stack links in PR body",
+      "recordedTestId": "golden-crab-mai",
+      "method": "updatePRBody",
+      "args": [
+        515,
+        "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:stack-links:begin -->\n**Stack** (oldest → newest, targeting `main`):\n- #514\n- #515 ← this PR\n<!-- spry:stack-links:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+      ],
+      "isError": false,
+      "subprocess": 1,
+      "timestamp": "2026-02-07T19:46:23.304Z"
+    },
+    {
+      "testContext": "Group PR with commit list",
+      "recordedTestId": "safe-falcon-yf4",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 2,
+      "timestamp": "2026-02-07T19:46:29.711Z"
+    },
+    {
+      "testContext": "Group PR with commit list",
+      "recordedTestId": "safe-falcon-yf4",
+      "method": "findPRsByBranches",
+      "args": [
+        ["spry/happycollision/group-safe-falcon-yf4"],
+        {
+          "includeAll": true
+        }
+      ],
+      "result": [["spry/happycollision/group-safe-falcon-yf4", null]],
+      "isError": false,
+      "subprocess": 2,
+      "timestamp": "2026-02-07T19:46:32.732Z"
+    },
+    {
+      "testContext": "Group PR with commit list",
+      "recordedTestId": "safe-falcon-yf4",
+      "method": "createPR",
+      "args": [
+        {
+          "title": "Start feature X [safe-falcon-yf4] [safe-falcon-yf4]",
+          "head": "spry/happycollision/group-safe-falcon-yf4",
+          "base": "main",
+          "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n- Start feature X [safe-falcon-yf4] [safe-falcon-yf4]\n- Continue feature X [safe-falcon-yf4] [safe-falcon-yf4]\n- Complete feature X [safe-falcon-yf4] [safe-falcon-yf4]\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+        }
+      ],
+      "result": {
+        "number": 516,
+        "url": "https://github.com/happycollision/spry-check/pull/516"
+      },
+      "isError": false,
+      "subprocess": 2,
+      "timestamp": "2026-02-07T19:46:35.593Z"
+    },
+    {
+      "testContext": "Untitled group PR error",
+      "recordedTestId": "glad-ibis-k2p",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 3,
+      "timestamp": "2026-02-07T19:46:43.279Z"
+    },
+    {
+      "testContext": "Untitled group PR error",
+      "recordedTestId": "glad-ibis-k2p",
+      "method": "findPRsByBranches",
+      "args": [
+        ["spry/happycollision/group-glad-ibis-k2p"],
+        {
+          "includeAll": true
+        }
+      ],
+      "result": [["spry/happycollision/group-glad-ibis-k2p", null]],
+      "isError": false,
+      "subprocess": 3,
+      "timestamp": "2026-02-07T19:46:45.816Z"
+    },
+    {
+      "testContext": "Stack links in PR body",
+      "recordedTestId": "clever-lark-9oj",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T20:11:32.040Z"
+    },
+    {
+      "testContext": "Stack links in PR body",
+      "recordedTestId": "clever-lark-9oj",
+      "method": "findPRsByBranches",
+      "args": [
+        ["spry/happycollision/00000001", "spry/happycollision/00000002"],
+        {
+          "includeAll": true
+        }
+      ],
+      "result": [
+        [
+          "spry/happycollision/00000001",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\nThis is a detailed description of the feature. [tiny-otter-mqa]\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 522,
+            "state": "CLOSED",
+            "title": "Add feature [tiny-otter-mqa]",
+            "url": "https://github.com/happycollision/spry-check/pull/522"
+          }
+        ],
+        [
+          "spry/happycollision/00000002",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:stack-links:begin -->\n**Stack** (oldest → newest, targeting `main`):\n- #514\n- #515 ← this PR\n<!-- spry:stack-links:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 515,
+            "state": "CLOSED",
+            "title": "Second commit in stack [golden-crab-mai]",
+            "url": "https://github.com/happycollision/spry-check/pull/515"
+          }
+        ]
+      ],
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T20:11:34.532Z"
+    },
+    {
+      "testContext": "Stack links in PR body",
+      "recordedTestId": "clever-lark-9oj",
+      "method": "createPR",
+      "args": [
+        {
+          "title": "First commit in stack [clever-lark-9oj]",
+          "head": "spry/happycollision/00000001",
+          "base": "main",
+          "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+        }
+      ],
+      "result": {
+        "number": 523,
+        "url": "https://github.com/happycollision/spry-check/pull/523"
+      },
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T20:11:36.957Z"
+    },
+    {
+      "testContext": "Stack links in PR body",
+      "recordedTestId": "clever-lark-9oj",
+      "method": "createPR",
+      "args": [
+        {
+          "title": "Second commit in stack [clever-lark-9oj]",
+          "head": "spry/happycollision/00000002",
+          "base": "spry/happycollision/00000001",
+          "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+        }
+      ],
+      "result": {
+        "number": 524,
+        "url": "https://github.com/happycollision/spry-check/pull/524"
+      },
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T20:11:39.248Z"
+    },
+    {
+      "testContext": "Stack links in PR body",
+      "recordedTestId": "clever-lark-9oj",
+      "method": "updatePRBody",
+      "args": [
+        523,
+        "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:stack-links:begin -->\n**Stack** (oldest → newest, targeting `main`):\n- #523 ← this PR\n- #524\n<!-- spry:stack-links:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+      ],
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T20:11:40.770Z"
+    },
+    {
+      "testContext": "Stack links in PR body",
+      "recordedTestId": "clever-lark-9oj",
+      "method": "updatePRBody",
+      "args": [
+        524,
+        "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:stack-links:begin -->\n**Stack** (oldest → newest, targeting `main`):\n- #523\n- #524 ← this PR\n<!-- spry:stack-links:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+      ],
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T20:11:42.170Z"
+    },
+    {
+      "testContext": "Group PR with commit list",
+      "recordedTestId": "humble-wren-nxf",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T20:11:48.727Z"
+    },
+    {
+      "testContext": "Group PR with commit list",
+      "recordedTestId": "humble-wren-nxf",
+      "method": "findPRsByBranches",
+      "args": [
+        ["spry/happycollision/group-humble-wren-nxf"],
+        {
+          "includeAll": true
+        }
+      ],
+      "result": [["spry/happycollision/group-humble-wren-nxf", null]],
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T20:11:51.152Z"
+    },
+    {
+      "testContext": "Group PR with commit list",
+      "recordedTestId": "humble-wren-nxf",
+      "method": "createPR",
+      "args": [
+        {
+          "title": "Start feature X [humble-wren-nxf] [humble-wren-nxf]",
+          "head": "spry/happycollision/group-humble-wren-nxf",
+          "base": "main",
+          "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n- Start feature X [humble-wren-nxf] [humble-wren-nxf]\n- Continue feature X [humble-wren-nxf] [humble-wren-nxf]\n- Complete feature X [humble-wren-nxf] [humble-wren-nxf]\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+        }
+      ],
+      "result": {
+        "number": 525,
+        "url": "https://github.com/happycollision/spry-check/pull/525"
+      },
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T20:11:53.669Z"
+    },
+    {
+      "testContext": "Untitled group PR error",
+      "recordedTestId": "brave-zebra-wgj",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T20:11:58.648Z"
+    },
+    {
+      "testContext": "Untitled group PR error",
+      "recordedTestId": "brave-zebra-wgj",
+      "method": "findPRsByBranches",
+      "args": [
+        ["spry/happycollision/group-brave-zebra-wgj"],
+        {
+          "includeAll": true
+        }
+      ],
+      "result": [["spry/happycollision/group-brave-zebra-wgj", null]],
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T20:12:01.075Z"
+    }
+  ]
 }

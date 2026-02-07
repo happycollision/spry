@@ -2,9 +2,12 @@ import { expect, describe } from "bun:test";
 import { $ } from "bun";
 import { repoManager } from "../helpers/local-repo.ts";
 import { createStoryTest } from "../helpers/story-test.ts";
+import { withGitHubSnapshots } from "../helpers/snapshot-compose.ts";
 import { SKIP_GITHUB_TESTS, SKIP_CI_TESTS, runSync, runClean, runSpry } from "./helpers.ts";
 
-const { test } = createStoryTest("clean.test.ts");
+const base = createStoryTest(import.meta.file);
+const { test } = base;
+const { test: ghTest } = withGitHubSnapshots(base);
 
 describe("Clean command", () => {
   test("Clean command help text", async (story) => {
@@ -17,10 +20,10 @@ describe("Clean command", () => {
   });
 });
 
-describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
+describe("clean: no orphaned branches", () => {
   const repos = repoManager({ github: true });
 
-  test(
+  ghTest(
     "No orphaned branches",
     async (story) => {
       story.strip(repos.uniqueId);
@@ -39,6 +42,10 @@ describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
     },
     { timeout: 60000 },
   );
+});
+
+describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
+  const repos = repoManager({ github: true });
 
   test(
     "Dry run preview",

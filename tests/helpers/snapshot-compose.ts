@@ -34,6 +34,7 @@ import { afterEach as bunAfterEach } from "bun:test";
 import {
   setTestMetadata,
   clearSnapshotContext,
+  resetSubprocessCounter,
   getSnapshotPath,
 } from "../../src/github/snapshot-context.ts";
 import { isGitHubIntegrationEnabled, resetGitHubService } from "../../src/github/service.ts";
@@ -94,17 +95,23 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
   const resolvedTestFile = testFile ?? basename(Bun.main);
   const originalTest = suite.test;
 
-  // Register afterEach to clean up (only once per test file)
-  let afterEachRegistered = false;
+  // Register afterEach at the file's top scope (not inside a describe block)
+  // so it applies to ALL tests in the file, preventing snapshot context from
+  // leaking between describe blocks or between test files in the same bun process.
+  //
+  // Note: We intentionally do NOT clear the snapshot file on recording.
+  // Entries are replaced individually by recordSnapshot(), which preserves
+  // entries from tests that aren't running (e.g., CI-dependent tests when
+  // running test:github instead of test:ci).
+  bunAfterEach(() => {
+    clearSnapshotContext();
+    resetSubprocessCounter();
+    resetGitHubService();
+  });
 
-  function ensureAfterEach(): void {
-    if (afterEachRegistered) return;
-    afterEachRegistered = true;
-
-    bunAfterEach(() => {
-      clearSnapshotContext();
-      resetGitHubService();
-    });
+  function ensureHooks(): void {
+    // No-op: hooks are now registered at the top level above.
+    // Kept for call-site compatibility.
   }
 
   /**
@@ -128,7 +135,7 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function wrapTestFn(testName: string, fn: any): any {
-    ensureAfterEach();
+    ensureHooks();
 
     // If the original function takes no arguments (e.g., noStory tests),
     // return a 0-arity wrapper so bun:test doesn't inject a done callback.
@@ -190,7 +197,7 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
   // Add only support
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   wrappedTest.only = (name: string, fn: any, options?: TestOptions): void => {
-    ensureAfterEach();
+    ensureHooks();
     const wrapped = wrapTestFn(name, fn);
 
     if (originalTest.only) {
@@ -265,7 +272,7 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   wrappedNoStory.only = (name: string, fn: any, options?: TestOptions): void => {
-    ensureAfterEach();
+    ensureHooks();
     const wrapped = wrapTestFn(name, fn);
 
     if (originalNoStory.only) {

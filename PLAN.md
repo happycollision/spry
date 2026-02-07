@@ -1,6 +1,6 @@
 # Plan: GitHub Service with Record/Replay Testing
 
-## Status: Phase 3 complete
+## Status: Phase 3.5 complete
 
 **Phase 1 (Infrastructure)** - DONE
 
@@ -32,39 +32,18 @@
 - Replay mode runs all 8 tests in ~25ms each (vs ~10-17s in record mode)
 - Verified offline with `ribbin activate`: 73 pass, 39 skip, 0 fail (8 more tests passing than before)
 
-**Phase 3.5 (Migrate remaining test files)** - TODO
+**Phase 3.5 (Migrate remaining test files)** - DONE
 
-Migrate sync, land, view, and clean integration tests to the snapshot replay system. Goal: zero skips in replay mode (except permanently-skipped tests needing a second GitHub user).
+Migrated sync, land, view, and clean integration tests to the snapshot replay system.
 
-**Current state:** 39 skipped tests in replay mode across 4 unmigrated files.
-
-**Key challenge:** Unlike pr-status (which calls `getGitHubService()` directly), these tests run the `sp` CLI via subprocesses (`runSync()`, `runLand()`, etc.) and verify CLI output. GitHub API calls happen _inside_ the subprocess, which has no snapshot context.
-
-**Proposed approach — subprocess snapshot passthrough:**
-
-1. Pass snapshot context to subprocesses via env vars (`SNAPSHOT_TEST_FILE`, `SNAPSHOT_TEST_NAME`, `SNAPSHOT_TEST_ID`)
-2. Have `snapshot-context.ts` check for these env vars as a fallback when `getSnapshotContext()` has no in-process context
-3. Have `runSpry()` in `tests/integration/helpers.ts` set these env vars from the current test context
-4. Subprocesses then record/replay service calls automatically
-
-**Pre-requisite investigation:** Verify that the `sp` CLI uses `getGitHubService()` for _all_ GitHub operations (not direct `gh` CLI calls). Any direct `gh` calls in production code would bypass the snapshot service.
-
-**Files to migrate (priority order):**
-
-| File            | GitHub tests | Difficulty | Notes                                                        |
-| --------------- | ------------ | ---------- | ------------------------------------------------------------ |
-| `view.test.ts`  | 4            | Easy       | No fixture methods, just `runSync()` + `runView()`           |
-| `clean.test.ts` | 5            | Moderate   | Uses `mergePR()` fixture (4x), direct `gh` CLI (6x)          |
-| `sync.test.ts`  | 7            | Moderate   | Branch protection (2x), `waitForCI()` (3x), `mergePR()` (1x) |
-| `land.test.ts`  | 9            | Hard       | Heavy CI dependency: `waitForCI()` (13x), 8/9 tests CI-gated |
-
-**Per-file migration pattern (same as pr-status):**
-
-1. Add `withGitHubSnapshots(base)` wrapping
-2. Remove `skipIf(SKIP_GITHUB_TESTS)` / `skipIf(SKIP_CI_TESTS)` guards
-3. Wrap record-mode-only operations in `isGitHubIntegrationEnabled()`
-4. Ensure all observable GitHub calls go through `getGitHubService()`
-5. Record snapshots with `test:ci:docker`, verify replay with `ribbin activate`
+- Subprocess snapshot passthrough via env vars (`SPRY_SNAPSHOT_MODE`, `SPRY_SNAPSHOT_FILE`, `SPRY_SNAPSHOT_TEST`, `SPRY_SNAPSHOT_TEST_ID`, `SPRY_SNAPSHOT_SUBPROCESS`, `SPRY_SNAPSHOT_ROOT`)
+- All CLI commands (`sync`, `land`, `view`, `clean`) use `getGitHubService()` exclusively (no direct `gh` calls in production code)
+- `snapshot-context.ts` reads env vars as fallback in subprocess mode; `SPRY_SNAPSHOT_ROOT` fixes path resolution (subprocess cwd != project root)
+- `runSpry()` in `tests/integration/helpers.ts` passes snapshot context to subprocesses
+- Per-entry replacement in `recordSnapshot()` preserves entries from tests not running in the current mode (e.g., CI-dependent tests when running `test:github` instead of `test:ci`)
+- `afterEach` registered at file-level scope (not inside describe blocks) to prevent context leaking between describe blocks or across test files in the same bun process
+- Replay mode: 89 pass, 23 skip, 0 fail (up from 73 pass, 39 skip — 16 more tests passing)
+- Remaining 23 skips: CI-dependent tests requiring real CI runs (branch protection, waitForCI, land with CI checks, etc.)
 
 ---
 

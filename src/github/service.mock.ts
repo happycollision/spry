@@ -16,7 +16,7 @@
  * ```
  */
 
-import type { GitHubService } from "./service.ts";
+import type { GitHubService, UserPR } from "./service.ts";
 import type { PRInfo, ChecksStatus, ReviewDecision } from "./pr.ts";
 
 /**
@@ -53,11 +53,22 @@ export function createMockGitHubService(overrides: Partial<GitHubService> = {}):
     getPRBody: overrides.getPRBody ?? notImplemented("getPRBody"),
     getPRBaseBranch: overrides.getPRBaseBranch ?? notImplemented("getPRBaseBranch"),
 
+    // PR Checks + Review (combined)
+    getPRChecksAndReviewStatus:
+      overrides.getPRChecksAndReviewStatus ?? notImplemented("getPRChecksAndReviewStatus"),
+
     // PR Mutations
     createPR: overrides.createPR ?? notImplemented("createPR"),
     retargetPR: overrides.retargetPR ?? notImplemented("retargetPR"),
     updatePRBody: overrides.updatePRBody ?? notImplemented("updatePRBody"),
     closePR: overrides.closePR ?? notImplemented("closePR"),
+
+    // PR Landing
+    landPR: overrides.landPR ?? notImplemented("landPR"),
+    waitForPRState: overrides.waitForPRState ?? notImplemented("waitForPRState"),
+
+    // User PRs
+    listUserPRs: overrides.listUserPRs ?? notImplemented("listUserPRs"),
   };
 }
 
@@ -87,10 +98,17 @@ export function createNoOpGitHubService(): GitHubService {
     getPRState: async () => "OPEN",
     getPRBody: async () => "",
     getPRBaseBranch: async () => "main",
+    getPRChecksAndReviewStatus: async () => ({
+      checks: "none" as ChecksStatus,
+      review: "none" as ReviewDecision,
+    }),
     createPR: async (_options) => ({ number: 1, url: `https://github.com/owner/repo/pull/1` }),
     retargetPR: async () => {},
     updatePRBody: async () => {},
     closePR: async () => {},
+    landPR: async () => ({ sha: "abc123", prClosed: true }),
+    waitForPRState: async () => true,
+    listUserPRs: async () => [] as UserPR[],
   };
 }
 
@@ -138,6 +156,13 @@ export function createTrackedGitHubService(
     retargetPR: wrap("retargetPR", base.retargetPR.bind(base)),
     updatePRBody: wrap("updatePRBody", base.updatePRBody.bind(base)),
     closePR: wrap("closePR", base.closePR.bind(base)),
+    getPRChecksAndReviewStatus: wrap(
+      "getPRChecksAndReviewStatus",
+      base.getPRChecksAndReviewStatus.bind(base),
+    ),
+    landPR: wrap("landPR", base.landPR.bind(base)),
+    waitForPRState: wrap("waitForPRState", base.waitForPRState.bind(base)),
+    listUserPRs: wrap("listUserPRs", base.listUserPRs.bind(base)),
 
     getCalls: () => [...calls],
     clearCalls: () => {

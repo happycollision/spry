@@ -141,8 +141,14 @@ async function getRemoteUrl(): Promise<string> {
 /**
  * Check if the configured remote is a GitHub repository.
  * Returns false if remote is not set or is not on github.com.
+ *
+ * In snapshot replay mode (SPRY_SNAPSHOT_MODE=replay), always returns true
+ * since the snapshot service will handle GitHub API calls.
  */
 export async function isGitHubOrigin(): Promise<boolean> {
+  if (process.env.SPRY_SNAPSHOT_MODE === "replay") {
+    return true;
+  }
   try {
     const url = await getRemoteUrl();
     return isGitHubUrl(url);
@@ -154,8 +160,13 @@ export async function isGitHubOrigin(): Promise<boolean> {
 /**
  * Require that the configured remote is a GitHub repository.
  * Throws a descriptive error if it's not.
+ *
+ * In snapshot replay mode, this is a no-op (always passes).
  */
 export async function requireGitHubOrigin(): Promise<void> {
+  if (process.env.SPRY_SNAPSHOT_MODE === "replay") {
+    return;
+  }
   const url = await getRemoteUrl();
 
   if (!isGitHubUrl(url)) {

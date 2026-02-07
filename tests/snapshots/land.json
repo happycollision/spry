@@ -1,8 +1,65 @@
 {
   "version": 1,
-  "entries": [],
   "context": {
     "owner": "happycollision",
     "repo": "spry-check"
-  }
+  },
+  "entries": [
+    {
+      "testContext": "No open PRs to land",
+      "recordedTestId": "silver-squid-7ao",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:44:46.956Z"
+    },
+    {
+      "testContext": "No open PRs to land",
+      "recordedTestId": "silver-squid-7ao",
+      "method": "findPRsByBranches",
+      "args": [
+        ["spry/happycollision/00000001"],
+        {
+          "includeAll": true
+        }
+      ],
+      "result": [
+        [
+          "spry/happycollision/00000001",
+          {
+            "body": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\nThis is a detailed description of the feature. [gentle-otter-k6o]\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->",
+            "number": 506,
+            "state": "CLOSED",
+            "title": "Add feature [gentle-otter-k6o]",
+            "url": "https://github.com/happycollision/spry-check/pull/506"
+          }
+        ]
+      ],
+      "isError": false,
+      "subprocess": 0,
+      "timestamp": "2026-02-07T19:44:49.239Z"
+    },
+    {
+      "testContext": "No open PRs to land",
+      "recordedTestId": "silver-squid-7ao",
+      "method": "getUsername",
+      "args": [],
+      "result": "happycollision",
+      "isError": false,
+      "subprocess": 1,
+      "timestamp": "2026-02-07T19:44:50.233Z"
+    },
+    {
+      "testContext": "No open PRs to land",
+      "recordedTestId": "silver-squid-7ao",
+      "method": "findPRsByBranches",
+      "args": [["spry/happycollision/00000001"]],
+      "result": [["spry/happycollision/00000001", null]],
+      "isError": false,
+      "subprocess": 1,
+      "timestamp": "2026-02-07T19:44:50.747Z"
+    }
+  ]
 }

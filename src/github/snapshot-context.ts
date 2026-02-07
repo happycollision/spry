@@ -5,22 +5,31 @@
  * test name and unique ID) and the GitHub service (which needs this context
  * for snapshot matching and ID substitution).
  *
- * The context is set in two stages:
+ * Context can be set in two ways:
+ *
+ * **In-process mode** (for tests that call getGitHubService() directly):
  * 1. registerRepoContext() - called by repoManager in beforeEach with the uniqueId
  * 2. setTestMetadata() - called by the test wrapper with testFile and testName
  *
- * The snapshot service uses getSnapshotContext() to retrieve this information
- * for recording/replaying GitHub API responses.
+ * **Subprocess mode** (for tests that run sp CLI via runSpry()):
+ * Context is passed via environment variables:
+ * - SPRY_SNAPSHOT_MODE: "record" or "replay"
+ * - SPRY_SNAPSHOT_FILE: test file name
+ * - SPRY_SNAPSHOT_TEST: test name
+ * - SPRY_SNAPSHOT_TEST_ID: unique test ID
+ * - SPRY_SNAPSHOT_SUBPROCESS: subprocess index (0, 1, 2, ...)
+ * - SPRY_SNAPSHOT_ROOT: project root for resolving snapshot file paths
  */
 
 import { join } from "node:path";
 
 /**
  * Capture project root at module load time.
- * This is important because tests may chdir to temp directories,
- * but we always want snapshots relative to the project root.
+ * In subprocess mode, use SPRY_SNAPSHOT_ROOT (passed by the test process)
+ * because the subprocess cwd is the test repo, not the project root.
+ * In the test process, use process.cwd() which is the project root.
  */
-const PROJECT_ROOT = process.cwd();
+const PROJECT_ROOT = process.env.SPRY_SNAPSHOT_ROOT ?? process.cwd();
 
 /** Complete context needed for snapshot operations */
 export interface SnapshotContext {
@@ -30,6 +39,8 @@ export interface SnapshotContext {
   testName: string;
   /** The unique test ID (e.g., "happy-penguin-x3f") */
   testId: string;
+  /** Subprocess index (undefined for in-process calls) */
+  subprocess?: number;
 }
 
 /** Partial context during registration */
@@ -41,6 +52,9 @@ interface PartialContext {
 
 /** The global context - accumulated in stages */
 let context: PartialContext = {};
+
+/** Subprocess counter for tracking which CLI invocation this is */
+let subprocessCounter = 0;
 
 /**
  * Register the repo context (unique ID) for the current test.
@@ -62,8 +76,30 @@ export function setTestMetadata(testFile: string, testName: string): void {
 /**
  * Get the complete snapshot context.
  * Returns null if the context is incomplete.
+ *
+ * In subprocess mode (SPRY_SNAPSHOT_MODE set), reads from env vars.
+ * Otherwise, reads from the in-process global context.
  */
 export function getSnapshotContext(): SnapshotContext | null {
+  // Subprocess mode: context comes from env vars
+  if (process.env.SPRY_SNAPSHOT_MODE) {
+    const testFile = process.env.SPRY_SNAPSHOT_FILE;
+    const testName = process.env.SPRY_SNAPSHOT_TEST;
+    const testId = process.env.SPRY_SNAPSHOT_TEST_ID;
+    const subprocess = process.env.SPRY_SNAPSHOT_SUBPROCESS;
+
+    if (testFile && testName && testId) {
+      return {
+        testFile,
+        testName,
+        testId,
+        subprocess: subprocess !== undefined ? parseInt(subprocess, 10) : undefined,
+      };
+    }
+    return null;
+  }
+
+  // In-process mode: context from global state
   if (!context.testFile || !context.testName || !context.testId) {
     return null;
   }
@@ -80,6 +116,22 @@ export function getSnapshotContext(): SnapshotContext | null {
  */
 export function clearSnapshotContext(): void {
   context = {};
+}
+
+/**
+ * Get the next subprocess index and increment the counter.
+ * Called by runSpry() to assign a unique index to each CLI invocation.
+ */
+export function nextSubprocessIndex(): number {
+  return subprocessCounter++;
+}
+
+/**
+ * Reset the subprocess counter.
+ * Called in afterEach to reset between tests.
+ */
+export function resetSubprocessCounter(): void {
+  subprocessCounter = 0;
 }
 
 /**

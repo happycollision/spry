@@ -56,6 +56,8 @@ interface SnapshotEntry {
   isError: boolean;
   /** Error class name if isError */
   errorClass?: string;
+  /** Subprocess index (undefined for in-process calls) */
+  subprocess?: number;
   /** Timestamp when recorded */
   timestamp: string;
 }
@@ -80,9 +82,6 @@ interface SnapshotFile {
 
 /** In-memory cache of loaded snapshots */
 const snapshotCache = new Map<string, SnapshotFile>();
-
-/** Track which test files have been cleared this recording session */
-const clearedForRecording = new Set<string>();
 
 /**
  * Load a snapshot file from disk or cache.
@@ -137,13 +136,12 @@ async function recordSnapshot(
   errorClass?: string,
 ): Promise<void> {
   const path = getSnapshotPath(context.testFile);
+  const isSubprocess = context.subprocess !== undefined;
 
-  // On first recording for this file, clear all existing entries
-  // This ensures stale entries from deleted/renamed tests are removed
-  if (!clearedForRecording.has(path)) {
-    clearedForRecording.add(path);
-    const existing = snapshotCache.get(path);
-    snapshotCache.set(path, { version: 1, context: existing?.context, entries: [] });
+  // In subprocess mode, invalidate the in-memory cache so we re-read from disk.
+  // The test process or another subprocess may have written new entries.
+  if (isSubprocess) {
+    snapshotCache.delete(path);
   }
 
   const file = await loadSnapshots(context.testFile);
@@ -156,14 +154,16 @@ async function recordSnapshot(
     result,
     isError,
     errorClass,
+    subprocess: context.subprocess,
     timestamp: new Date().toISOString(),
   };
 
-  // Remove any existing entry for this test/method combo (re-recording)
+  // Remove any existing entry for this test/method/subprocess combo (re-recording)
   const existingIndex = file.entries.findIndex(
     (e) =>
       e.testContext === context.testName &&
       e.method === method &&
+      e.subprocess === context.subprocess &&
       normalizeArgs(e.args, e.recordedTestId) === normalizeArgs(args, context.testId),
   );
 
@@ -178,17 +178,29 @@ async function recordSnapshot(
 
 /**
  * Find a matching snapshot entry.
+ * Filters by subprocess index to distinguish calls from different CLI invocations.
  */
 async function findSnapshot(
   context: SnapshotContext,
   method: string,
   args: unknown[],
 ): Promise<SnapshotEntry | null> {
+  const isSubprocess = context.subprocess !== undefined;
+
+  // In subprocess mode, invalidate cache to pick up entries written by the test process
+  if (isSubprocess) {
+    const path = getSnapshotPath(context.testFile);
+    snapshotCache.delete(path);
+  }
+
   const file = await loadSnapshots(context.testFile);
 
-  // First, find entries matching test context and method
+  // Find entries matching test context, method, and subprocess index
   const candidates = file.entries.filter(
-    (e) => e.testContext === context.testName && e.method === method,
+    (e) =>
+      e.testContext === context.testName &&
+      e.method === method &&
+      e.subprocess === context.subprocess,
   );
 
   if (candidates.length === 0) {
@@ -399,6 +411,28 @@ export function createSnapshotGitHubService(): GitHubService {
     closePR: createSnapshotMethod("closePR", (prNumber, comment) =>
       realService.closePR(prNumber, comment),
     ),
+
+    // PR Checks + Review (combined)
+    getPRChecksAndReviewStatus: createSnapshotMethod(
+      "getPRChecksAndReviewStatus",
+      (prNumber, repo) => realService.getPRChecksAndReviewStatus(prNumber, repo),
+    ),
+
+    // PR Landing
+    landPR: createSnapshotMethod("landPR", (prNumber, targetBranch) =>
+      realService.landPR(prNumber, targetBranch),
+    ),
+
+    waitForPRState: createSnapshotMethod(
+      "waitForPRState",
+      (prNumber, expectedState, maxWaitMs, pollIntervalMs) =>
+        realService.waitForPRState(prNumber, expectedState, maxWaitMs, pollIntervalMs),
+    ),
+
+    // User PRs
+    listUserPRs: createSnapshotMethod("listUserPRs", (username) =>
+      realService.listUserPRs(username),
+    ),
   };
 }
 
@@ -427,6 +461,11 @@ export async function setSnapshotFileContext(
   testFile: string,
   context: SnapshotFileContext,
 ): Promise<void> {
+  // Invalidate cache to pick up entries written by subprocesses
+  // (the test process cache may be stale after subprocess recordings)
+  const path = getSnapshotPath(testFile);
+  snapshotCache.delete(path);
+
   const file = await loadSnapshots(testFile);
   file.context = context;
   await saveSnapshots(testFile, file);
@@ -444,5 +483,20 @@ export function loadSnapshotContext(testFile: string): SnapshotFileContext | nul
     return file.context ?? null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Check if a snapshot file has any entries for a given test.
+ * Used by snapshot-compose.ts to determine whether to skip tests in replay mode.
+ */
+export function hasSnapshotForTest(testFile: string, testName: string): boolean {
+  const path = getSnapshotPath(testFile);
+  try {
+    const content = require("fs").readFileSync(path, "utf-8");
+    const file = JSON.parse(content) as SnapshotFile;
+    return file.entries.some((e) => e.testContext === testName);
+  } catch {
+    return false;
   }
 }
