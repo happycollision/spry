@@ -607,7 +607,7 @@ export async function landPR(prNumber: number, targetBranch: string): Promise<La
  * Check if a fast-forward merge is possible.
  * Returns true if targetBranch is an ancestor of headSha.
  */
-async function canFastForward(targetBranch: string, headSha: string): Promise<boolean> {
+export async function canFastForward(targetBranch: string, headSha: string): Promise<boolean> {
   const config = await getSpryConfig();
 
   // Fetch latest from remote first

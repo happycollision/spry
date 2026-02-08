@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `spry.username` git config option to override GitHub username for branch naming (avoids API call)
 - GitHub Service abstraction layer with snapshot-based testing for fast, reproducible integration tests
   - `GitHubService` interface abstracts all GitHub operations (PR creation, queries, etc.)
   - Record/replay snapshot system captures real GitHub API responses for offline testing

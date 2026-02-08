@@ -30,6 +30,7 @@ let cachedConfig: SpryConfig | null = null;
  * - spry.remote: Remote to use (default: auto-detect - single remote, or 'origin')
  * - spry.branchPrefix: Custom prefix for branch names (default: "spry")
  * - spry.defaultBranch: Default branch to stack on (default: auto-detect from remote)
+ * - spry.username: Override GitHub username for branch naming (default: auto-detect from gh CLI)
  * - spry.tempCommitPrefixes: Comma-separated prefixes for temp commits (default: "WIP,fixup!,amend!,squash!")
  * - spry.showStackLinks: Show stack links in PR body (default: true)
  * - spry.includePrTemplate: Include PR template in PR body (default: true)

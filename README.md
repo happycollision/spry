@@ -263,6 +263,9 @@ git config spry.defaultBranch main
 # Temporary commit prefixes (default: "WIP,fixup!,amend!,squash!")
 git config spry.tempCommitPrefixes "WIP,DRAFT,TODO"
 
+# Override GitHub username for branch naming (auto-detected from gh CLI if not set)
+git config spry.username myusername
+
 # Disable temp commit detection (create PRs for all commits)
 git config spry.tempCommitPrefixes ""
 ```

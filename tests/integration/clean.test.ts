@@ -1,13 +1,15 @@
-import { expect, describe } from "bun:test";
+import { test, expect, describe } from "bun:test";
 import { $ } from "bun";
+import { join } from "node:path";
 import { repoManager } from "../helpers/local-repo.ts";
 import { createStoryTest } from "../helpers/story-test.ts";
-import { SKIP_GITHUB_TESTS, SKIP_CI_TESTS, runSync, runClean, runSpry } from "./helpers.ts";
+import { runClean, runSpry } from "./helpers.ts";
+import type { LocalRepo } from "../../src/scenario/core.ts";
 
-const { test } = createStoryTest("clean.test.ts");
+const { test: storyTest } = createStoryTest("clean.test.ts");
 
 describe("Clean command", () => {
-  test("Clean command help text", async (story) => {
+  storyTest("Clean command help text", async (story) => {
     story.narrate("The clean command should display help text with usage information.");
 
     const result = await runSpry(process.cwd(), "clean", ["--help"]);
@@ -17,279 +19,156 @@ describe("Clean command", () => {
   });
 });
 
-describe.skipIf(SKIP_GITHUB_TESTS)("GitHub Integration: clean command", () => {
-  const repos = repoManager({ github: true });
+// ============================================================================
+// Local-only clean tests (no GitHub, no network)
+// Uses bare repo fixtures with spry-pattern branches
+// ============================================================================
 
-  test(
-    "No orphaned branches",
-    async (story) => {
-      story.strip(repos.uniqueId);
-      story.narrate(
-        "When there are no merged PRs with leftover branches, sp clean reports nothing to clean up.",
-      );
+/**
+ * Set git config so sp clean works without GitHub API calls.
+ */
+async function setupCleanConfig(repoPath: string): Promise<void> {
+  await $`git -C ${repoPath} config spry.username testuser`.quiet();
+  await $`git -C ${repoPath} config spry.defaultBranch main`.quiet();
+}
 
-      const repo = await repos.clone({ testName: "no-orphans" });
+/**
+ * Create a spry-pattern branch on origin with a Spry-Commit-Id trailer.
+ * Returns the commit SHA.
+ */
+async function createSpryBranch(repo: LocalRepo, commitId: string): Promise<string> {
+  const branchName = `spry/testuser/${commitId}`;
 
-      // Run clean without any orphaned branches
-      const result = await runClean(repo.path);
-      story.log(result);
+  await $`git -C ${repo.path} checkout -b ${branchName}`.quiet();
+  await Bun.write(join(repo.path, `${commitId}.txt`), `Content for ${commitId}\n`);
+  await $`git -C ${repo.path} add .`.quiet();
+  await $`git -C ${repo.path} commit -m ${"commit for " + commitId + "\n\nSpry-Commit-Id: " + commitId}`.quiet();
+  await $`git -C ${repo.path} push origin ${branchName}`.quiet();
 
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("No orphaned branches found");
-    },
-    { timeout: 60000 },
-  );
+  const sha = (await $`git -C ${repo.path} rev-parse HEAD`.text()).trim();
+  await $`git -C ${repo.path} checkout main`.quiet();
+  return sha;
+}
 
-  test(
-    "Dry run preview",
-    async (story) => {
-      story.strip(repos.uniqueId);
-      story.narrate(
-        "The --dry-run flag lets you preview which branches would be cleaned up without actually deleting them.",
-      );
+/**
+ * Fast-forward merge a SHA into main and push to origin.
+ */
+async function mergeToMain(repo: LocalRepo, sha: string): Promise<void> {
+  await $`git -C ${repo.path} checkout main`.quiet();
+  await $`git -C ${repo.path} merge --ff-only ${sha}`.quiet();
+  await $`git -C ${repo.path} push origin main`.quiet();
+}
 
-      const repo = await repos.clone({ testName: "dry-run" });
-      await repo.branch("feature/clean-dry-run");
-      await repo.commit();
+describe("clean: local-only tests", () => {
+  const repos = repoManager();
 
-      // Run sp sync --open to create a PR
-      const syncResult = await runSync(repo.path, { open: true });
-      expect(syncResult.exitCode).toBe(0);
+  test("no orphaned branches when none exist", async () => {
+    const repo = await repos.create();
+    await setupCleanConfig(repo.path);
 
-      const pr = await repo.findPR(repo.uniqueId);
+    const result = await runClean(repo.path);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("No orphaned branches found");
+  });
 
-      // Merge the PR via GitHub API WITHOUT deleting the branch (creates orphan)
-      await repo.github.mergePR(pr.number, { deleteBranch: false });
+  test("dry-run lists merged branches without deleting", async () => {
+    const repo = await repos.create();
+    await setupCleanConfig(repo.path);
 
-      // Verify branch still exists (orphaned)
-      const branchCheck =
-        await $`gh api repos/${repo.github.owner}/${repo.github.repo}/branches/${pr.headRefName}`.nothrow();
-      expect(branchCheck.exitCode).toBe(0);
+    const sha = await createSpryBranch(repo, "abc12345");
+    await mergeToMain(repo, sha);
 
-      // Fetch the latest to get the merged branch info locally
-      await repo.fetch();
+    const result = await runClean(repo.path, { dryRun: true });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Found");
+    expect(result.stdout).toContain("merged branch");
+    expect(result.stdout).toContain("spry/testuser/abc12345");
+    expect(result.stdout).toContain("Run without --dry-run");
 
-      // Run clean with --dry-run
-      story.narrate("After merging the PR but leaving the branch, run clean with --dry-run:");
-      const cleanResult = await runClean(repo.path, { dryRun: true });
-      story.log(cleanResult);
+    // Verify branch was NOT deleted
+    const branches = (await $`git -C ${repo.path} branch -r --list "origin/spry/*"`.text()).trim();
+    expect(branches).toContain("spry/testuser/abc12345");
+  });
 
-      expect(cleanResult.exitCode).toBe(0);
-      expect(cleanResult.stdout).toContain("Found");
-      expect(cleanResult.stdout).toContain("merged branch");
-      expect(cleanResult.stdout).toContain(pr.headRefName);
-      expect(cleanResult.stdout).toContain("Run without --dry-run");
+  test("deletes orphaned branches that are merged", async () => {
+    const repo = await repos.create();
+    await setupCleanConfig(repo.path);
 
-      // Verify branch was NOT deleted
-      const branchCheckAfter =
-        await $`gh api repos/${repo.github.owner}/${repo.github.repo}/branches/${pr.headRefName}`.nothrow();
-      expect(branchCheckAfter.exitCode).toBe(0);
-    },
-    { timeout: 120000 },
-  );
+    const sha = await createSpryBranch(repo, "def67890");
+    await mergeToMain(repo, sha);
 
-  test.skipIf(SKIP_CI_TESTS)(
-    "Deleting orphaned branches",
-    async (story) => {
-      story.strip(repos.uniqueId);
-      story.narrate(
-        "When a PR is merged but the branch wasn't deleted, sp clean removes the orphaned remote branch.",
-      );
+    const result = await runClean(repo.path);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Deleted");
+    expect(result.stdout).toContain("orphaned branch");
 
-      const repo = await repos.clone({ testName: "delete" });
-      await repo.branch("feature/clean-delete");
-      await repo.commit();
+    // Verify branch was actually deleted from origin
+    await $`git -C ${repo.path} fetch origin --prune`.quiet();
+    const branches = (await $`git -C ${repo.path} branch -r --list "origin/spry/*"`.text()).trim();
+    expect(branches).toBe("");
+  });
 
-      // Run sp sync --open to create a PR
-      const syncResult = await runSync(repo.path, { open: true });
-      expect(syncResult.exitCode).toBe(0);
+  test("detects multiple orphaned branches", async () => {
+    const repo = await repos.create();
+    await setupCleanConfig(repo.path);
 
-      const pr = await repo.findPR(repo.uniqueId);
+    // Create first branch and merge to main
+    const sha1 = await createSpryBranch(repo, "first111");
+    await mergeToMain(repo, sha1);
 
-      // Wait for CI to complete
-      await repo.github.waitForCI(pr.number, { timeout: 180000 });
+    // Create second branch from updated main and merge
+    const sha2 = await createSpryBranch(repo, "second22");
+    await mergeToMain(repo, sha2);
 
-      // Merge the PR via GitHub API WITHOUT deleting the branch (creates orphan)
-      await repo.github.mergePR(pr.number, { deleteBranch: false });
+    const result = await runClean(repo.path, { dryRun: true });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Found 2 merged branch");
+    expect(result.stdout).toContain("spry/testuser/first111");
+    expect(result.stdout).toContain("spry/testuser/second22");
+  });
 
-      // Verify branch still exists (orphaned)
-      const branchCheck =
-        await $`gh api repos/${repo.github.owner}/${repo.github.repo}/branches/${pr.headRefName}`.nothrow();
-      expect(branchCheck.exitCode).toBe(0);
+  test("detects amended commits via Spry-Commit-Id trailer", async () => {
+    const repo = await repos.create();
+    await setupCleanConfig(repo.path);
 
-      // Fetch the latest
-      await repo.fetch();
+    const commitId = "amend123";
+    const branchSha = await createSpryBranch(repo, commitId);
 
-      // Run clean (without --dry-run)
-      story.narrate("After merging and leaving the branch orphaned, run clean:");
-      const cleanResult = await runClean(repo.path);
-      story.log(cleanResult);
+    // Cherry-pick the commit to main, amend it (different SHA, same trailer)
+    await $`git -C ${repo.path} checkout main`.quiet();
+    await $`git -C ${repo.path} cherry-pick ${branchSha}`.quiet();
+    await $`git -C ${repo.path} commit --amend -m ${"Amended commit\n\nSpry-Commit-Id: " + commitId}`.quiet();
+    await $`git -C ${repo.path} push origin main`.quiet();
 
-      expect(cleanResult.exitCode).toBe(0);
-      expect(cleanResult.stdout).toContain("Deleted");
-      expect(cleanResult.stdout).toContain("orphaned branch");
+    // Verify the branch SHA is NOT an ancestor of main (different commit)
+    await $`git -C ${repo.path} fetch origin`.quiet();
+    const isAncestor =
+      await $`git -C ${repo.path} merge-base --is-ancestor origin/spry/testuser/${commitId} origin/main`
+        .quiet()
+        .nothrow();
+    expect(isAncestor.exitCode).not.toBe(0);
 
-      // Poll until branch is deleted (GitHub API is eventually consistent)
-      const branchGone = await repo.waitForBranchGone(pr.headRefName);
-      expect(branchGone).toBe(true);
-    },
-    { timeout: 300000 },
-  );
+    // Without --unsafe: should hint about commit-id matches
+    const cleanNoUnsafe = await runClean(repo.path);
+    expect(cleanNoUnsafe.exitCode).toBe(0);
+    expect(cleanNoUnsafe.stdout).toContain("commit-id");
+    expect(cleanNoUnsafe.stdout).toContain("--unsafe");
 
-  test(
-    "Multiple orphaned branches",
-    async (story) => {
-      story.strip(repos.uniqueId);
-      story.narrate(
-        "When multiple PRs are merged with branches left behind, sp clean detects all of them.",
-      );
+    // With --unsafe (implies dry-run): should list the branch
+    const unsafeResult = await runClean(repo.path, { unsafe: true });
+    expect(unsafeResult.exitCode).toBe(0);
+    expect(unsafeResult.stdout).toContain(`spry/testuser/${commitId}`);
+    expect(unsafeResult.stdout).toContain("unsafe");
 
-      const repo = await repos.clone({ testName: "multi" });
-      await repo.branch("feature/clean-multi");
-      await repo.commit();
-      await repo.commit();
+    // With --unsafe --force: should delete
+    const forceResult = await runClean(repo.path, { unsafe: true, force: true });
+    expect(forceResult.exitCode).toBe(0);
+    expect(forceResult.stdout).toContain("Deleted");
+    expect(forceResult.stdout).toContain("unsafe");
 
-      // Run sp sync --open to create PRs
-      const syncResult = await runSync(repo.path, { open: true });
-      expect(syncResult.exitCode).toBe(0);
-
-      // Find the PRs (both will have the uniqueId in the title) and sort by PR number
-      // Lower PR numbers = bottom of stack (created first)
-      const prs = (await repo.findPRs(repo.uniqueId)).sort((a, b) => a.number - b.number);
-      expect(prs.length).toBe(2);
-      const firstPr = prs[0];
-      const secondPr = prs[1];
-      if (!firstPr || !secondPr) throw new Error("Expected 2 PRs");
-
-      // Merge both PRs WITHOUT deleting branches (creates orphans)
-      // Note: Merging in order since second depends on first
-      await repo.github.mergePR(firstPr.number, { deleteBranch: false });
-
-      // Wait a bit for GitHub to process
-      await Bun.sleep(2000);
-
-      // Retarget and merge second PR
-      await $`gh pr edit ${secondPr.number} --repo ${repo.github.owner}/${repo.github.repo} --base main`.quiet();
-      await repo.github.mergePR(secondPr.number, { deleteBranch: false });
-
-      // Fetch the latest
-      await repo.fetch();
-
-      // Run clean with --dry-run to see both branches
-      story.narrate("After merging both PRs with branches left behind:");
-      const cleanResult = await runClean(repo.path, { dryRun: true });
-      story.log(cleanResult);
-
-      expect(cleanResult.exitCode).toBe(0);
-      expect(cleanResult.stdout).toContain("Found 2 merged branch");
-      expect(cleanResult.stdout).toContain(firstPr.headRefName);
-      expect(cleanResult.stdout).toContain(secondPr.headRefName);
-    },
-    { timeout: 120000 },
-  );
-
-  test(
-    "Amended commit detection via trailer",
-    async (story) => {
-      story.strip(repos.uniqueId);
-      story.narrate(
-        "When a commit is amended and pushed directly to main (bypassing the PR), " +
-          "sp clean can still detect the orphaned branch via the Spry-Commit-Id trailer.",
-      );
-
-      // This tests the scenario where:
-      // 1. User creates a commit with sp sync --open (creates branch with Spry-Commit-Id)
-      // 2. User amends the commit locally (SHA changes, but trailer preserved)
-      // 3. User pushes the amended commit directly to main (bypassing the PR)
-      // 4. The PR branch is now behind main (different SHA), but has the same Spry-Commit-Id
-      // 5. sp clean should detect the branch as orphaned via commit-id trailer search
-
-      const repo = await repos.clone({ testName: "amended" });
-      await repo.branch("feature/amended-test");
-      await repo.commit();
-
-      // Run sp sync --open to create a PR (this adds the Spry-Commit-Id trailer)
-      const syncResult = await runSync(repo.path, { open: true });
-      expect(syncResult.exitCode).toBe(0);
-
-      const pr = await repo.findPR(repo.uniqueId);
-
-      // Get the Spry-Commit-Id from the current commit
-      const commitIdMatch = pr.headRefName.match(/\/([^/]+)$/);
-      const commitId = commitIdMatch?.[1];
-      if (!commitId) throw new Error("Could not extract commit ID from branch name");
-
-      // Now simulate the scenario: amend the commit (changes SHA) and push directly to main
-      // First, go back to main and create an amended version of the commit
-      await repo.checkout("main");
-      await $`git -C ${repo.path} pull origin main`.quiet();
-
-      // Cherry-pick the commit and amend it (this preserves the trailer but changes the SHA)
-      const featureBranchSha = (
-        await $`git -C ${repo.path} rev-parse origin/${pr.headRefName}`.text()
-      ).trim();
-      await $`git -C ${repo.path} cherry-pick ${featureBranchSha}`.quiet();
-
-      // Amend the commit message (this changes the SHA while preserving the trailer)
-      await $`git -C ${repo.path} commit --amend -m "Amended commit [${repo.uniqueId}]
-
-Spry-Commit-Id: ${commitId}"`.quiet();
-
-      // Push the amended commit directly to main
-      await $`git -C ${repo.path} push origin main`.quiet();
-
-      // Verify the PR branch still exists but is now behind main
-      const branchCheck =
-        await $`gh api repos/${repo.github.owner}/${repo.github.repo}/branches/${pr.headRefName}`.nothrow();
-      expect(branchCheck.exitCode).toBe(0);
-
-      // Verify the branch SHA is NOT an ancestor of main (different commit)
-      await repo.fetch();
-      const isAncestor =
-        await $`git -C ${repo.path} merge-base --is-ancestor origin/${pr.headRefName} origin/main`
-          .quiet()
-          .nothrow();
-      expect(isAncestor.exitCode).not.toBe(0); // Should NOT be an ancestor
-
-      // Run clean with --unsafe (implies --dry-run) - should detect via commit-id trailer
-      story.narrate(
-        "The branch SHA differs from main but shares the same Spry-Commit-Id. With --unsafe:",
-      );
-      const cleanResult = await runClean(repo.path, { unsafe: true });
-      story.log(cleanResult);
-
-      expect(cleanResult.exitCode).toBe(0);
-      expect(cleanResult.stdout).toContain("commit-id");
-      expect(cleanResult.stdout).toContain("unsafe");
-      expect(cleanResult.stdout).toContain(pr.headRefName);
-
-      // Run clean WITHOUT --unsafe - should not show this branch
-      story.narrate("Without --unsafe, the branch is not listed:");
-      const cleanNoUnsafe = await runClean(repo.path);
-      story.log(cleanNoUnsafe);
-      expect(cleanNoUnsafe.exitCode).toBe(0);
-      // Should hint about additional branches found by commit-id
-      expect(cleanNoUnsafe.stdout).toContain("commit-id");
-      expect(cleanNoUnsafe.stdout).toContain("--unsafe");
-
-      // Verify branch was NOT deleted
-      const branchStillExists =
-        await $`gh api repos/${repo.github.owner}/${repo.github.repo}/branches/${pr.headRefName}`.nothrow();
-      expect(branchStillExists.exitCode).toBe(0);
-
-      // Run clean WITH --unsafe --force - should delete the branch
-      story.narrate("With --unsafe --force, the branch is deleted:");
-      const cleanWithForce = await runClean(repo.path, { unsafe: true, force: true });
-      story.log(cleanWithForce);
-
-      expect(cleanWithForce.exitCode).toBe(0);
-      expect(cleanWithForce.stdout).toContain("Deleted");
-      expect(cleanWithForce.stdout).toContain("unsafe");
-
-      // Poll until branch is deleted (GitHub API is eventually consistent)
-      const branchGone = await repo.waitForBranchGone(pr.headRefName);
-      expect(branchGone).toBe(true);
-    },
-    { timeout: 120000 },
-  );
+    // Verify branch was deleted
+    await $`git -C ${repo.path} fetch origin --prune`.quiet();
+    const branches = (await $`git -C ${repo.path} branch -r --list "origin/spry/*"`.text()).trim();
+    expect(branches).toBe("");
+  });
 });

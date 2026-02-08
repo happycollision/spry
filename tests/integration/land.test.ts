@@ -17,6 +17,8 @@ import { scenarios } from "../../src/scenario/definitions.ts";
 import { withGitHubSnapshots } from "../helpers/snapshot-compose.ts";
 import { SKIP_CI_TESTS, runSync, runLand } from "./helpers.ts";
 import { isGitHubIntegrationEnabled } from "../../src/github/service.ts";
+import { canFastForward } from "../../src/github/pr.ts";
+import { clearConfigCache } from "../../src/git/config.ts";
 
 // Create story-enabled test wrapper with GitHub snapshot support
 const base = createStoryTest(import.meta.file);
@@ -83,6 +85,53 @@ describe("land: local behavior", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("Split group");
+  });
+
+  test("canFastForward returns true when target is ancestor of head", async () => {
+    const repo = await repos.create();
+    await repo.branch("feature");
+    const featureSha = await repo.commit({ message: "feature work" });
+
+    // Push the feature branch to origin
+    const branchName = await repo.currentBranch();
+    await $`git -C ${repo.path} push origin ${branchName}`.quiet();
+
+    // canFastForward runs git commands in cwd, so we must chdir
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(repo.path);
+      clearConfigCache();
+      const result = await canFastForward("main", featureSha);
+      expect(result).toBe(true);
+    } finally {
+      process.chdir(originalCwd);
+      clearConfigCache();
+    }
+  });
+
+  test("canFastForward returns false when target has diverged", async () => {
+    const repo = await repos.create();
+    await repo.branch("feature");
+    const featureSha = await repo.commit({ message: "feature work" });
+
+    // Push the feature branch to origin
+    const branchName = await repo.currentBranch();
+    await $`git -C ${repo.path} push origin ${branchName}`.quiet();
+
+    // Simulate divergence: push a different commit directly to origin/main
+    await repo.updateOriginMain("someone else's commit");
+
+    // canFastForward runs git commands in cwd, so we must chdir
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(repo.path);
+      clearConfigCache();
+      const result = await canFastForward("main", featureSha);
+      expect(result).toBe(false);
+    } finally {
+      process.chdir(originalCwd);
+      clearConfigCache();
+    }
   });
 });
 

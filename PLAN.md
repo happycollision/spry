@@ -1,6 +1,6 @@
 # Plan: GitHub Service with Record/Replay Testing
 
-## Status: Phase 3.7 complete
+## Status: Phase 4 complete
 
 **Phase 1 (Infrastructure)** - DONE
 
@@ -108,40 +108,27 @@ Fixed by incorporating test context (test name + subprocess index) into the seed
 
 **Final counts:** 98 pass, 14 skip, 0 fail (up from 89 pass, 23 skip — 9 more tests passing)
 
-**Phase 4 (Convert git-state tests to local-only)** - TODO
+**Phase 4 (Convert git-state tests to local-only)** - DONE
 
-The 5 un-replayable tests are not "API tests that need git state" — they are
-"git tests that happen to also use remote branches." Reframing them as local-only
-tests (using bare repo fixtures) avoids the snapshot boundary problem entirely.
+Converted the 5+1 un-replayable tests into local-only tests using bare repo fixtures.
+These tests were "git tests that happen to use remote branches," not API tests.
 
-**D1: Refactor `landPR` to separate git checks from API calls**
+**D1: Export `canFastForward` and test locally**
 
-`landPR()` in `pr.ts` mixes API calls (`gh pr view`) with git operations
-(`canFastForward` → `git merge-base --is-ancestor`). Split so:
+- Exported `canFastForward` from `pr.ts` (was private)
+- Added 2 local tests in `land.test.ts`: true when ancestor, false when diverged
+- Removed the old `SKIP_CI_TESTS` "fails to land when PR cannot be fast-forwarded" test
+- Did NOT move `canFastForward` out of `landPR` — would break snapshot-replayed tests
 
-- Extract `canFastForward` as independently callable from the command layer
-- Move the fast-forward check into `land.ts` (before `getGitHubService().landPR()`)
-- `landPR` on the service interface becomes a pure API operation — fully snapshotable
-- The "fails to land when PR cannot be fast-forwarded" test becomes local-only:
-  create a diverged repo state, call `canFastForward` directly, no GitHub needed
+**D2: Local-only clean tests**
 
-**D2: Rewrite 4 `clean.test.ts` tests as local-only**
+- Added `spry.username` git config fallback to `getBranchNameConfig()` (avoids API call)
+- Rewrote 5 clean tests as local-only using `repoManager()` + bare repo fixtures:
+  no-orphans, dry-run, delete, multiple-orphans, amended-commit-detection
+- Removed old GitHub-dependent clean test block
+- Tests create `spry/testuser/<id>` branches on bare origin, merge to main, run `sp clean`
 
-`sp clean`'s core logic (`findOrphanedBranches`) is entirely git-based:
-`git merge-base --is-ancestor`, `git log --grep`. The only "remote" part is
-`deleteRemoteBranch` (`git push --delete`), which works against a local bare origin.
-
-- Create test fixtures with a local bare origin + branches in known states
-  (merged SHA on main, matching Spry-Commit-Id trailer, no match)
-- Run `sp clean` against the local repo — no GitHub needed, runs in milliseconds
-- Tests: no-orphans, dry-run, multiple-orphans, amended-commit-detection
-
-**Why not other approaches:**
-
-- Snapshotting git operations: massive surface area, stateful DAG makes recording
-  fragile, essentially building a mock git — tar pit
-- HTTP-level snapshots (VCR): doesn't solve git-state, harder ID substitution
-- Local git server (Gitea): enormous infrastructure for a single-dev CLI tool
+**Final counts:** 105 pass, 8 skip, 0 fail (up from 98 pass, 14 skip)
 
 ---
 

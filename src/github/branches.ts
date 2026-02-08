@@ -15,21 +15,35 @@ let cachedBranchConfig: BranchNameConfig | null = null;
  * Get the configuration for branch naming.
  * Result is memoized for the lifetime of the process.
  *
- * Uses the GitHub service (instead of direct API call) so that
- * snapshot record/replay works for subprocess CLI invocations.
+ * Username resolution order:
+ * 1. git config spry.username (local override, avoids API call)
+ * 2. GitHubService.getUsername() (API call, snapshot-aware)
  */
 export async function getBranchNameConfig(): Promise<BranchNameConfig> {
   if (cachedBranchConfig) {
     return cachedBranchConfig;
   }
 
-  const [spryConfig, username] = await Promise.all([
-    getSpryConfig(),
-    getGitHubService().getUsername(),
-  ]);
+  const spryConfig = await getSpryConfig();
+
+  // Try git config first (avoids GitHub API call)
+  const usernameResult = await $`git config --get spry.username`.quiet().nothrow();
+  let username: string;
+  if (usernameResult.exitCode === 0 && usernameResult.stdout.toString().trim()) {
+    username = usernameResult.stdout.toString().trim();
+  } else {
+    username = await getGitHubService().getUsername();
+  }
 
   cachedBranchConfig = { prefix: spryConfig.branchPrefix, username };
   return cachedBranchConfig;
+}
+
+/**
+ * Clear the cached branch config. Useful for testing.
+ */
+export function clearBranchConfigCache(): void {
+  cachedBranchConfig = null;
 }
 
 /**
