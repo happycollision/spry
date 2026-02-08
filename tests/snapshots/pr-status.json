@@ -1,247 +1,247 @@
 {
   "version": 1,
-  "context": {
-    "owner": "happycollision",
-    "repo": "spry-check"
-  },
   "entries": [
     {
       "testContext": "CI checks passing",
-      "recordedTestId": "silver-lemur-3bv",
+      "recordedTestId": "steady-viper-xkw",
       "method": "createPR",
       "args": [
         {
-          "title": "Checks pass [silver-lemur-3bv]",
-          "head": "feature/checks-pass-silver-lemur-3bv",
+          "title": "Checks pass [steady-viper-xkw]",
+          "head": "feature/checks-pass-steady-viper-xkw",
           "base": "main",
           "body": "Testing CI checks passing",
           "repo": "happycollision/spry-check"
         }
       ],
       "result": {
-        "number": 423,
-        "url": "https://github.com/happycollision/spry-check/pull/423"
+        "number": 581,
+        "url": "https://github.com/happycollision/spry-check/pull/581"
       },
       "isError": false,
-      "timestamp": "2026-02-07T14:17:12.278Z"
+      "timestamp": "2026-02-08T03:40:45.776Z"
     },
     {
       "testContext": "CI checks passing",
-      "recordedTestId": "silver-lemur-3bv",
+      "recordedTestId": "steady-viper-xkw",
       "method": "getPRChecksStatus",
-      "args": [423, "happycollision/spry-check"],
+      "args": [581, "happycollision/spry-check"],
       "result": "passing",
       "isError": false,
-      "timestamp": "2026-02-07T14:17:24.608Z"
+      "timestamp": "2026-02-08T03:40:57.972Z"
     },
     {
       "testContext": "CI checks failing",
-      "recordedTestId": "silver-manta-cv0",
+      "recordedTestId": "fierce-rabbit-1w4",
       "method": "createPR",
       "args": [
         {
-          "title": "Checks fail [silver-manta-cv0]",
-          "head": "feature/checks-fail-silver-manta-cv0",
+          "title": "Checks fail [fierce-rabbit-1w4]",
+          "head": "feature/checks-fail-fierce-rabbit-1w4",
           "base": "main",
           "body": "Testing CI checks failing",
           "repo": "happycollision/spry-check"
         }
       ],
       "result": {
-        "number": 424,
-        "url": "https://github.com/happycollision/spry-check/pull/424"
+        "number": 582,
+        "url": "https://github.com/happycollision/spry-check/pull/582"
       },
       "isError": false,
-      "timestamp": "2026-02-07T14:17:29.470Z"
+      "timestamp": "2026-02-08T03:41:02.673Z"
     },
     {
       "testContext": "CI checks failing",
-      "recordedTestId": "silver-manta-cv0",
+      "recordedTestId": "fierce-rabbit-1w4",
       "method": "getPRChecksStatus",
-      "args": [424, "happycollision/spry-check"],
+      "args": [582, "happycollision/spry-check"],
       "result": "failing",
       "isError": false,
-      "timestamp": "2026-02-07T14:17:42.038Z"
+      "timestamp": "2026-02-08T03:41:14.913Z"
     },
     {
       "testContext": "CI checks pending",
-      "recordedTestId": "fresh-dove-1vp",
+      "recordedTestId": "brave-falcon-8s5",
       "method": "createPR",
       "args": [
         {
-          "title": "Checks pending [fresh-dove-1vp]",
-          "head": "feature/checks-pending-fresh-dove-1vp",
+          "title": "Checks pending [brave-falcon-8s5]",
+          "head": "feature/checks-pending-brave-falcon-8s5",
           "base": "main",
           "body": "Testing CI checks pending",
           "repo": "happycollision/spry-check"
         }
       ],
       "result": {
-        "number": 425,
-        "url": "https://github.com/happycollision/spry-check/pull/425"
+        "number": 583,
+        "url": "https://github.com/happycollision/spry-check/pull/583"
       },
       "isError": false,
-      "timestamp": "2026-02-07T14:17:46.844Z"
+      "timestamp": "2026-02-08T03:41:19.535Z"
     },
     {
       "testContext": "CI checks pending",
-      "recordedTestId": "fresh-dove-1vp",
+      "recordedTestId": "brave-falcon-8s5",
       "method": "getPRChecksStatus",
-      "args": [425, "happycollision/spry-check"],
+      "args": [583, "happycollision/spry-check"],
       "result": "pending",
       "isError": false,
-      "timestamp": "2026-02-07T14:17:53.446Z"
+      "timestamp": "2026-02-08T03:41:23.104Z"
     },
     {
       "testContext": "returns 'none' for PR with no CI checks configured",
-      "recordedTestId": "neat-quail-jo2",
+      "recordedTestId": "neat-sloth-2rs",
       "method": "createPR",
       "args": [
         {
           "title": "Remove CI workflow",
-          "head": "feature/no-ci-neat-quail-jo2",
+          "head": "feature/no-ci-neat-sloth-2rs",
           "base": "main",
           "body": "Testing no CI",
           "repo": "happycollision/spry-check"
         }
       ],
       "result": {
-        "number": 426,
-        "url": "https://github.com/happycollision/spry-check/pull/426"
+        "number": 584,
+        "url": "https://github.com/happycollision/spry-check/pull/584"
       },
       "isError": false,
-      "timestamp": "2026-02-07T14:17:58.398Z"
+      "timestamp": "2026-02-08T03:41:27.964Z"
     },
     {
       "testContext": "returns 'none' for PR with no CI checks configured",
-      "recordedTestId": "neat-quail-jo2",
+      "recordedTestId": "neat-sloth-2rs",
       "method": "getPRChecksStatus",
-      "args": [426, "happycollision/spry-check"],
+      "args": [584, "happycollision/spry-check"],
       "result": "none",
       "isError": false,
-      "timestamp": "2026-02-07T14:18:03.814Z"
+      "timestamp": "2026-02-08T03:41:33.290Z"
     },
     {
       "testContext": "returns 'none' for PR with no review requirements",
-      "recordedTestId": "gentle-seal-pol",
+      "recordedTestId": "noble-quail-xag",
       "method": "createPR",
       "args": [
         {
           "title": "Test PR for review status",
-          "head": "feature/review-none-gentle-seal-pol",
+          "head": "feature/review-none-noble-quail-xag",
           "base": "main",
           "body": "Testing review status",
           "repo": "happycollision/spry-check"
         }
       ],
       "result": {
-        "number": 427,
-        "url": "https://github.com/happycollision/spry-check/pull/427"
+        "number": 585,
+        "url": "https://github.com/happycollision/spry-check/pull/585"
       },
       "isError": false,
-      "timestamp": "2026-02-07T14:18:09.297Z"
+      "timestamp": "2026-02-08T03:41:38.412Z"
     },
     {
       "testContext": "returns 'none' for PR with no review requirements",
-      "recordedTestId": "gentle-seal-pol",
+      "recordedTestId": "noble-quail-xag",
       "method": "getPRReviewStatus",
-      "args": [427, "happycollision/spry-check"],
+      "args": [585, "happycollision/spry-check"],
       "result": "none",
       "isError": false,
-      "timestamp": "2026-02-07T14:18:11.692Z"
+      "timestamp": "2026-02-08T03:41:40.753Z"
     },
     {
       "testContext": "returns 'review_required' when branch protection requires reviews",
-      "recordedTestId": "gentle-bison-gca",
+      "recordedTestId": "silent-deer-pwu",
       "method": "createPR",
       "args": [
         {
           "title": "Test PR for review required",
-          "head": "feature/review-required-gentle-bison-gca",
+          "head": "feature/review-required-silent-deer-pwu",
           "base": "main",
           "body": "Testing review required",
           "repo": "happycollision/spry-check"
         }
       ],
       "result": {
-        "number": 428,
-        "url": "https://github.com/happycollision/spry-check/pull/428"
+        "number": 586,
+        "url": "https://github.com/happycollision/spry-check/pull/586"
       },
       "isError": false,
-      "timestamp": "2026-02-07T14:18:17.209Z"
+      "timestamp": "2026-02-08T03:41:45.476Z"
     },
     {
       "testContext": "returns 'review_required' when branch protection requires reviews",
-      "recordedTestId": "gentle-bison-gca",
+      "recordedTestId": "silent-deer-pwu",
       "method": "getPRReviewStatus",
-      "args": [428, "happycollision/spry-check"],
+      "args": [586, "happycollision/spry-check"],
       "result": "review_required",
       "isError": false,
-      "timestamp": "2026-02-07T14:18:19.542Z"
+      "timestamp": "2026-02-08T03:41:47.813Z"
     },
     {
       "testContext": "returns zero counts for PR with no review threads",
-      "recordedTestId": "neat-bear-w9a",
+      "recordedTestId": "fresh-otter-64k",
       "method": "createPR",
       "args": [
         {
           "title": "Test PR with no comments",
-          "head": "feature/no-comments-neat-bear-w9a",
+          "head": "feature/no-comments-fresh-otter-64k",
           "base": "main",
           "body": "Testing no comments",
           "repo": "happycollision/spry-check"
         }
       ],
       "result": {
-        "number": 429,
-        "url": "https://github.com/happycollision/spry-check/pull/429"
+        "number": 587,
+        "url": "https://github.com/happycollision/spry-check/pull/587"
       },
       "isError": false,
-      "timestamp": "2026-02-07T14:18:25.778Z"
+      "timestamp": "2026-02-08T03:41:54.308Z"
     },
     {
       "testContext": "returns zero counts for PR with no review threads",
-      "recordedTestId": "neat-bear-w9a",
+      "recordedTestId": "fresh-otter-64k",
       "method": "getPRCommentStatus",
-      "args": [429, "happycollision/spry-check"],
+      "args": [587, "happycollision/spry-check"],
       "result": {
         "total": 0,
         "resolved": 0
       },
       "isError": false,
-      "timestamp": "2026-02-07T14:18:28.229Z"
+      "timestamp": "2026-02-08T03:41:56.611Z"
     },
     {
       "testContext": "returns correct counts for PR with unresolved review thread",
-      "recordedTestId": "happy-badger-3h4",
+      "recordedTestId": "glossy-whale-mbj",
       "method": "createPR",
       "args": [
         {
           "title": "Test PR with comment thread",
-          "head": "feature/with-comment-happy-badger-3h4",
+          "head": "feature/with-comment-glossy-whale-mbj",
           "base": "main",
           "body": "Testing comment threads",
           "repo": "happycollision/spry-check"
         }
       ],
       "result": {
-        "number": 430,
-        "url": "https://github.com/happycollision/spry-check/pull/430"
+        "number": 588,
+        "url": "https://github.com/happycollision/spry-check/pull/588"
       },
       "isError": false,
-      "timestamp": "2026-02-07T14:18:32.736Z"
+      "timestamp": "2026-02-08T03:42:01.351Z"
     },
     {
       "testContext": "returns correct counts for PR with unresolved review thread",
-      "recordedTestId": "happy-badger-3h4",
+      "recordedTestId": "glossy-whale-mbj",
       "method": "getPRCommentStatus",
-      "args": [430, "happycollision/spry-check"],
+      "args": [588, "happycollision/spry-check"],
       "result": {
         "total": 1,
         "resolved": 0
       },
       "isError": false,
-      "timestamp": "2026-02-07T14:18:39.065Z"
+      "timestamp": "2026-02-08T03:42:07.646Z"
     }
-  ]
+  ],
+  "context": {
+    "owner": "happycollision",
+    "repo": "spry-check"
+  }
 }

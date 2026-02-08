@@ -18,6 +18,7 @@
  * to use the same recorded snapshots with different unique IDs.
  */
 
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { GitHubService } from "./service.ts";
@@ -437,14 +438,6 @@ export function createSnapshotGitHubService(): GitHubService {
 }
 
 /**
- * Flush any pending snapshot writes.
- * Call this at the end of a test run to ensure all snapshots are saved.
- */
-export async function flushSnapshots(): Promise<void> {
-  // Currently we write immediately, but this could be used for batching
-}
-
-/**
  * Clear the snapshot cache.
  * Useful for tests that need to reload from disk.
  */
@@ -478,7 +471,7 @@ export async function setSnapshotFileContext(
 export function loadSnapshotContext(testFile: string): SnapshotFileContext | null {
   const path = getSnapshotPath(testFile);
   try {
-    const content = require("fs").readFileSync(path, "utf-8");
+    const content = readFileSync(path, "utf-8");
     const file = JSON.parse(content) as SnapshotFile;
     return file.context ?? null;
   } catch {

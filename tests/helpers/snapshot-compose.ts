@@ -29,6 +29,7 @@
  * - Preserves test.skip, test.only, test.skipIf
  */
 
+import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { afterEach as bunAfterEach } from "bun:test";
 import {
@@ -57,7 +58,7 @@ function loadSnapshotFileSync(
 
   try {
     // Use readFileSync for synchronous loading at test registration time
-    const content = require("fs").readFileSync(path, "utf-8");
+    const content = readFileSync(path, "utf-8");
     const parsed = JSON.parse(content);
     snapshotFileCache.set(path, parsed);
     return parsed;
@@ -81,6 +82,15 @@ function hasSnapshotForTest(testFile: string, testName: string): boolean {
 interface TestOptions {
   timeout?: number;
 }
+
+/**
+ * Loose function type for test callbacks and overloaded test() arguments.
+ * bun:test's test function accepts (name, fn), (name, options, fn), or
+ * (name, fn, options) — all with varying callback signatures. Using a
+ * single `any`-based alias keeps the eslint-disable in one place.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyTestFn = (...args: any[]) => any;
 
 /**
  * Wrap a test suite with GitHub snapshot support.
@@ -128,8 +138,7 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
    * bun:test treats functions with parameters as done-callback-style tests,
    * which would cause hangs if the wrapper has a parameter the original doesn't.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function wrapTestFn(testName: string, fn: any): any {
+  function wrapTestFn(testName: string, fn: AnyTestFn): AnyTestFn {
     // If the original function takes no arguments (e.g., noStory tests),
     // return a 0-arity wrapper so bun:test doesn't inject a done callback.
     if (fn.length === 0) {
@@ -140,8 +149,7 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
     }
 
     // Otherwise, pass through the context (e.g., story context)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return async (context: any) => {
+    return async (context: unknown) => {
       setTestMetadata(resolvedTestFile, testName);
       await fn(context);
     };
@@ -150,9 +158,12 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
   /**
    * The wrapped test function.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function wrappedTest(name: string, fnOrOptions: any, optionsOrFn?: any): void {
-    const fn = typeof fnOrOptions === "function" ? fnOrOptions : optionsOrFn;
+  function wrappedTest(
+    name: string,
+    fnOrOptions: AnyTestFn | TestOptions,
+    optionsOrFn?: AnyTestFn | TestOptions,
+  ): void {
+    const fn = (typeof fnOrOptions === "function" ? fnOrOptions : optionsOrFn) as AnyTestFn;
     const options =
       typeof fnOrOptions === "object"
         ? fnOrOptions
@@ -180,16 +191,14 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
   }
 
   // Add skip support
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  wrappedTest.skip = (name: string, fn: any, options?: TestOptions): void => {
+  wrappedTest.skip = (name: string, fn: AnyTestFn, options?: TestOptions): void => {
     if (originalTest.skip) {
       originalTest.skip(name, fn, options);
     }
   };
 
   // Add only support
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  wrappedTest.only = (name: string, fn: any, options?: TestOptions): void => {
+  wrappedTest.only = (name: string, fn: AnyTestFn, options?: TestOptions): void => {
     const wrapped = wrapTestFn(name, fn);
 
     if (originalTest.only) {
@@ -203,8 +212,7 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
 
   // Add skipIf support
   wrappedTest.skipIf = (condition: boolean) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (name: string, fn: any, options?: TestOptions): void => {
+    return (name: string, fn: AnyTestFn, options?: TestOptions): void => {
       if (condition) {
         wrappedTest.skip(name, fn, options);
       } else {
@@ -216,9 +224,12 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
   // Wrap noStory with snapshot support too (sets test metadata for recording)
   const originalNoStory = originalTest.noStory || originalTest;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function wrappedNoStory(name: string, fnOrOptions: any, optionsOrFn?: any): void {
-    const fn = typeof fnOrOptions === "function" ? fnOrOptions : optionsOrFn;
+  function wrappedNoStory(
+    name: string,
+    fnOrOptions: AnyTestFn | TestOptions,
+    optionsOrFn?: AnyTestFn | TestOptions,
+  ): void {
+    const fn = (typeof fnOrOptions === "function" ? fnOrOptions : optionsOrFn) as AnyTestFn;
     const options =
       typeof fnOrOptions === "object"
         ? fnOrOptions
@@ -244,16 +255,14 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  wrappedNoStory.skip = (name: string, fn: any, options?: TestOptions): void => {
+  wrappedNoStory.skip = (name: string, fn: AnyTestFn, options?: TestOptions): void => {
     if (originalNoStory.skip) {
       originalNoStory.skip(name, fn, options);
     }
   };
 
   wrappedNoStory.skipIf = (condition: boolean) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (name: string, fn: any, options?: TestOptions): void => {
+    return (name: string, fn: AnyTestFn, options?: TestOptions): void => {
       if (condition) {
         wrappedNoStory.skip(name, fn, options);
       } else {
@@ -262,8 +271,7 @@ export function withGitHubSnapshots<T extends { test: any }>(suite: T, testFile?
     };
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  wrappedNoStory.only = (name: string, fn: any, options?: TestOptions): void => {
+  wrappedNoStory.only = (name: string, fn: AnyTestFn, options?: TestOptions): void => {
     const wrapped = wrapTestFn(name, fn);
 
     if (originalNoStory.only) {

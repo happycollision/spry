@@ -19,7 +19,7 @@ import { getStackCommitsWithTrailers } from "../../src/git/commands.ts";
 import { scenarios } from "../../src/scenario/definitions.ts";
 import { withGitHubSnapshots } from "../helpers/snapshot-compose.ts";
 import { isGitHubIntegrationEnabled } from "../../src/github/service.ts";
-import { SKIP_GITHUB_TESTS, SKIP_CI_TESTS, runSync, runSpry } from "./helpers.ts";
+import { SKIP_GITHUB_TESTS, runSync, runSpry } from "./helpers.ts";
 
 // Create story-enabled test wrapper with GitHub snapshot support
 const base = createStoryTest(import.meta.file);
@@ -861,10 +861,10 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync: branch protection", () => {
   });
 });
 
-describe.skipIf(SKIP_GITHUB_TESTS)("sync: merged PR cleanup", () => {
+describe("sync: merged PR cleanup", () => {
   const repos = repoManager({ github: true });
 
-  test.skipIf(SKIP_CI_TESTS)(
+  storyTest.noStory(
     "detects merged PRs and cleans up their remote branches when merged via GitHub UI",
     async () => {
       const repo = await repos.clone({ testName: "cleanup" });
@@ -876,59 +876,68 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync: merged PR cleanup", () => {
       const syncResult = await runSync(repo.path, { open: true });
       expect(syncResult.exitCode).toBe(0);
 
-      // Get PRs (both will have uniqueId in title)
-      const prs = await repo.findPRs(repo.uniqueId);
-      expect(prs.length).toBe(2);
-      const firstPr = prs[0];
-      const secondPr = prs[1];
-      if (!firstPr || !secondPr) throw new Error("Expected 2 PRs");
+      if (isGitHubIntegrationEnabled()) {
+        // Get PRs (both will have uniqueId in title)
+        const prs = await repo.findPRs(repo.uniqueId);
+        expect(prs.length).toBe(2);
+        const firstPr = prs[0];
+        const secondPr = prs[1];
+        if (!firstPr || !secondPr) throw new Error("Expected 2 PRs");
 
-      // Wait for CI on the first PR
-      await repo.github.waitForCI(firstPr.number, { timeout: 180000 });
+        // Wait for CI on the first PR
+        await repo.github.waitForCI(firstPr.number, { timeout: 180000 });
 
-      // Merge the first PR via GitHub API (simulating GitHub UI merge)
-      // Note: deleteBranch: false to leave the branch orphaned
-      await repo.github.mergePR(firstPr.number, { deleteBranch: false });
+        // Merge the first PR via GitHub API (simulating GitHub UI merge)
+        // Note: deleteBranch: false to leave the branch orphaned
+        await repo.github.mergePR(firstPr.number, { deleteBranch: false });
 
-      // Verify first PR is merged but branch still exists
-      const firstStatus =
-        await $`gh pr view ${firstPr.number} --repo ${repo.github.owner}/${repo.github.repo} --json state`.text();
-      expect(JSON.parse(firstStatus).state).toBe("MERGED");
+        // Verify first PR is merged but branch still exists
+        const firstStatus =
+          await $`gh pr view ${firstPr.number} --repo ${repo.github.owner}/${repo.github.repo} --json state`.text();
+        expect(JSON.parse(firstStatus).state).toBe("MERGED");
 
-      // Verify the branch still exists (orphaned)
-      const branchCheck =
-        await $`gh api repos/${repo.github.owner}/${repo.github.repo}/branches/${firstPr.headRefName}`.nothrow();
-      expect(branchCheck.exitCode).toBe(0); // Branch should still exist
+        // Verify the branch still exists (orphaned)
+        const branchCheck =
+          await $`gh api repos/${repo.github.owner}/${repo.github.repo}/branches/${firstPr.headRefName}`.nothrow();
+        expect(branchCheck.exitCode).toBe(0); // Branch should still exist
+      }
 
       // Now run sync again - it should detect the merged PR and clean up the orphaned branch
       const syncResult2 = await runSync(repo.path, { open: false });
 
       expect(syncResult2.exitCode).toBe(0);
       expect(syncResult2.stdout).toContain("Cleaned up");
-      expect(syncResult2.stdout).toContain(`#${firstPr.number}`);
+      expect(syncResult2.stdout).toMatch(/#\d+/);
 
-      // Verify the orphaned branch was deleted
-      const branchGone = await repo.waitForBranchGone(firstPr.headRefName);
-      expect(branchGone).toBe(true);
+      if (isGitHubIntegrationEnabled()) {
+        const prs = await repo.findPRs(repo.uniqueId);
+        const firstPr = prs[0];
+        if (!firstPr) throw new Error("Expected at least 1 PR");
 
-      // The second PR should still be tracked (not cleaned up)
-      const secondStatus =
-        await $`gh pr view ${secondPr.number} --repo ${repo.github.owner}/${repo.github.repo} --json state`.text();
-      expect(JSON.parse(secondStatus).state).toBe("OPEN");
+        // Verify the orphaned branch was deleted
+        const branchGone = await repo.waitForBranchGone(firstPr.headRefName);
+        expect(branchGone).toBe(true);
+
+        // The second PR should still be tracked (not cleaned up)
+        const secondPr = prs[1];
+        if (!secondPr) throw new Error("Expected 2 PRs");
+        const secondStatus =
+          await $`gh pr view ${secondPr.number} --repo ${repo.github.owner}/${repo.github.repo} --json state`.text();
+        expect(JSON.parse(secondStatus).state).toBe("OPEN");
+      }
     },
     { timeout: 300000 },
   );
 });
 
 // ============================================================================
-// Part 3: CI-Dependent Tests (requires GITHUB_CI_TESTS=1)
-// These tests wait for CI to run on PRs in the test repository
+// Part 3: CI verification (record-mode waits for CI; replay uses snapshots)
 // ============================================================================
 
-describe.skipIf(SKIP_GITHUB_TESTS)("sync --open: CI verification", () => {
+describe("sync --open: CI verification", () => {
   const repos = repoManager({ github: true });
 
-  test.skipIf(SKIP_CI_TESTS)(
+  storyTest.noStory(
     "CI passes for normal commits",
     async () => {
       const repo = await repos.clone({ testName: "ci-pass" });
@@ -938,16 +947,16 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync --open: CI verification", () => {
       const result = await runSync(repo.path, { open: true });
       expect(result.exitCode).toBe(0);
 
-      const pr = await repo.findPR(repo.uniqueId);
-
-      // Wait for CI to complete
-      const ciStatus = await repo.github.waitForCI(pr.number, { timeout: 180000 });
-      expect(ciStatus.state).toBe("success");
+      if (isGitHubIntegrationEnabled()) {
+        const pr = await repo.findPR(repo.uniqueId);
+        const ciStatus = await repo.github.waitForCI(pr.number, { timeout: 180000 });
+        expect(ciStatus.state).toBe("success");
+      }
     },
     { timeout: 200000 },
   );
 
-  test.skipIf(SKIP_CI_TESTS)(
+  storyTest.noStory(
     "CI fails for commits with [FAIL_CI] marker",
     async () => {
       const repo = await repos.clone({ testName: "sync-ci-fail" });
@@ -957,11 +966,11 @@ describe.skipIf(SKIP_GITHUB_TESTS)("sync --open: CI verification", () => {
       const result = await runSync(repo.path, { open: true });
       expect(result.exitCode).toBe(0);
 
-      const pr = await repo.findPR(repo.uniqueId);
-
-      // Wait for CI to complete
-      const ciStatus = await repo.github.waitForCI(pr.number, { timeout: 180000 });
-      expect(ciStatus.state).toBe("failure");
+      if (isGitHubIntegrationEnabled()) {
+        const pr = await repo.findPR(repo.uniqueId);
+        const ciStatus = await repo.github.waitForCI(pr.number, { timeout: 180000 });
+        expect(ciStatus.state).toBe("failure");
+      }
     },
     { timeout: 200000 },
   );

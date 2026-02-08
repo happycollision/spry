@@ -1,5 +1,5 @@
 {
-  "$schema": "https://github.com/happycollision/ribbin/schemas/v1/ribbin.schema.json",
+  "$schema": "https://raw.githubusercontent.com/happycollision/ribbin/refs/heads/main/schemas/v1/ribbin.schema.json",
 
   // ribbin - Intercept commands and redirect to project-approved alternatives
   //

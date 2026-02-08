@@ -1,6 +1,6 @@
 # Plan: GitHub Service with Record/Replay Testing
 
-## Status: Phase 3.5 complete
+## Status: Phase 3.7 complete
 
 **Phase 1 (Infrastructure)** - DONE
 
@@ -76,6 +76,72 @@ remove test-awareness from production code, delete dead code.
 5. **Fix `SPRY_SNAPSHOT_ROOT` derivation**
    - Current: `getSnapshotDir().replace(/\/tests\/snapshots$/, "")` — fragile regex
    - Fix: Export `PROJECT_ROOT` from `snapshot-context.ts` or add a `getProjectRoot()` helper
+
+**Phase 3.7 (Migrate CI-dependent tests to snapshots)** - DONE
+
+Migrated 10 of 15 CI-dependent tests to the snapshot replay system. The remaining 5 tests
+cannot be replayed because they depend on git state (merge detection, fast-forward checks)
+rather than GitHub API responses — the snapshot system only replays API calls.
+
+**Migrated (10 tests):**
+
+- `sync.test.ts` (3 tests): merged PR cleanup, CI pass verification, CI fail verification
+- `land.test.ts` (7 tests): landing single PR, retargeting, CI checks failing,
+  batch landing (4 tests: all ready, stops at non-ready, snapshot readiness, no ready PRs)
+
+**Cannot migrate — depend on git state, not API (5 tests):**
+
+- `clean.test.ts` (4 tests): `sp clean` uses `git merge-base --is-ancestor` and `git log --grep`
+  to detect orphaned branches — pure git operations, no GitHub API calls to replay
+- `land.test.ts` (1 test): "fails to land when PR cannot be fast-forwarded" — needs main to
+  diverge via real push, then `sp land` checks fast-forward via git, not API
+
+**Cannot migrate — require another GitHub user (2 tests in pr-status.test.ts):**
+
+- `returns 'approved' after PR is approved`
+- `returns 'changes_requested'`
+
+**Bug fix:** Deterministic commit ID generator (`src/core/id.ts`) was producing identical IDs
+across different test subprocesses, causing cross-test collisions when `findPRsByBranches`
+with `includeAll: true` found MERGED PRs from prior tests with the same branch name.
+Fixed by incorporating test context (test name + subprocess index) into the seed via djb2 hash.
+
+**Final counts:** 98 pass, 14 skip, 0 fail (up from 89 pass, 23 skip — 9 more tests passing)
+
+**Phase 4 (Convert git-state tests to local-only)** - TODO
+
+The 5 un-replayable tests are not "API tests that need git state" — they are
+"git tests that happen to also use remote branches." Reframing them as local-only
+tests (using bare repo fixtures) avoids the snapshot boundary problem entirely.
+
+**D1: Refactor `landPR` to separate git checks from API calls**
+
+`landPR()` in `pr.ts` mixes API calls (`gh pr view`) with git operations
+(`canFastForward` → `git merge-base --is-ancestor`). Split so:
+
+- Extract `canFastForward` as independently callable from the command layer
+- Move the fast-forward check into `land.ts` (before `getGitHubService().landPR()`)
+- `landPR` on the service interface becomes a pure API operation — fully snapshotable
+- The "fails to land when PR cannot be fast-forwarded" test becomes local-only:
+  create a diverged repo state, call `canFastForward` directly, no GitHub needed
+
+**D2: Rewrite 4 `clean.test.ts` tests as local-only**
+
+`sp clean`'s core logic (`findOrphanedBranches`) is entirely git-based:
+`git merge-base --is-ancestor`, `git log --grep`. The only "remote" part is
+`deleteRemoteBranch` (`git push --delete`), which works against a local bare origin.
+
+- Create test fixtures with a local bare origin + branches in known states
+  (merged SHA on main, matching Spry-Commit-Id trailer, no match)
+- Run `sp clean` against the local repo — no GitHub needed, runs in milliseconds
+- Tests: no-orphans, dry-run, multiple-orphans, amended-commit-detection
+
+**Why not other approaches:**
+
+- Snapshotting git operations: massive surface area, stateful DAG makes recording
+  fragile, essentially building a mock git — tar pit
+- HTTP-level snapshots (VCR): doesn't solve git-state, harder ID substitution
+- Local git server (Gitea): enormous infrastructure for a single-dev CLI tool
 
 ---
 
