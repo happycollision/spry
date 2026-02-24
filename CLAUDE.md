@@ -110,11 +110,11 @@ For more information, read the Bun API docs in `node_modules/bun-types/docs/**.m
 
 ## Changelog
 
-You should edit the changelog after each change that affects runtime, BEFORE YOU COMMIT. It will automatically get bumped when the release script is run.
+You should edit the changelog after each change that affects runtime, BEFORE YOU COMMIT. This is a per-commit responsibility, not a release-time task. The release script handles changelog formatting automatically.
 
 ## Releasing
 
-Use the release script to cut a new version:
+Use the release script to cut a new version. Do not manually edit any files — the script handles everything:
 
 ```bash
 ./scripts/release.sh <version>
@@ -126,7 +126,7 @@ Use the release script to cut a new version:
 This will:
 
 1. Validate the version format (semver with optional prerelease)
-2. Validate a changelog entry exists for the version
+2. Update the changelog
 3. Check that there are no uncommitted changes
 4. Verify the version is newer than the latest tag (use `--force` to bypass)
 5. Update `package.json` version
