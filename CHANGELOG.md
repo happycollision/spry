@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-beta.5] - 2026-02-24
+
 ### Added
 
 - `sp sync --all` to sync all Spry-tracked branches in the repository at once
