@@ -2,35 +2,19 @@
   "name": "spry",
   "version": "1.0.0-beta.5",
   "description": "CLI tool for managing stacked PRs on GitHub",
-  "bin": {
-    "sp": "./dist/sp"
-  },
   "type": "module",
   "scripts": {
-    "dev": "bun run src/cli/index.ts",
-    "build": "mkdir -p dist && bun build src/cli/index.ts --compile --outfile dist/sp",
     "test": "bun test",
-    "test:local": "bun test tests/integration/",
-    "test:github": "GITHUB_INTEGRATION_TESTS=1 bun test tests/integration/",
-    "test:ci": "GITHUB_INTEGRATION_TESTS=1 GITHUB_CI_TESTS=1 bun test tests/integration/",
-    "test:all": "GITHUB_INTEGRATION_TESTS=1 GITHUB_CI_TESTS=1 bun test",
-    "test:github:setup": "bun run scripts/setup-spry-check.ts",
+    "test:docker": "./scripts/test-docker.sh test",
     "test:local:docker": "./scripts/test-docker.sh test-local",
-    "test:github:docker": "./scripts/test-docker.sh test-github",
-    "test:ci:docker": "./scripts/test-docker.sh test-ci",
-    "test:unsupported:docker": "./scripts/test-docker.sh test-unsupported",
-    "test:docker": "./scripts/test-docker.sh test-all",
     "docker:shell": "./scripts/test-docker.sh shell",
     "docker:shell:2.38": "./scripts/test-docker.sh shell 2.38",
-    "scenario": "bun run src/scenario/index.ts",
+    "docs:build": "bun run scripts/build-docs.ts",
     "lint": "oxlint --type-aware",
     "types": "tsc --noEmit",
     "format": "oxfmt",
     "check": "bun run types && bun run lint && bun run format --check",
     "prepare": "husky"
-  },
-  "dependencies": {
-    "commander": "^12.1.0"
   },
   "devDependencies": {
     "@types/bun": "latest",

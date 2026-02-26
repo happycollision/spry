@@ -39,3 +39,9 @@ docker/.env
 *.ignore/
 # Claude Code - ignore local settings, keep shared settings
 .claude/settings.local.json
+
+# Generated docs (build artifact)
+docs/generated/
+
+# Doc fragments (ephemeral build artifact)
+.doc-fragments/

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Reset codebase for test-first rebuild. Testing infrastructure is now the foundation.
+
 ## [1.0.0-beta.5] - 2026-02-24
 
 ### Added
