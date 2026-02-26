@@ -1,3 +1,7 @@
+## Git
+
+Please don't use `git -C ...` because it makes it impossible for me to whitelist commands for you.
+
 ## Bun
 
 Default to using Bun instead of Node.js.
