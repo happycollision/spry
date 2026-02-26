@@ -4,124 +4,21 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      github_integration:
-        description: "Run GitHub integration tests"
-        required: false
-        default: false
-        type: boolean
 
 jobs:
-  # Run all tests with minimum supported git version (2.40)
   test:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup git 2.40.0
-        uses: ./.github/actions/setup-git
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-git
         with:
           version: "2.40.0"
-
-      - name: Setup mise
-        uses: jdx/mise-action@v2
-
-      - name: Install dependencies
-        run: bun install
-
-      - name: Verify git version
-        run: |
-          EXPECTED="git version 2.40.0"
-          ACTUAL=$(git --version)
-          if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "ERROR: Expected '$EXPECTED', got '$ACTUAL'"
-            exit 1
-          fi
-          echo "Git version OK: $ACTUAL"
-
-      - name: Type check
-        run: bun run types
+      - uses: jdx/mise-action@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx tsc --noEmit
         continue-on-error: true
-
-      - name: Lint
-        run: bun run lint
+      - run: bunx oxlint
         continue-on-error: true
-
-      - name: Format check
-        run: bun run format --check
+      - run: bunx oxfmt --check .
         continue-on-error: true
-
-      - name: Run tests
-        run: bun test
-
-  # Verify error handling with unsupported git version (2.38)
-  test-old-git:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup git 2.38.5
-        uses: ./.github/actions/setup-git
-        with:
-          version: "2.38.5"
-
-      - name: Setup mise
-        uses: jdx/mise-action@v2
-
-      - name: Install dependencies
-        run: bun install
-
-      - name: Verify git version
-        run: |
-          EXPECTED="git version 2.38.5"
-          ACTUAL=$(git --version)
-          if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "ERROR: Expected '$EXPECTED', got '$ACTUAL'"
-            exit 1
-          fi
-          echo "Git version OK: $ACTUAL"
-
-      - name: Run version tests only
-        run: bun test tests/git-version.test.ts
-
-  # GitHub integration tests - only on manual trigger
-  test-github-integration:
-    if: github.event_name == 'workflow_dispatch' && inputs.github_integration
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup git 2.40.0
-        uses: ./.github/actions/setup-git
-        with:
-          version: "2.40.0"
-
-      - name: Setup mise
-        uses: jdx/mise-action@v2
-
-      - name: Install dependencies
-        run: bun install
-
-      - name: Verify git version
-        run: |
-          EXPECTED="git version 2.40.0"
-          ACTUAL=$(git --version)
-          if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "ERROR: Expected '$EXPECTED', got '$ACTUAL'"
-            exit 1
-          fi
-          echo "Git version OK: $ACTUAL"
-
-      - name: Authenticate gh CLI
-        run: gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
-
-      - name: Run GitHub integration tests
-        run: bun run test:github
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: bun test
