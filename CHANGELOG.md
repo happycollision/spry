@@ -8,8 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `GhClient` interface and real implementation (`createRealGhClient`) for dependency-injectable `gh` CLI calls
-- Input validation functions: `validateBranchName`, `validatePRTitle`, `validateIdentifierFormat`, `validateIdentifiers`
+- `src/parse/` module: types, trailer parsing, stack detection, commit ID generation, title resolution, identifier resolution, input validation
+- `stdin` support for `GitRunner`/`CommandOptions` in test lib
 
 ### Changed
 - Reset codebase for test-first rebuild. Testing infrastructure is now the foundation.

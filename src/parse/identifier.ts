@@ -1,4 +1,3 @@
-// src/parse/identifier.ts
 import type { PRUnit, CommitInfo, IdentifierResolution, UpToResolution } from "./types.ts";
 import { validateIdentifiers } from "./validation.ts";
 
@@ -13,7 +12,7 @@ export function resolveIdentifier(
 
   // Prefix match on unit ID
   const prefixMatches = units.filter((u) => u.id.startsWith(identifier));
-  if (prefixMatches.length === 1) return { ok: true, unit: prefixMatches[0]! };
+  if (prefixMatches.length === 1 && prefixMatches[0]) return { ok: true, unit: prefixMatches[0] };
   if (prefixMatches.length > 1) {
     return { ok: false, error: "ambiguous", identifier, matches: prefixMatches.map((u) => u.id) };
   }
@@ -25,7 +24,8 @@ export function resolveIdentifier(
     return { ok: false, error: "ambiguous", identifier, matches: hashMatches.map((c) => c.hash.slice(0, 8)) };
   }
 
-  const matchedHash = hashMatches[0]!.hash;
+  const matchedHash = hashMatches[0]?.hash;
+  if (!matchedHash) return { ok: false, error: "not-found", identifier };
   const unitForCommit = units.find((u) => u.commits.includes(matchedHash));
   if (!unitForCommit) return { ok: false, error: "not-found", identifier };
 

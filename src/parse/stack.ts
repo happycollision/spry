@@ -1,4 +1,3 @@
-// src/parse/stack.ts
 import type { CommitTrailers, PRUnit, GroupTitles, StackParseResult } from "./types.ts";
 
 export interface CommitWithTrailers {
@@ -76,8 +75,9 @@ export function parseStack(
   for (const [groupId, positions] of groupPositions) {
     if (positions.length < 2) continue;
     for (let i = 1; i < positions.length; i++) {
-      const prev = positions[i - 1]!;
-      const curr = positions[i]!;
+      const prev = positions[i - 1];
+      const curr = positions[i];
+      if (prev === undefined || curr === undefined) continue;
       if (curr !== prev + 1) {
         const interruptingCommits: string[] = [];
         for (let j = prev + 1; j < curr; j++) {
