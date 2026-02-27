@@ -35,7 +35,7 @@ describe("getCommitFiles", () => {
   test("returns [] for empty commit", async () => {
     repo = await createRepo();
     // Create an empty commit using git directly
-    const result = await git.run(
+    await git.run(
       ["commit", "--allow-empty", "-m", "empty commit"],
       { cwd: repo.path },
     );

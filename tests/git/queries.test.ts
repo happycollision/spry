@@ -153,7 +153,7 @@ describe("getMergeBase", () => {
   test("returns 40-char SHA when branch has commits ahead of trunk", async () => {
     repo = await createRepo();
     await repo.fetch();
-    const branchName = await repo.branch("feature");
+    await repo.branch("feature");
     await repo.commit("ahead");
     const base = await getMergeBase(git, `origin/${repo.defaultBranch}`, {
       cwd: repo.path,
@@ -181,7 +181,7 @@ describe("getStackCommits", () => {
   test("returns commits in oldest-first order", async () => {
     repo = await createRepo();
     await repo.fetch();
-    const branchName = await repo.branch("stack");
+    await repo.branch("stack");
     await repo.commit("first");
     await repo.commit("second");
     await repo.commit("third");
@@ -197,7 +197,7 @@ describe("getStackCommits", () => {
   test("populates hash, subject, body", async () => {
     repo = await createRepo();
     await repo.fetch();
-    const branchName = await repo.branch("detailed");
+    await repo.branch("detailed");
     const { $ } = await import("bun");
     await $`git commit --allow-empty -m ${"My subject\n\nMy body text"}`.cwd(repo.path).quiet();
     const commits = await getStackCommits(git, `origin/${repo.defaultBranch}`, {

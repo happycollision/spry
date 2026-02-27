@@ -11,7 +11,6 @@ import type { ConflictInfo } from "../../src/git/rebase.ts";
 import { getStackCommits, getFullSha } from "../../src/git/queries.ts";
 import { parseTrailers } from "../../src/parse/trailers.ts";
 import type { SpryConfig } from "../../src/git/config.ts";
-import { trunkRef } from "../../src/git/config.ts";
 
 const git = createRealGitRunner();
 
@@ -33,7 +32,7 @@ describe("injectMissingIds", () => {
     // Push main so we have origin/main
     await repo.fetch();
 
-    const branchName = await repo.branch("inject-test");
+    await repo.branch("inject-test");
     await repo.commit("first feature commit");
     await repo.commit("second feature commit");
 
@@ -62,7 +61,7 @@ describe("injectMissingIds", () => {
     await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
     await repo.fetch();
 
-    const branchName = await repo.branch("already-has-ids");
+    await repo.branch("already-has-ids");
     await repo.commit("commit with id to inject");
 
     const ref = "origin/main";

@@ -30,7 +30,7 @@ describe("checkGitVersion", () => {
         return { stdout: "git version 2.39.0\n", stderr: "", exitCode: 0 };
       },
     };
-    expect(checkGitVersion(fakeGit)).rejects.toThrow("2.40");
+    await expect(checkGitVersion(fakeGit)).rejects.toThrow("2.40");
   });
 
   test("throws for unparseable version", async () => {
@@ -39,7 +39,7 @@ describe("checkGitVersion", () => {
         return { stdout: "not a version\n", stderr: "", exitCode: 0 };
       },
     };
-    expect(checkGitVersion(fakeGit)).rejects.toThrow();
+    await expect(checkGitVersion(fakeGit)).rejects.toThrow();
   });
 });
 
@@ -66,12 +66,12 @@ describe("readConfig", () => {
     const { $ } = await import("bun");
     await $`git config spry.remote origin`.cwd(repo.path).quiet();
 
-    expect(readConfig(git, { cwd: repo.path })).rejects.toThrow("spry.trunk");
+    await expect(readConfig(git, { cwd: repo.path })).rejects.toThrow("spry.trunk");
   });
 
   test('throws mentioning "spry.remote" when remote not set', async () => {
     repo = await createRepo();
-    expect(readConfig(git, { cwd: repo.path })).rejects.toThrow("spry.remote");
+    await expect(readConfig(git, { cwd: repo.path })).rejects.toThrow("spry.remote");
   });
 
   test('error suggests "main" when origin/main exists and trunk missing', async () => {
@@ -120,11 +120,11 @@ describe("loadConfig", () => {
         return { stdout: "", stderr: "", exitCode: 1 };
       },
     };
-    expect(loadConfig(fakeGit)).rejects.toThrow("2.40");
+    await expect(loadConfig(fakeGit)).rejects.toThrow("2.40");
   });
 
   test("throws about config when config missing", async () => {
     repo = await createRepo();
-    expect(loadConfig(git, { cwd: repo.path })).rejects.toThrow("spry.remote");
+    await expect(loadConfig(git, { cwd: repo.path })).rejects.toThrow("spry.remote");
   });
 });
