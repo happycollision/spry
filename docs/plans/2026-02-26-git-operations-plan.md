@@ -3068,8 +3068,3 @@ git add CHANGELOG.md
 git commit -m "chore: update changelog for git operations module"
 ```
 
-**Step 5: Run `bd sync`**
-
-```bash
-bd sync
-```
