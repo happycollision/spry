@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `src/git/plumbing` module: getTree, getParent, getParents, getAuthorEnv, getAuthorAndCommitterEnv, createCommit, mergeTree, updateRef, resetToCommit, rewriteCommitChain, rebasePlumbing, finalizeRewrite
+- `src/git/status` module: getWorkingTreeStatus (porcelain parser), requireCleanWorkingTree
 - `src/git/queries` module: getCurrentBranch, isDetachedHead, hasUncommittedChanges, getFullSha, getShortSha, getCommitMessage, getMergeBase, getStackCommits, getStackCommitsForBranch
 - `src/git/config` module: SpryConfig type, trunkRef helper, checkGitVersion (requires git >= 2.40), readConfig with suggestion helpers, loadConfig entry point
 - `src/parse/` module: types, trailer parsing, stack detection, commit ID generation, title resolution, identifier resolution, input validation
