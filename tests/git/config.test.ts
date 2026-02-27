@@ -1,5 +1,5 @@
 import { test, expect, describe, afterAll } from "bun:test";
-import { trunkRef, checkGitVersion, readConfig } from "../../src/git/config.ts";
+import { trunkRef, checkGitVersion, readConfig, loadConfig } from "../../src/git/config.ts";
 import type { SpryConfig } from "../../src/git/config.ts";
 import { createRealGitRunner, createRepo } from "../../tests/lib/index.ts";
 import type { GitRunner } from "../../tests/lib/context.ts";
@@ -88,5 +88,43 @@ describe("readConfig", () => {
       expect(e.message).toContain("spry.trunk");
       expect(e.message).toContain("main");
     }
+  });
+});
+
+describe("loadConfig", () => {
+  let repo: Awaited<ReturnType<typeof createRepo>>;
+
+  afterAll(async () => {
+    if (repo) await repo.cleanup();
+  });
+
+  test("returns config when both set", async () => {
+    repo = await createRepo();
+    const { $ } = await import("bun");
+    await $`git config spry.trunk main`.cwd(repo.path).quiet();
+    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+
+    const config = await loadConfig(git, { cwd: repo.path });
+    expect(config.trunk).toBe("main");
+    expect(config.remote).toBe("origin");
+  });
+
+  test("throws about version for old git", async () => {
+    const callLog: string[][] = [];
+    const fakeGit: GitRunner = {
+      async run(args) {
+        callLog.push(args);
+        if (args[0] === "--version") {
+          return { stdout: "git version 2.39.0\n", stderr: "", exitCode: 0 };
+        }
+        return { stdout: "", stderr: "", exitCode: 1 };
+      },
+    };
+    expect(loadConfig(fakeGit)).rejects.toThrow("2.40");
+  });
+
+  test("throws about config when config missing", async () => {
+    repo = await createRepo();
+    expect(loadConfig(git, { cwd: repo.path })).rejects.toThrow("spry.remote");
   });
 });

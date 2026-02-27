@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `src/git/config` module: SpryConfig type, trunkRef helper, checkGitVersion (requires git >= 2.40), readConfig with suggestion helpers, loadConfig entry point
 - `src/parse/` module: types, trailer parsing, stack detection, commit ID generation, title resolution, identifier resolution, input validation
 - `stdin` support for `GitRunner`/`CommandOptions` in test lib
 

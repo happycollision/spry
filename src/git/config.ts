@@ -92,3 +92,11 @@ export async function readConfig(
 
   return { trunk, remote };
 }
+
+export async function loadConfig(
+  git: GitRunner,
+  options?: ConfigOptions,
+): Promise<SpryConfig> {
+  await checkGitVersion(git);
+  return readConfig(git, options);
+}
