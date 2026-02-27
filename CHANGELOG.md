@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `formatStackView` and `formatValidationError` UI formatters (`src/ui/format.ts`) for terminal-friendly stack display
+  - Auto-generated sequential letter titles (A, B, C...) for untitled groups
+  - Status icon legend (no PR, open, merged, closed)
+  - Split-group validation error formatting with remediation steps
 - Git operations module (`src/git/`) with explicit config, queries, plumbing, rebase, conflict prediction, and status
   - Explicit `spry.trunk` and `spry.remote` config required (no auto-detection)
   - Git version check (requires 2.40+) at config load
