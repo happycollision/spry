@@ -16,3 +16,4 @@ export { resolveUnitTitle, hasStoredTitle } from "./title.ts";
 export { parseTrailers, addTrailers } from "./trailers.ts";
 export { detectPRUnits, parseStack } from "./stack.ts";
 export type { CommitWithTrailers } from "./stack.ts";
+export { resolveIdentifier, resolveIdentifiers, formatResolutionError, parseApplySpec, resolveUpTo } from "./identifier.ts";
