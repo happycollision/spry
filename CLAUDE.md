@@ -1,6 +1,6 @@
 ## Git
 
-Please don't use `git -C ...` because it makes it impossible for me to whitelist commands for you.
+Please don't use `git -C ...` because it makes it impossible for me to whitelist commands for you. Just be in the correct directory and do normal git operations. Please pass this instruction to any sub-agents you spawn.
 
 ## Bun
 
