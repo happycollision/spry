@@ -9,3 +9,5 @@ export type {
   IdentifierResolution,
   UpToResolution,
 } from "./types.ts";
+
+export { generateCommitId } from "./id.ts";
