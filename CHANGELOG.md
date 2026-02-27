@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- CLI entry point (`src/cli/index.ts`) and `sp view` command (`src/commands/view.ts`)
+  - `sp view` orchestrates: load config, get branch, get commits, parse trailers, parse stack, format, output
+  - CLI built on Commander with extensible command structure
 - `formatStackView` and `formatValidationError` UI formatters (`src/ui/format.ts`) for terminal-friendly stack display
   - Auto-generated sequential letter titles (A, B, C...) for untitled groups
   - Status icon legend (no PR, open, merged, closed)
