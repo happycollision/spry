@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `src/git/rebase` module: injectMissingIds (auto-inject Spry-Commit-Id trailers), rebaseOntoTrunk (plumbing-based rebase with conflict detection), getConflictInfo (mid-rebase conflict inspection), formatConflictError (user-friendly conflict messages)
 - `src/git/conflict` module: getCommitFiles, checkFileOverlap, parseConflictOutput, simulateMerge, predictConflict, checkReorderConflicts
 - `src/git/plumbing` module: getTree, getParent, getParents, getAuthorEnv, getAuthorAndCommitterEnv, createCommit, mergeTree, updateRef, resetToCommit, rewriteCommitChain, rebasePlumbing, finalizeRewrite
 - `src/git/status` module: getWorkingTreeStatus (porcelain parser), requireCleanWorkingTree
