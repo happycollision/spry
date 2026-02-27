@@ -8,6 +8,10 @@ export async function parseTrailers(commitBody: string, git: GitRunner): Promise
     stdin: commitBody,
   });
 
+  if (result.exitCode !== 0) {
+    throw new Error(`git interpret-trailers --parse failed: ${result.stderr}`);
+  }
+
   if (!result.stdout.trim()) return {};
 
   const trailers: CommitTrailers = {};
@@ -38,5 +42,8 @@ export async function addTrailers(
 
   const normalizedMessage = message.endsWith("\n") ? message : message + "\n";
   const result = await git.run(args, { stdin: normalizedMessage });
+  if (result.exitCode !== 0) {
+    throw new Error(`git interpret-trailers failed: ${result.stderr}`);
+  }
   return result.stdout.trimEnd();
 }
