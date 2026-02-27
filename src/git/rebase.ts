@@ -97,7 +97,10 @@ export async function injectMissingIds(
   const result = await rewriteCommitChain(git, allHashes, rewrites, { cwd });
 
   // 10. Finalize rewrite
-  const oldTip = allHashes[allHashes.length - 1]!;
+  const oldTip = allHashes.at(-1) ?? "";
+  if (!oldTip) {
+    throw new Error("injectMissingIds: unexpected empty commit list");
+  }
   await finalizeRewrite(git, branch, oldTip, result.newTip, { cwd });
 
   return {
@@ -153,7 +156,10 @@ export async function rebaseOntoTrunk(
   // 8. Success - finalize
   const branch =
     options?.branch ?? (await getCurrentBranch(git, { cwd }));
-  const oldTip = commitHashes[commitHashes.length - 1]!;
+  const oldTip = commitHashes.at(-1) ?? "";
+  if (!oldTip) {
+    throw new Error("rebaseOntoTrunk: unexpected empty commit list");
+  }
   await finalizeRewrite(git, branch, oldTip, result.newTip, { cwd });
 
   return {
@@ -212,7 +218,7 @@ export async function getConflictInfo(
   for (const line of statusResult.stdout.split("\n")) {
     const match = line.match(conflictPattern);
     if (match) {
-      files.push(match[2]!);
+      files.push(match[2] ?? "");
     }
   }
 

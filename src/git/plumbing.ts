@@ -59,9 +59,9 @@ export async function getAuthorEnv(
   );
   const [name, email, date] = result.stdout.trim().split("\x00");
   return {
-    GIT_AUTHOR_NAME: name!,
-    GIT_AUTHOR_EMAIL: email!,
-    GIT_AUTHOR_DATE: date!,
+    GIT_AUTHOR_NAME: name ?? "",
+    GIT_AUTHOR_EMAIL: email ?? "",
+    GIT_AUTHOR_DATE: date ?? "",
   };
 }
 
@@ -78,12 +78,12 @@ export async function getAuthorAndCommitterEnv(
     .trim()
     .split("\x00");
   return {
-    GIT_AUTHOR_NAME: aName!,
-    GIT_AUTHOR_EMAIL: aEmail!,
-    GIT_AUTHOR_DATE: aDate!,
-    GIT_COMMITTER_NAME: cName!,
-    GIT_COMMITTER_EMAIL: cEmail!,
-    GIT_COMMITTER_DATE: cDate!,
+    GIT_AUTHOR_NAME: aName ?? "",
+    GIT_AUTHOR_EMAIL: aEmail ?? "",
+    GIT_AUTHOR_DATE: aDate ?? "",
+    GIT_COMMITTER_NAME: cName ?? "",
+    GIT_COMMITTER_EMAIL: cEmail ?? "",
+    GIT_COMMITTER_DATE: cDate ?? "",
   };
 }
 
@@ -127,7 +127,7 @@ export async function mergeTree(
   if (result.exitCode !== 0) {
     return { ok: false, conflictInfo: result.stdout + result.stderr };
   }
-  return { ok: true, tree: result.stdout.trim().split("\n")[0]! };
+  return { ok: true, tree: result.stdout.trim().split("\n")[0] ?? "" };
 }
 
 export async function updateRef(
@@ -192,7 +192,7 @@ export async function rewriteCommitChain(
     if (previousNewSha) {
       parents.push(previousNewSha);
     } else if (originalParents.length > 0) {
-      parents.push(originalParents[0]!);
+      parents.push(originalParents[0] ?? "");
     }
 
     const newSha = await createCommit(git, tree, parents, message, env, options);
@@ -200,7 +200,10 @@ export async function rewriteCommitChain(
     previousNewSha = newSha;
   }
 
-  return { newTip: previousNewSha!, mapping };
+  if (!previousNewSha) {
+    throw new Error("rewriteCommitChain: no commits were rewritten");
+  }
+  return { newTip: previousNewSha, mapping };
 }
 
 // --- Task 12: rebasePlumbing, finalizeRewrite ---
@@ -223,7 +226,8 @@ export async function rebasePlumbing(
   let currentTip = onto;
 
   for (const commit of commits) {
-    const originalParent = (await getParents(git, commit, options))[0]!;
+    const originalParents = await getParents(git, commit, options);
+    const originalParent = originalParents[0] ?? "";
     const mergeResult = await mergeTree(
       git,
       originalParent,

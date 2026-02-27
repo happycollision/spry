@@ -46,7 +46,7 @@ export function parseConflictOutput(output: string): { files: string[] } {
   const files = new Set<string>();
   let match: RegExpExecArray | null;
   while ((match = regex.exec(output)) !== null) {
-    files.add(match[1]!.trim());
+    files.add((match[1] ?? "").trim());
   }
   return { files: [...files] };
 }
@@ -106,19 +106,21 @@ export async function checkReorderConflicts(
   // Build position maps
   const currentPos = new Map<string, number>();
   for (let i = 0; i < currentOrder.length; i++) {
-    currentPos.set(currentOrder[i]!, i);
+    const current = currentOrder[i];
+    if (current !== undefined) currentPos.set(current, i);
   }
 
   const newPos = new Map<string, number>();
   for (let i = 0; i < newOrder.length; i++) {
-    newPos.set(newOrder[i]!, i);
+    const item = newOrder[i];
+    if (item !== undefined) newPos.set(item, i);
   }
 
   // Check each pair in new order where relative order changed
   for (let i = 0; i < newOrder.length; i++) {
     for (let j = i + 1; j < newOrder.length; j++) {
-      const a = newOrder[i]!;
-      const b = newOrder[j]!;
+      const a = newOrder[i] ?? "";
+      const b = newOrder[j] ?? "";
 
       const oldPosA = currentPos.get(a);
       const oldPosB = currentPos.get(b);

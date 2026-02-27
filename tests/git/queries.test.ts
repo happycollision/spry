@@ -189,9 +189,9 @@ describe("getStackCommits", () => {
       cwd: repo.path,
     });
     expect(commits).toHaveLength(3);
-    expect(commits[0]!.subject).toContain("first");
-    expect(commits[1]!.subject).toContain("second");
-    expect(commits[2]!.subject).toContain("third");
+    expect(commits[0]?.subject).toContain("first");
+    expect(commits[1]?.subject).toContain("second");
+    expect(commits[2]?.subject).toContain("third");
   });
 
   test("populates hash, subject, body", async () => {
@@ -204,10 +204,10 @@ describe("getStackCommits", () => {
       cwd: repo.path,
     });
     expect(commits).toHaveLength(1);
-    expect(commits[0]!.hash).toMatch(/^[0-9a-f]{40}$/);
-    expect(commits[0]!.subject).toBe("My subject");
-    expect(commits[0]!.body).toContain("My body text");
-    expect(commits[0]!.trailers).toEqual({});
+    expect(commits[0]?.hash).toMatch(/^[0-9a-f]{40}$/);
+    expect(commits[0]?.subject).toBe("My subject");
+    expect(commits[0]?.body).toContain("My body text");
+    expect(commits[0]?.trailers).toEqual({});
   });
 });
 
@@ -232,7 +232,7 @@ describe("getStackCommitsForBranch", () => {
       { cwd: repo.path },
     );
     expect(commits).toHaveLength(1);
-    expect(commits[0]!.subject).toContain("branch commit");
+    expect(commits[0]?.subject).toContain("branch commit");
   });
 
   test("returns [] for branch at trunk", async () => {

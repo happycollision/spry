@@ -8,13 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `src/git/rebase` module: injectMissingIds (auto-inject Spry-Commit-Id trailers), rebaseOntoTrunk (plumbing-based rebase with conflict detection), getConflictInfo (mid-rebase conflict inspection), formatConflictError (user-friendly conflict messages)
-- `src/git/conflict` module: getCommitFiles, checkFileOverlap, parseConflictOutput, simulateMerge, predictConflict, checkReorderConflicts
-- `src/git/plumbing` module: getTree, getParent, getParents, getAuthorEnv, getAuthorAndCommitterEnv, createCommit, mergeTree, updateRef, resetToCommit, rewriteCommitChain, rebasePlumbing, finalizeRewrite
-- `src/git/status` module: getWorkingTreeStatus (porcelain parser), requireCleanWorkingTree
-- `src/git/queries` module: getCurrentBranch, isDetachedHead, hasUncommittedChanges, getFullSha, getShortSha, getCommitMessage, getMergeBase, getStackCommits, getStackCommitsForBranch
-- `src/git/config` module: SpryConfig type, trunkRef helper, checkGitVersion (requires git >= 2.40), readConfig with suggestion helpers, loadConfig entry point
-- `src/parse/` module: types, trailer parsing, stack detection, commit ID generation, title resolution, identifier resolution, input validation
+- Git operations module (`src/git/`) with explicit config, queries, plumbing, rebase, conflict prediction, and status
+  - Explicit `spry.trunk` and `spry.remote` config required (no auto-detection)
+  - Git version check (requires 2.40+) at config load
+  - Plumbing-based rebase and commit chain rewriting via GitRunner DI
+  - Conflict prediction for TUI commit reordering
+- Core parsing module (`src/parse/`) with types, trailer parsing, stack detection, commit ID generation, title resolution, identifier resolution, input validation
 - `stdin` support for `GitRunner`/`CommandOptions` in test lib
 
 ### Changed

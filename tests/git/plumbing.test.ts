@@ -102,7 +102,7 @@ describe("getAuthorEnv", () => {
     expect(env.GIT_AUTHOR_NAME).toBe("Test User");
     expect(env.GIT_AUTHOR_EMAIL).toBe("test@example.com");
     expect(env.GIT_AUTHOR_DATE).toBeDefined();
-    expect(env.GIT_AUTHOR_DATE.length).toBeGreaterThan(0);
+    expect((env.GIT_AUTHOR_DATE ?? "").length).toBeGreaterThan(0);
   });
 });
 
@@ -328,19 +328,22 @@ describe("rewriteCommitChain", () => {
     expect(result.mapping.size).toBe(3);
 
     // Check first commit kept its message
-    const msg1 = await getCommitMessage(git, result.mapping.get(sha1)!, {
+    const newSha1 = result.mapping.get(sha1) ?? "";
+    const msg1 = await getCommitMessage(git, newSha1, {
       cwd: repo.path,
     });
     expect(msg1).toContain("first");
 
     // Check middle commit was rewritten
-    const msg2 = await getCommitMessage(git, result.mapping.get(sha2)!, {
+    const newSha2 = result.mapping.get(sha2) ?? "";
+    const msg2 = await getCommitMessage(git, newSha2, {
       cwd: repo.path,
     });
     expect(msg2).toBe("REWRITTEN second");
 
     // Check third commit kept its message
-    const msg3 = await getCommitMessage(git, result.mapping.get(sha3)!, {
+    const newSha3 = result.mapping.get(sha3) ?? "";
+    const msg3 = await getCommitMessage(git, newSha3, {
       cwd: repo.path,
     });
     expect(msg3).toContain("third");
