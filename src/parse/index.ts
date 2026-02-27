@@ -12,3 +12,4 @@ export type {
 
 export { generateCommitId } from "./id.ts";
 export { validateBranchName, validatePRTitle, validateIdentifierFormat, validateIdentifiers } from "./validation.ts";
+export { resolveUnitTitle, hasStoredTitle } from "./title.ts";
