@@ -8,15 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
 - Git operations module (`src/git/`) with explicit config, queries, plumbing, rebase, conflict prediction, and status
   - Explicit `spry.trunk` and `spry.remote` config required (no auto-detection)
   - Git version check (requires 2.40+) at config load
   - Plumbing-based rebase and commit chain rewriting via GitRunner DI
   - Conflict prediction for TUI commit reordering
+- `parseCommitTrailers` batch helper to bridge `CommitInfo[]` to `CommitWithTrailers[]` for stack parsing
 - Core parsing module (`src/parse/`) with types, trailer parsing, stack detection, commit ID generation, title resolution, identifier resolution, input validation
 - `stdin` support for `GitRunner`/`CommandOptions` in test lib
 
 ### Changed
+
 - Reset codebase for test-first rebuild. Testing infrastructure is now the foundation.
 
 ## [1.0.0-beta.5] - 2026-02-24

@@ -1,11 +1,21 @@
 import type { GitRunner } from "../lib/context.ts";
-import type { CommitTrailers } from "./types.ts";
+import type { CommitInfo, CommitTrailers } from "./types.ts";
+import type { CommitWithTrailers } from "./stack.ts";
 
-export async function parseTrailers(commitBody: string, git: GitRunner): Promise<CommitTrailers> {
+export interface TrailerOptions {
+  cwd?: string;
+}
+
+export async function parseTrailers(
+  commitBody: string,
+  git: GitRunner,
+  options?: TrailerOptions,
+): Promise<CommitTrailers> {
   if (!commitBody.trim()) return {};
 
   const result = await git.run(["interpret-trailers", "--parse"], {
     stdin: commitBody,
+    cwd: options?.cwd,
   });
 
   if (result.exitCode !== 0) {
@@ -46,4 +56,19 @@ export async function addTrailers(
     throw new Error(`git interpret-trailers failed: ${result.stderr}`);
   }
   return result.stdout.trimEnd();
+}
+
+export async function parseCommitTrailers(
+  commits: CommitInfo[],
+  git: GitRunner,
+  options?: TrailerOptions,
+): Promise<CommitWithTrailers[]> {
+  return Promise.all(
+    commits.map(async (commit) => ({
+      hash: commit.hash,
+      subject: commit.subject,
+      body: commit.body,
+      trailers: await parseTrailers(commit.body, git, options),
+    })),
+  );
 }
