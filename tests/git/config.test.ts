@@ -1,7 +1,7 @@
-import { test, expect, describe } from "bun:test";
-import { trunkRef, checkGitVersion } from "../../src/git/config.ts";
+import { test, expect, describe, afterAll } from "bun:test";
+import { trunkRef, checkGitVersion, readConfig } from "../../src/git/config.ts";
 import type { SpryConfig } from "../../src/git/config.ts";
-import { createRealGitRunner } from "../../tests/lib/index.ts";
+import { createRealGitRunner, createRepo } from "../../tests/lib/index.ts";
 import type { GitRunner } from "../../tests/lib/context.ts";
 
 const git = createRealGitRunner();
@@ -40,5 +40,53 @@ describe("checkGitVersion", () => {
       },
     };
     expect(checkGitVersion(fakeGit)).rejects.toThrow();
+  });
+});
+
+describe("readConfig", () => {
+  let repo: Awaited<ReturnType<typeof createRepo>>;
+
+  afterAll(async () => {
+    if (repo) await repo.cleanup();
+  });
+
+  test("reads trunk and remote when both set", async () => {
+    repo = await createRepo();
+    const { $ } = await import("bun");
+    await $`git config spry.trunk main`.cwd(repo.path).quiet();
+    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+
+    const config = await readConfig(git, { cwd: repo.path });
+    expect(config.trunk).toBe("main");
+    expect(config.remote).toBe("origin");
+  });
+
+  test('throws mentioning "spry.trunk" when trunk not set', async () => {
+    repo = await createRepo();
+    const { $ } = await import("bun");
+    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+
+    expect(readConfig(git, { cwd: repo.path })).rejects.toThrow("spry.trunk");
+  });
+
+  test('throws mentioning "spry.remote" when remote not set', async () => {
+    repo = await createRepo();
+    expect(readConfig(git, { cwd: repo.path })).rejects.toThrow("spry.remote");
+  });
+
+  test('error suggests "main" when origin/main exists and trunk missing', async () => {
+    repo = await createRepo();
+    const { $ } = await import("bun");
+    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+    // Fetch so remote branches are visible
+    await repo.fetch();
+
+    try {
+      await readConfig(git, { cwd: repo.path });
+      expect(true).toBe(false); // should not reach here
+    } catch (e: any) {
+      expect(e.message).toContain("spry.trunk");
+      expect(e.message).toContain("main");
+    }
   });
 });
