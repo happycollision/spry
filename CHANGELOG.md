@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `GhClient` interface and real implementation (`createRealGhClient`) for dependency-injectable `gh` CLI calls
+- Input validation functions: `validateBranchName`, `validatePRTitle`, `validateIdentifierFormat`, `validateIdentifiers`
 
 ### Changed
 - Reset codebase for test-first rebuild. Testing infrastructure is now the foundation.
