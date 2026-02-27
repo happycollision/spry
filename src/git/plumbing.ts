@@ -1,4 +1,4 @@
-import type { GitRunner } from "../../tests/lib/context.ts";
+import type { GitRunner } from "../lib/context.ts";
 
 export interface PlumbingOptions {
   cwd?: string;
@@ -53,10 +53,9 @@ export async function getAuthorEnv(
   commit: string,
   options?: PlumbingOptions,
 ): Promise<Record<string, string>> {
-  const result = await git.run(
-    ["log", "-1", "--format=%an%x00%ae%x00%ai", commit],
-    { cwd: options?.cwd },
-  );
+  const result = await git.run(["log", "-1", "--format=%an%x00%ae%x00%ai", commit], {
+    cwd: options?.cwd,
+  });
   const [name, email, date] = result.stdout.trim().split("\x00");
   return {
     GIT_AUTHOR_NAME: name ?? "",
@@ -74,9 +73,7 @@ export async function getAuthorAndCommitterEnv(
     ["log", "-1", "--format=%an%x00%ae%x00%ai%x00%cn%x00%ce%x00%ci", commit],
     { cwd: options?.cwd },
   );
-  const [aName, aEmail, aDate, cName, cEmail, cDate] = result.stdout
-    .trim()
-    .split("\x00");
+  const [aName, aEmail, aDate, cName, cEmail, cDate] = result.stdout.trim().split("\x00");
   return {
     GIT_AUTHOR_NAME: aName ?? "",
     GIT_AUTHOR_EMAIL: aEmail ?? "",
@@ -109,9 +106,7 @@ export async function createCommit(
 
 // --- Task 10: mergeTree, updateRef, resetToCommit ---
 
-export type MergeTreeResult =
-  | { ok: true; tree: string }
-  | { ok: false; conflictInfo: string };
+export type MergeTreeResult = { ok: true; tree: string } | { ok: false; conflictInfo: string };
 
 export async function mergeTree(
   git: GitRunner,
@@ -182,9 +177,7 @@ export async function rewriteCommitChain(
   for (const commit of commits) {
     const tree = await getTree(git, commit, options);
     const env = await getAuthorAndCommitterEnv(git, commit, options);
-    const message =
-      rewrites.get(commit) ??
-      (await getCommitMessageInternal(git, commit, options));
+    const message = rewrites.get(commit) ?? (await getCommitMessageInternal(git, commit, options));
 
     // Determine parent: use rewritten parent if available, else original parent
     const originalParents = await getParents(git, commit, options);
@@ -228,13 +221,7 @@ export async function rebasePlumbing(
   for (const commit of commits) {
     const originalParents = await getParents(git, commit, options);
     const originalParent = originalParents[0] ?? "";
-    const mergeResult = await mergeTree(
-      git,
-      originalParent,
-      currentTip,
-      commit,
-      options,
-    );
+    const mergeResult = await mergeTree(git, originalParent, currentTip, commit, options);
 
     if (!mergeResult.ok) {
       return {
@@ -246,14 +233,7 @@ export async function rebasePlumbing(
 
     const env = await getAuthorAndCommitterEnv(git, commit, options);
     const message = await getCommitMessageInternal(git, commit, options);
-    const newSha = await createCommit(
-      git,
-      mergeResult.tree,
-      [currentTip],
-      message,
-      env,
-      options,
-    );
+    const newSha = await createCommit(git, mergeResult.tree, [currentTip], message, env, options);
 
     mapping.set(commit, newSha);
     currentTip = newSha;

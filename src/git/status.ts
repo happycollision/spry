@@ -1,4 +1,4 @@
-import type { GitRunner } from "../../tests/lib/context.ts";
+import type { GitRunner } from "../lib/context.ts";
 
 export interface StatusOptions {
   cwd?: string;
@@ -19,9 +19,7 @@ export async function getWorkingTreeStatus(
     cwd: options?.cwd,
   });
 
-  const lines = result.stdout
-    .split("\n")
-    .filter((line) => line.length > 0);
+  const lines = result.stdout.split("\n").filter((line) => line.length > 0);
 
   let hasUnstagedChanges = false;
   let hasStagedChanges = false;
@@ -57,8 +55,6 @@ export async function requireCleanWorkingTree(
 ): Promise<void> {
   const status = await getWorkingTreeStatus(git, options);
   if (status.hasStagedChanges || status.hasUnstagedChanges) {
-    throw new Error(
-      "Cannot proceed: there are uncommitted changes in the working tree",
-    );
+    throw new Error("Cannot proceed: there are uncommitted changes in the working tree");
   }
 }

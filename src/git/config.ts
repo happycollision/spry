@@ -1,4 +1,4 @@
-import type { GitRunner } from "../../tests/lib/context.ts";
+import type { GitRunner } from "../lib/context.ts";
 
 export interface SpryConfig {
   trunk: string;
@@ -41,15 +41,8 @@ async function listRemotes(git: GitRunner, cwd?: string): Promise<string[]> {
     .filter(Boolean);
 }
 
-async function suggestTrunk(
-  git: GitRunner,
-  remote: string,
-  cwd?: string,
-): Promise<string[]> {
-  const result = await git.run(
-    ["branch", "-r", "--format=%(refname:short)"],
-    { cwd },
-  );
+async function suggestTrunk(git: GitRunner, remote: string, cwd?: string): Promise<string[]> {
+  const result = await git.run(["branch", "-r", "--format=%(refname:short)"], { cwd });
   if (result.exitCode !== 0 || !result.stdout.trim()) return [];
   const prefix = `${remote}/`;
   return result.stdout
@@ -60,10 +53,7 @@ async function suggestTrunk(
     .map((b) => b.slice(prefix.length));
 }
 
-export async function readConfig(
-  git: GitRunner,
-  options?: ConfigOptions,
-): Promise<SpryConfig> {
+export async function readConfig(git: GitRunner, options?: ConfigOptions): Promise<SpryConfig> {
   const cwd = options?.cwd;
 
   // Read remote first (needed for trunk suggestions)
@@ -93,10 +83,7 @@ export async function readConfig(
   return { trunk, remote };
 }
 
-export async function loadConfig(
-  git: GitRunner,
-  options?: ConfigOptions,
-): Promise<SpryConfig> {
+export async function loadConfig(git: GitRunner, options?: ConfigOptions): Promise<SpryConfig> {
   await checkGitVersion(git);
   return readConfig(git, options);
 }

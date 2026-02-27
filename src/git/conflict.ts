@@ -1,4 +1,4 @@
-import type { GitRunner } from "../../tests/lib/context.ts";
+import type { GitRunner } from "../lib/context.ts";
 import { mergeTree } from "./plumbing.ts";
 
 export interface ConflictOptions {
@@ -17,13 +17,15 @@ export async function getCommitFiles(
   hash: string,
   options?: ConflictOptions,
 ): Promise<string[]> {
-  const result = await git.run(
-    ["diff-tree", "--no-commit-id", "--name-only", "-r", hash],
-    { cwd: options?.cwd },
-  );
+  const result = await git.run(["diff-tree", "--no-commit-id", "--name-only", "-r", hash], {
+    cwd: options?.cwd,
+  });
   const trimmed = result.stdout.trim();
   if (!trimmed) return [];
-  return trimmed.split("\n").map((s) => s.trim()).filter(Boolean);
+  return trimmed
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 export async function checkFileOverlap(
@@ -41,8 +43,7 @@ export async function checkFileOverlap(
 }
 
 export function parseConflictOutput(output: string): { files: string[] } {
-  const regex =
-    /CONFLICT \([^)]+\): (?:Merge conflict in|Add\/add|Rename\/rename) (.+)/g;
+  const regex = /CONFLICT \([^)]+\): (?:Merge conflict in|Add\/add|Rename\/rename) (.+)/g;
   const files = new Set<string>();
   let match: RegExpExecArray | null;
   while ((match = regex.exec(output)) !== null) {

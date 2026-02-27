@@ -1,4 +1,4 @@
-import type { GitRunner } from "../../tests/lib/context.ts";
+import type { GitRunner } from "../lib/context.ts";
 import type { SpryConfig } from "./config.ts";
 import { trunkRef as getTrunkRef } from "./config.ts";
 import {
@@ -8,11 +8,7 @@ import {
   getCommitMessage,
   getFullSha,
 } from "./queries.ts";
-import {
-  rewriteCommitChain,
-  finalizeRewrite,
-  rebasePlumbing,
-} from "./plumbing.ts";
+import { rewriteCommitChain, finalizeRewrite, rebasePlumbing } from "./plumbing.ts";
 import { parseConflictOutput } from "./conflict.ts";
 import { parseTrailers, addTrailers } from "../parse/trailers.ts";
 import { generateCommitId } from "../parse/id.ts";
@@ -84,11 +80,7 @@ export async function injectMissingIds(
   for (const hash of missingIds) {
     const id = generateCommitId();
     const originalMessage = await getCommitMessage(git, hash, { cwd });
-    const newMessage = await addTrailers(
-      originalMessage,
-      { "Spry-Commit-Id": id },
-      git,
-    );
+    const newMessage = await addTrailers(originalMessage, { "Spry-Commit-Id": id }, git);
     rewrites.set(hash, newMessage);
   }
 
@@ -154,8 +146,7 @@ export async function rebaseOntoTrunk(
   }
 
   // 8. Success - finalize
-  const branch =
-    options?.branch ?? (await getCurrentBranch(git, { cwd }));
+  const branch = options?.branch ?? (await getCurrentBranch(git, { cwd }));
   const oldTip = commitHashes.at(-1) ?? "";
   if (!oldTip) {
     throw new Error("rebaseOntoTrunk: unexpected empty commit list");
@@ -187,14 +178,8 @@ export async function getConflictInfo(
   const cwd = options?.cwd;
 
   // 1-2. Check for rebase-merge or rebase-apply directory
-  const rebaseMergeResult = await git.run(
-    ["rev-parse", "--git-path", "rebase-merge"],
-    { cwd },
-  );
-  const rebaseApplyResult = await git.run(
-    ["rev-parse", "--git-path", "rebase-apply"],
-    { cwd },
-  );
+  const rebaseMergeResult = await git.run(["rev-parse", "--git-path", "rebase-merge"], { cwd });
+  const rebaseApplyResult = await git.run(["rev-parse", "--git-path", "rebase-apply"], { cwd });
 
   const rebaseMergePath = cwd
     ? join(cwd, rebaseMergeResult.stdout.trim())
@@ -227,10 +212,7 @@ export async function getConflictInfo(
   const fullSha = rebaseHeadResult.stdout.trim();
   const currentCommit = fullSha.slice(0, 8);
 
-  const subjectResult = await git.run(
-    ["log", "-1", "--format=%s", fullSha],
-    { cwd },
-  );
+  const subjectResult = await git.run(["log", "-1", "--format=%s", fullSha], { cwd });
   const currentSubject = subjectResult.stdout.trim();
 
   return { files, currentCommit, currentSubject };
@@ -238,9 +220,7 @@ export async function getConflictInfo(
 
 export function formatConflictError(info: ConflictInfo): string {
   const lines: string[] = [];
-  lines.push(
-    `Rebase conflict on commit ${info.currentCommit}: ${info.currentSubject}`,
-  );
+  lines.push(`Rebase conflict on commit ${info.currentCommit}: ${info.currentSubject}`);
   lines.push("");
   lines.push("Conflicting files:");
   for (const file of info.files) {

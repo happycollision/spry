@@ -1,4 +1,4 @@
-import type { GitRunner } from "../../tests/lib/context.ts";
+import type { GitRunner } from "../lib/context.ts";
 import type { CommitInfo } from "../parse/types.ts";
 
 export interface QueryOptions {
@@ -7,20 +7,14 @@ export interface QueryOptions {
 
 // --- Task 5: branch state queries ---
 
-export async function getCurrentBranch(
-  git: GitRunner,
-  options?: QueryOptions,
-): Promise<string> {
+export async function getCurrentBranch(git: GitRunner, options?: QueryOptions): Promise<string> {
   const result = await git.run(["rev-parse", "--abbrev-ref", "HEAD"], {
     cwd: options?.cwd,
   });
   return result.stdout.trim();
 }
 
-export async function isDetachedHead(
-  git: GitRunner,
-  options?: QueryOptions,
-): Promise<boolean> {
+export async function isDetachedHead(git: GitRunner, options?: QueryOptions): Promise<boolean> {
   return (await getCurrentBranch(git, options)) === "HEAD";
 }
 
@@ -114,12 +108,7 @@ export async function getStackCommitsForBranch(
   options?: QueryOptions,
 ): Promise<CommitInfo[]> {
   const result = await git.run(
-    [
-      "log",
-      "--reverse",
-      "--format=%H%x00%s%x00%B%x01",
-      `${trunkRef}..${branch}`,
-    ],
+    ["log", "--reverse", "--format=%H%x00%s%x00%B%x01", `${trunkRef}..${branch}`],
     { cwd: options?.cwd },
   );
   return parseCommitLog(result.stdout);

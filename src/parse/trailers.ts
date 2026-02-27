@@ -1,4 +1,4 @@
-import type { GitRunner } from "../../tests/lib/context.ts";
+import type { GitRunner } from "../lib/context.ts";
 import type { CommitTrailers } from "./types.ts";
 
 export async function parseTrailers(commitBody: string, git: GitRunner): Promise<CommitTrailers> {
