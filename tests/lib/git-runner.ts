@@ -4,7 +4,10 @@ import type { GitRunner, CommandResult, CommandOptions } from "./context.ts";
 export function createRealGitRunner(): GitRunner {
   return {
     async run(args: string[], options?: CommandOptions): Promise<CommandResult> {
-      let proc = $`git ${args}`.nothrow().quiet();
+      const input = options?.stdin ? Buffer.from(options.stdin) : undefined;
+      let proc = input
+        ? $`git ${args} < ${input}`.nothrow().quiet()
+        : $`git ${args}`.nothrow().quiet();
       if (options?.cwd) proc = proc.cwd(options.cwd);
       if (options?.env) proc = proc.env(options.env);
       const result = await proc;

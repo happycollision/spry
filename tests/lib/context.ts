@@ -7,6 +7,7 @@ export interface CommandResult {
 export interface CommandOptions {
   cwd?: string;
   env?: Record<string, string>;
+  stdin?: string;
 }
 
 export interface GitRunner {
