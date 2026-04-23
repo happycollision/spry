@@ -1,23 +1,7 @@
 import { test as bunTest } from "bun:test";
+import type { DocContext, DocEntry, DocFragment } from "./doc-types.ts";
 
-export interface DocEntry {
-  type: "prose" | "command" | "output" | "screen";
-  content: string;
-}
-
-export interface DocFragment {
-  title: string;
-  section: string;
-  order: number;
-  entries: DocEntry[];
-}
-
-export interface DocContext {
-  prose(text: string): void;
-  command(input: string): void;
-  output(text: string): void;
-  screen(text: string): void;
-}
+export type { DocContext, DocEntry, DocFragment } from "./doc-types.ts";
 
 // Global fragment collection
 let fragments: DocFragment[] = [];
