@@ -1,4 +1,4 @@
-import { test, expect, afterEach } from "bun:test";
+import { test, expect, afterEach, afterAll } from "bun:test";
 import { join } from "node:path";
 import { rm, readFile } from "node:fs/promises";
 import { collectFragment, getDocFragments, clearDocFragments, docTest } from "./doc.ts";
@@ -58,7 +58,7 @@ test("clearDocFragments resets state", () => {
 const repoRoot = join(import.meta.dir, "../..");
 const fragmentsDir = join(repoRoot, ".test-tmp/doc-fragments");
 
-afterEach(async () => {
+afterAll(async () => {
   await rm(join(fragmentsDir, "doc__disk_bridge__unit--900.json"), {
     force: true,
   });
