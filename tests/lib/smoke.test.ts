@@ -45,6 +45,7 @@ test("all four pillars work together", async () => {
   expect(screen.lineAt(1)).toContain("→ [A] abc123 First commit");
 
   // Pillar 4: DocEmitter (disk write)
+  // Using Bun.write directly to avoid registering a bun test inside a bun test.
   const smokeFragment = {
     title: "Smoke test",
     section: "meta/smoke",
