@@ -8,7 +8,7 @@ export { createRepo } from "./repo.ts";
 export { repoManager } from "./repo-manager.ts";
 export { createScreenBuffer } from "./ansi-parser.ts";
 export { createTerminalDriver } from "./terminal-driver.ts";
-export { docTest, getDocFragments, clearDocFragments, collectFragment } from "./doc.ts";
+export { docTest, fragmentPath } from "./doc.ts";
 export { createRunner } from "./run.ts";
 
 export type { SpryContext, GitRunner, GhClient, CommandResult, CommandOptions } from "./context.ts";

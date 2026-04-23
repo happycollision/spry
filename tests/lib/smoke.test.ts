@@ -7,16 +7,14 @@ import {
   createReplayingClient,
   createRepo,
   createScreenBuffer,
-  collectFragment,
-  getDocFragments,
-  clearDocFragments,
+  fragmentPath,
 } from "./index.ts";
 
 const tmpDir = join(import.meta.dir, "../../.test-tmp/smoke");
 
 afterEach(async () => {
   await rm(tmpDir, { recursive: true, force: true });
-  clearDocFragments();
+  await rm(fragmentPath({ section: "meta/smoke", order: 1 }), { force: true });
 });
 
 test("all four pillars work together", async () => {
@@ -46,15 +44,14 @@ test("all four pillars work together", async () => {
   expect(screen.lineAt(0)).toBe("Group Editor");
   expect(screen.lineAt(1)).toContain("→ [A] abc123 First commit");
 
-  // Pillar 4: DocEmitter
-  collectFragment({
+  // Pillar 4: DocEmitter (disk write)
+  const smokeFragment = {
     title: "Smoke test",
     section: "meta/smoke",
     order: 1,
-    entries: [
-      { type: "prose", content: "All four pillars verified." },
-      { type: "command", content: "sp sync" },
-    ],
-  });
-  expect(getDocFragments()).toHaveLength(1);
+    entries: [{ type: "prose", content: "All four pillars verified." }],
+  };
+  const smokePath = fragmentPath(smokeFragment);
+  await Bun.write(smokePath, JSON.stringify(smokeFragment));
+  expect(await Bun.file(smokePath).exists()).toBe(true);
 });

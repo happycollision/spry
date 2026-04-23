@@ -12,21 +12,6 @@ export function fragmentPath(fragment: Pick<DocFragment, "section" | "order">): 
   return join(FRAGMENTS_DIR, `${section}--${order}.json`);
 }
 
-// In-memory collection stays in place until Task 5 finishes migrating consumers.
-let fragments: DocFragment[] = [];
-
-export function getDocFragments(): DocFragment[] {
-  return fragments;
-}
-
-export function clearDocFragments(): void {
-  fragments = [];
-}
-
-export function collectFragment(fragment: DocFragment): void {
-  fragments.push(fragment);
-}
-
 export function docTest(
   title: string,
   options: { section: string; order: number },
@@ -58,7 +43,6 @@ export function docTest(
       order: options.order,
       entries,
     };
-    collectFragment(fragment);
     // Bun.write creates parent directories automatically.
     await Bun.write(fragmentPath(fragment), JSON.stringify(fragment, null, 2));
   });
