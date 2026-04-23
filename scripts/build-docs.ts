@@ -1,4 +1,6 @@
-import type { DocFragment, DocEntry } from "../tests/lib/doc.ts";
+import type { DocFragment, DocEntry } from "../tests/lib/doc-types.ts";
+import { readdir, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 
 /** Assemble doc fragments into markdown strings grouped by section. */
 export function assembleMarkdown(fragments: DocFragment[]): Map<string, string> {
@@ -16,7 +18,7 @@ export function assembleMarkdown(fragments: DocFragment[]): Map<string, string> 
     frags.sort((a, b) => a.order - b.order);
 
     // Section title from last segment of section path
-    const sectionName = section.split("/").pop()!;
+    const sectionName = section.split("/").pop() ?? section;
     const lines: string[] = [`# ${sectionName}`, ""];
 
     for (const frag of frags) {
@@ -45,27 +47,39 @@ function renderEntry(entry: DocEntry): string {
   }
 }
 
-// CLI entrypoint — run with: bun run scripts/build-docs.ts
-if (import.meta.main) {
-  const { getDocFragments } = await import("../tests/lib/doc.ts");
-  const { mkdir } = await import("node:fs/promises");
-  const { join } = await import("node:path");
-
-  const fragments = getDocFragments();
-  if (fragments.length === 0) {
-    console.log("No doc fragments collected. Run tests first.");
-    process.exit(0);
+export async function buildDocsFromDisk(fragmentsDir: string, outDir: string): Promise<number> {
+  let files: string[];
+  try {
+    files = await readdir(fragmentsDir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      files = [];
+    } else {
+      throw err;
+    }
   }
+  const jsonFiles = files.filter((f) => f.endsWith(".json"));
+  if (jsonFiles.length === 0) return 0;
 
+  const fragments: DocFragment[] = await Promise.all(
+    jsonFiles.map(async (f) => JSON.parse(await Bun.file(join(fragmentsDir, f)).text())),
+  );
   const docs = assembleMarkdown(fragments);
-  const outDir = join(import.meta.dir, "../docs/generated");
-
   for (const [section, content] of docs) {
     const filePath = join(outDir, `${section}.md`);
     await mkdir(join(filePath, ".."), { recursive: true });
     await Bun.write(filePath, content);
-    console.log(`  wrote ${filePath}`);
   }
+  return docs.size;
+}
 
-  console.log(`Generated ${docs.size} doc files.`);
+if (import.meta.main) {
+  const fragmentsDir = join(import.meta.dir, "../.test-tmp/doc-fragments");
+  const outDir = join(import.meta.dir, "../docs/generated");
+  const count = await buildDocsFromDisk(fragmentsDir, outDir);
+  if (count === 0) {
+    console.log("No doc fragments collected. Run `bun test` first.");
+    process.exit(0);
+  }
+  console.log(`Generated ${count} doc files.`);
 }
