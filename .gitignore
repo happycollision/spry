@@ -43,5 +43,5 @@ docker/.env
 # Generated docs (build artifact)
 docs/generated/
 
-# Doc fragments (ephemeral build artifact)
-.doc-fragments/
+# Test temp dir (cassettes, doc fragments, scratch)
+.test-tmp/
