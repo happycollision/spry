@@ -24,10 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `parseCommitTrailers` batch helper to bridge `CommitInfo[]` to `CommitWithTrailers[]` for stack parsing
 - Core parsing module (`src/parse/`) with types, trailer parsing, stack detection, commit ID generation, title resolution, identifier resolution, input validation
 - `stdin` support for `GitRunner`/`CommandOptions` in test lib
+- Doc-producing tests for `sp view` (`tests/commands/view.doc.test.ts`) — first tests that double as the source of user-facing docs
+- Doc-fragment disk bridge: `docTest` writes passing fragments to `.test-tmp/doc-fragments/`; `scripts/build-docs.ts` reads them and produces `docs/generated/<section>.md`
+- `docs:build` and `docs:clean` npm scripts
+- `fragmentPath` helper exported from `tests/lib` for deterministic fragment file paths
 
 ### Changed
 
 - Reset codebase for test-first rebuild. Testing infrastructure is now the foundation.
+- Removed the in-memory doc-fragment collection API (`collectFragment`, `getDocFragments`, `clearDocFragments`). Disk is now the single source of truth for fragments.
 
 ## [1.0.0-beta.5] - 2026-02-24
 
