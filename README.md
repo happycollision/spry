@@ -449,6 +449,25 @@ bun run format
 bun run check
 ```
 
+### Documentation tests
+
+Some tests double as the source of user-facing documentation. They're written with `docTest` (see `tests/commands/view.doc.test.ts` for an example). When a doc test passes, it writes a JSON fragment to `.test-tmp/doc-fragments/`. The `docs:build` script assembles those fragments into markdown under `docs/generated/`.
+
+```bash
+# Full pipeline: run tests, then assemble docs
+bun test
+bun run docs:build
+
+# Wipe generated docs and fragment cache (e.g. after renaming a doc test)
+bun run docs:clean
+```
+
+Notes:
+
+- A doc test that fails writes no fragment. Broken tests mean broken or missing docs.
+- `.test-tmp/` and `docs/generated/` are gitignored build artifacts. Do not commit them.
+- Re-running a single doc test overwrites only its own fragment file. Other tests' fragments stay put until `docs:clean` or another test overwrites them.
+
 ### Docker Development Environment
 
 A Docker environment is provided for testing against the minimum supported Git version (2.40). This is **optional** for local development if your system Git is 2.40+, but useful when:
