@@ -1,5 +1,7 @@
 import { test, expect, afterEach } from "bun:test";
-import { collectFragment, getDocFragments, clearDocFragments } from "./doc.ts";
+import { join } from "node:path";
+import { rm, readFile } from "node:fs/promises";
+import { collectFragment, getDocFragments, clearDocFragments, docTest } from "./doc.ts";
 
 afterEach(() => {
   clearDocFragments();
@@ -51,4 +53,31 @@ test("clearDocFragments resets state", () => {
 
   clearDocFragments();
   expect(getDocFragments()).toHaveLength(0);
+});
+
+const repoRoot = join(import.meta.dir, "../..");
+const fragmentsDir = join(repoRoot, ".test-tmp/doc-fragments");
+
+afterEach(async () => {
+  await rm(join(fragmentsDir, "doc__disk_bridge__unit--900.json"), {
+    force: true,
+  });
+});
+
+// docTest registers a bun test internally. It must run at module load time.
+docTest(
+  "writes fragment to disk on pass",
+  { section: "doc/disk_bridge/unit", order: 900 },
+  async (doc) => {
+    doc.prose("unit-test fragment");
+  },
+);
+
+test("docTest wrote the fragment JSON after running", async () => {
+  const path = join(fragmentsDir, "doc__disk_bridge__unit--900.json");
+  const raw = await readFile(path, "utf8");
+  const parsed = JSON.parse(raw);
+  expect(parsed.section).toBe("doc/disk_bridge/unit");
+  expect(parsed.order).toBe(900);
+  expect(parsed.entries).toEqual([{ type: "prose", content: "unit-test fragment" }]);
 });
