@@ -1,9 +1,18 @@
 import { test as bunTest } from "bun:test";
+import { join } from "node:path";
 import type { DocContext, DocEntry, DocFragment } from "./doc-types.ts";
 
 export type { DocContext, DocEntry, DocFragment } from "./doc-types.ts";
 
-// Global fragment collection
+const FRAGMENTS_DIR = join(import.meta.dir, "../../.test-tmp/doc-fragments");
+
+export function fragmentPath(fragment: Pick<DocFragment, "section" | "order">): string {
+  const section = fragment.section.replaceAll("/", "__");
+  const order = String(fragment.order).padStart(3, "0");
+  return join(FRAGMENTS_DIR, `${section}--${order}.json`);
+}
+
+// In-memory collection stays in place until Task 5 finishes migrating consumers.
 let fragments: DocFragment[] = [];
 
 export function getDocFragments(): DocFragment[] {
@@ -27,28 +36,30 @@ export function docTest(
     const entries: DocEntry[] = [];
 
     const doc: DocContext = {
-      prose(text: string) {
+      prose(text) {
         entries.push({ type: "prose", content: text });
       },
-      command(input: string) {
+      command(input) {
         entries.push({ type: "command", content: input });
       },
-      output(text: string) {
+      output(text) {
         entries.push({ type: "output", content: text });
       },
-      screen(text: string) {
+      screen(text) {
         entries.push({ type: "screen", content: text });
       },
     };
 
     await fn(doc);
 
-    // Only collect fragment if test passes (if fn throws, we never get here)
-    collectFragment({
+    const fragment: DocFragment = {
       title,
       section: options.section,
       order: options.order,
       entries,
-    });
+    };
+    collectFragment(fragment);
+    // Bun.write creates parent directories automatically.
+    await Bun.write(fragmentPath(fragment), JSON.stringify(fragment, null, 2));
   });
 }
