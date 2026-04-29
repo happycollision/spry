@@ -465,7 +465,8 @@ bun run docs:clean
 Notes:
 
 - A doc test that fails writes no fragment. Broken tests mean broken or missing docs.
-- `.test-tmp/` and `docs/generated/` are gitignored build artifacts. Do not commit them.
+- `.test-tmp/` is gitignored (ephemeral fragment cache). `docs/generated/` IS committed — its diffs show how user-facing docs change when behavior changes, so reviewers can see the effect of a PR on the public docs.
+- Always re-run `bun test && bun run docs:build` before committing changes that affect doc tests, so `docs/generated/` stays in sync.
 - Re-running a single doc test overwrites only its own fragment file. Other tests' fragments stay put until `docs:clean` or another test overwrites them.
 
 ### Docker Development Environment
