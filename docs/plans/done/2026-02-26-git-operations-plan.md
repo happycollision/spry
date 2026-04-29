@@ -15,6 +15,7 @@
 ## Task 1: Config — types and `trunkRef` helper
 
 **Files:**
+
 - Create: `src/git/config.ts`
 - Create: `tests/git/config.test.ts`
 
@@ -77,6 +78,7 @@ git commit -m "feat(git): add SpryConfig type and trunkRef helper"
 ## Task 2: Config — `checkGitVersion`
 
 **Files:**
+
 - Modify: `src/git/config.ts`
 - Modify: `tests/git/config.test.ts`
 
@@ -172,6 +174,7 @@ git commit -m "feat(git): add git version check (requires 2.40+)"
 ## Task 3: Config — `readConfig`
 
 **Files:**
+
 - Modify: `src/git/config.ts`
 - Modify: `tests/git/config.test.ts`
 
@@ -337,6 +340,7 @@ git commit -m "feat(git): add readConfig with explicit trunk/remote requirement"
 ## Task 4: Config — `loadConfig`
 
 **Files:**
+
 - Modify: `src/git/config.ts`
 - Modify: `tests/git/config.test.ts`
 
@@ -423,6 +427,7 @@ git commit -m "feat(git): add loadConfig (version check + config read)"
 ## Task 5: Queries — `getCurrentBranch`, `isDetachedHead`
 
 **Files:**
+
 - Create: `src/git/queries.ts`
 - Create: `tests/git/queries.test.ts`
 
@@ -538,6 +543,7 @@ git commit -m "feat(git): add getCurrentBranch and isDetachedHead queries"
 ## Task 6: Queries — `hasUncommittedChanges`, `getFullSha`, `getShortSha`, `getCommitMessage`
 
 **Files:**
+
 - Modify: `src/git/queries.ts`
 - Modify: `tests/git/queries.test.ts`
 
@@ -711,6 +717,7 @@ git commit -m "feat(git): add hasUncommittedChanges, SHA, and commit message que
 ## Task 7: Queries — `getMergeBase`, `getStackCommits`, `getStackCommitsForBranch`
 
 **Files:**
+
 - Modify: `src/git/queries.ts`
 - Modify: `tests/git/queries.test.ts`
 
@@ -910,6 +917,7 @@ git commit -m "feat(git): add getMergeBase and stack commit queries"
 ## Task 8: Plumbing — `getTree`, `getParent`, `getParents`
 
 **Files:**
+
 - Create: `src/git/plumbing.ts`
 - Create: `tests/git/plumbing.test.ts`
 
@@ -1065,6 +1073,7 @@ git commit -m "feat(git): add tree and parent plumbing queries"
 ## Task 9: Plumbing — `getAuthorEnv`, `getAuthorAndCommitterEnv`, `createCommit`
 
 **Files:**
+
 - Modify: `src/git/plumbing.ts`
 - Modify: `tests/git/plumbing.test.ts`
 
@@ -1260,6 +1269,7 @@ git commit -m "feat(git): add author env extraction and commit creation plumbing
 ## Task 10: Plumbing — `mergeTree`, `updateRef`, `resetToCommit`
 
 **Files:**
+
 - Modify: `src/git/plumbing.ts`
 - Modify: `tests/git/plumbing.test.ts`
 
@@ -1439,6 +1449,7 @@ git commit -m "feat(git): add mergeTree, updateRef, and resetToCommit plumbing"
 ## Task 11: Plumbing — `rewriteCommitChain`
 
 **Files:**
+
 - Modify: `src/git/plumbing.ts`
 - Modify: `tests/git/plumbing.test.ts`
 
@@ -1605,6 +1616,7 @@ git commit -m "feat(git): add rewriteCommitChain plumbing"
 ## Task 12: Plumbing — `rebasePlumbing`, `finalizeRewrite`
 
 **Files:**
+
 - Modify: `src/git/plumbing.ts`
 - Modify: `tests/git/plumbing.test.ts`
 
@@ -1794,6 +1806,7 @@ git commit -m "feat(git): add rebasePlumbing and finalizeRewrite"
 ## Task 13: Status — `getWorkingTreeStatus`, `requireCleanWorkingTree`
 
 **Files:**
+
 - Create: `src/git/status.ts`
 - Create: `tests/git/status.test.ts`
 
@@ -1962,6 +1975,7 @@ git commit -m "feat(git): add working tree status queries"
 ## Task 14: Conflict — `getCommitFiles`, `checkFileOverlap`, `parseConflictOutput`
 
 **Files:**
+
 - Create: `src/git/conflict.ts`
 - Create: `tests/git/conflict.test.ts`
 
@@ -2153,6 +2167,7 @@ git commit -m "feat(git): add commit file queries and conflict output parsing"
 ## Task 15: Conflict — `simulateMerge`, `predictConflict`, `checkReorderConflicts`
 
 **Files:**
+
 - Modify: `src/git/conflict.ts`
 - Modify: `tests/git/conflict.test.ts`
 
@@ -2389,6 +2404,7 @@ git commit -m "feat(git): add merge simulation and conflict prediction"
 ## Task 16: Rebase — `injectMissingIds`
 
 **Files:**
+
 - Create: `src/git/rebase.ts`
 - Create: `tests/git/rebase.test.ts`
 
@@ -2587,6 +2603,7 @@ git commit -m "feat(git): add injectMissingIds rebase operation"
 ## Task 17: Rebase — `rebaseOntoTrunk`
 
 **Files:**
+
 - Modify: `src/git/rebase.ts`
 - Modify: `tests/git/rebase.test.ts`
 
@@ -2815,6 +2832,7 @@ git commit -m "feat(git): add rebaseOntoTrunk operation"
 ## Task 18: Rebase — `getConflictInfo`, `formatConflictError`
 
 **Files:**
+
 - Modify: `src/git/rebase.ts`
 - Modify: `tests/git/rebase.test.ts`
 
@@ -2956,6 +2974,7 @@ git commit -m "feat(git): add getConflictInfo and formatConflictError"
 ## Task 19: Barrel export — `src/git/index.ts`
 
 **Files:**
+
 - Create: `src/git/index.ts`
 
 **Step 1: Write the barrel export**
@@ -3038,6 +3057,7 @@ git commit -m "feat(git): add barrel export for git module"
 ## Task 20: Full integration test + changelog
 
 **Files:**
+
 - Modify: `CHANGELOG.md`
 
 **Step 1: Run the full test suite**
@@ -3067,4 +3087,3 @@ Add under `## [Unreleased]`:
 git add CHANGELOG.md
 git commit -m "chore: update changelog for git operations module"
 ```
-

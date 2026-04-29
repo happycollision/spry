@@ -15,6 +15,7 @@
 ## Task 0: Install Dependencies
 
 **Files:**
+
 - Modify: `package.json`
 
 **Step 1: Install commander and kleur**
@@ -40,6 +41,7 @@ git commit -m "chore: add commander and kleur dependencies"
 Move the `GitRunner` interface, `CommandResult`, `CommandOptions`, and `SpryContext` types from `tests/lib/context.ts` to `src/lib/context.ts`. Move `createRealGitRunner()` from `tests/lib/git-runner.ts` to `src/lib/context.ts`. Update all imports across `src/` and `tests/`.
 
 **Files:**
+
 - Create: `src/lib/context.ts`
 - Modify: `tests/lib/context.ts` — re-export from `src/lib/context.ts`
 - Modify: `tests/lib/git-runner.ts` — re-export from `src/lib/context.ts`
@@ -154,6 +156,7 @@ git commit -m "refactor: move GitRunner and SpryContext to src/lib/context"
 Add a batch helper to `src/parse/trailers.ts` that bridges `getStackCommits()` (returns `CommitInfo[]`) with `parseStack()` (expects `CommitWithTrailers[]`).
 
 **Files:**
+
 - Modify: `src/parse/trailers.ts`
 - Modify: `src/parse/index.ts` — add export
 - Create: `tests/parse/trailers-batch.test.ts`
@@ -290,6 +293,7 @@ git commit -m "feat(parse): add parseCommitTrailers batch helper"
 Build the pure formatting function with comprehensive unit tests. No git, no repos — just hand-crafted PRUnit arrays in, strings out.
 
 **Files:**
+
 - Create: `src/ui/format.ts`
 - Create: `tests/ui/format.test.ts`
 
@@ -681,6 +685,7 @@ git commit -m "feat(ui): add formatStackView and formatValidationError"
 Build the CLI entry point and the view command handler. Test via integration tests with real repos.
 
 **Files:**
+
 - Create: `src/cli/index.ts`
 - Create: `src/commands/view.ts`
 - Create: `tests/commands/view.test.ts`
@@ -867,6 +872,7 @@ git commit -m "feat: add sp view command and CLI entry point"
 First doc tests in the rebuild. These run `sp view` as a subprocess via `createRunner()` and produce documentation fragments.
 
 **Files:**
+
 - Create: `tests/commands/view.doc.test.ts`
 
 **Step 1: Write the doc tests**

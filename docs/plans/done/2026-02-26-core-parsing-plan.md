@@ -17,6 +17,7 @@
 Define all shared types for the parsing layer. No tests needed — types are validated by the compiler and by the tests of modules that use them.
 
 **Files:**
+
 - Create: `src/parse/types.ts`
 - Create: `src/parse/index.ts`
 
@@ -113,6 +114,7 @@ git commit -m "feat(parse): add shared types for parsing layer"
 ## Task 2: Commit ID Generation
 
 **Files:**
+
 - Create: `tests/parse/id.test.ts`
 - Create: `src/parse/id.ts`
 - Modify: `src/parse/index.ts`
@@ -186,6 +188,7 @@ git commit -m "feat(parse): add commit ID generator"
 Table-driven pure unit tests. No external dependencies.
 
 **Files:**
+
 - Create: `tests/parse/validation.test.ts`
 - Create: `src/parse/validation.ts`
 - Modify: `src/parse/index.ts`
@@ -492,6 +495,7 @@ git commit -m "feat(parse): add input validation (branch names, PR titles, ident
 ## Task 4: Title Resolution
 
 **Files:**
+
 - Create: `tests/parse/title.test.ts`
 - Create: `src/parse/title.ts`
 - Modify: `src/parse/index.ts`
@@ -601,6 +605,7 @@ git commit -m "feat(parse): add title resolution for PRUnits"
 Uses `GitRunner` DI. Tests create real git repos via the test lib.
 
 **Files:**
+
 - Create: `tests/parse/trailers.test.ts`
 - Create: `src/parse/trailers.ts`
 - Modify: `src/parse/index.ts`
@@ -800,6 +805,7 @@ message bodies to git interpret-trailers."
 Pure unit tests with hand-crafted commit data. No external dependencies.
 
 **Files:**
+
 - Create: `tests/parse/stack.test.ts`
 - Create: `src/parse/stack.ts`
 - Modify: `src/parse/index.ts`
@@ -1122,6 +1128,7 @@ git commit -m "feat(parse): add PRUnit detection and stack validation"
 ## Task 7: Identifier Resolution
 
 **Files:**
+
 - Create: `tests/parse/identifier.test.ts`
 - Create: `src/parse/identifier.ts`
 - Modify: `src/parse/index.ts`

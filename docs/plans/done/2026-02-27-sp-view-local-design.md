@@ -115,6 +115,7 @@ Stack: feature-branch (3 commits)
 ```
 
 Rules:
+
 - Header: `Stack: <branch> (<N> commit[s])`
 - Legend line (dimmed): status icon meanings
 - Trunk ref indicator: `→ <trunkRef>`
@@ -151,6 +152,7 @@ Maps each commit through `parseTrailers()` to produce the `CommitWithTrailers` t
 Pure function tests with hand-crafted PRUnit arrays. No git, no repos. Strip ANSI for assertions.
 
 Scenarios:
+
 - Empty stack (no commits ahead of trunk)
 - Single commit with ID
 - Single commit without ID (shows "no ID")
@@ -165,6 +167,7 @@ Scenarios:
 Use `createRepo()` + `createRealGitRunner()` to build real repos, then call `viewCommand()` and capture output.
 
 Scenarios:
+
 - Empty stack (on trunk, no commits ahead)
 - Stack with single commits (with and without Spry-Commit-Id trailers)
 - Stack with grouped commits
@@ -175,6 +178,7 @@ Scenarios:
 Use `docTest()` + `createRunner()` to run `sp view` as a subprocess. First doc-producing tests in the rebuild.
 
 Scenarios:
+
 - Viewing a simple stack
 - Viewing a stack with groups
 - Viewing an empty stack
