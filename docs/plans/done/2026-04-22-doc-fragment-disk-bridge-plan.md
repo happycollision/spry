@@ -2,6 +2,8 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
+> **Post-merge note:** This plan treats `docs/generated/` as a gitignored build artifact. That policy was reversed in commit `8028525` — `docs/generated/` is now committed so PRs surface diffs in user-facing docs. `.test-tmp/` remains gitignored. README is the canonical source for current policy.
+
 **Goal:** Wire `docTest()` fragments through disk so `bun run docs:build` can actually produce `docs/generated/*.md`, closing the gap left by Task 12 of the test-first rebuild.
 
 **Architecture:** Split `tests/lib/doc.ts` into a pure-types module (`doc-types.ts`, safe to import anywhere) plus a runtime module that keeps `docTest` and writes each passing fragment to `.test-tmp/doc-fragments/<section>--<order>.json`. Rewrite `scripts/build-docs.ts` to read that directory instead of importing `getDocFragments()` in-process. Delete the in-memory collection API — the disk files are the source of truth. Deterministic filenames give overwrite-on-rerun semantics without a wipe step. Add `bun run docs:clean` as the escape hatch for stale fragments.

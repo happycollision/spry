@@ -5,6 +5,8 @@ description: Persist docTest fragments to disk so bun run docs:build can actuall
 
 # Doc fragment disk bridge
 
+> **Post-merge note:** This design treats `docs/generated/` as a gitignored build artifact. That policy was reversed in commit `8028525` — `docs/generated/` is now committed so PRs surface diffs in user-facing docs. `.test-tmp/` remains gitignored. README is the canonical source for current policy.
+
 ## Problem
 
 `docTest()` in [tests/lib/doc.ts](../../tests/lib/doc.ts) collects fragments into a module-level in-memory array. [scripts/build-docs.ts](../../scripts/build-docs.ts) expects to read them back by importing `getDocFragments()` from the same module — but runs in a separate Bun process, so the array is always empty. Worse, `doc.ts` imports `bun:test` at module top level, so any non-test process that tries to import it crashes with `Run "bun test" to run a test`. The result: doc tests pass, their fragments evaporate when the test process exits, and `bun run docs:build` cannot produce output.
