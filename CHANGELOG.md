@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- GitHub integration module (`src/gh/`) — read-only PR lookup
+  - `findPRsForBranches(ctx, branches)` returns `Map<branch, PRInfo | null>` with state, baseRef, checks status, and review decision
+  - Per-branch GraphQL queries via `gh api graphql`; auth/install failures surface as typed `GhAuthError` / `GhNotInstalledError` throws
+  - `withRetry` helper with exponential backoff (±20% jitter, max 3 attempts) for transient network/5xx failures
+- `createRealGhClient` factory promoted from `tests/lib/` to `src/lib/context.ts`; CLI now wires a real gh client into `SpryContext`
 - CLI entry point (`src/cli/index.ts`) and `sp view` command (`src/commands/view.ts`)
   - `sp view` orchestrates: load config, get branch, get commits, parse trailers, parse stack, format, output
   - CLI built on Commander with extensible command structure
