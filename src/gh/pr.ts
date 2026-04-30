@@ -1,3 +1,7 @@
+import type { SpryContext, CommandResult } from "../lib/context.ts";
+import { GhAuthError, GhNotInstalledError } from "./errors.ts";
+import { isTransientFailure, withRetry } from "./retry.ts";
+
 export type PRState = "OPEN" | "CLOSED" | "MERGED";
 export type ChecksStatus = "pending" | "passing" | "failing" | "none";
 export type ReviewDecision = "approved" | "changes_requested" | "review_required" | "none";
@@ -135,4 +139,96 @@ export function parsePRResponse(json: string): PRInfo | null {
     checksStatus: determineChecksStatus(flattenCheckContexts(node)),
     reviewDecision: determineReviewDecision(node.reviewDecision),
   };
+}
+
+const PR_QUERY = `
+query($branch: String!) {
+  repository(owner: $REPOSITORY_OWNER, name: $REPOSITORY_NAME) {
+    pullRequests(headRefName: $branch, first: 1, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      nodes {
+        number
+        url
+        state
+        title
+        baseRefName
+        reviewDecision
+        commits(last: 1) {
+          nodes {
+            commit {
+              statusCheckRollup {
+                contexts(first: 100) {
+                  nodes {
+                    __typename
+                    ... on CheckRun { status conclusion }
+                    ... on StatusContext { state }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+export interface FindPRsOptions {
+  cwd?: string;
+}
+
+const NOT_INSTALLED_PATTERNS = [
+  /command not found/i,
+  /\bgh\s*:\s*not found\b/i,
+  /no such file or directory.*gh/i,
+];
+
+const AUTH_PATTERNS = [
+  /not logged into/i,
+  /authentication required/i,
+  /HTTP 401/i,
+  /bad credentials/i,
+];
+
+function classifyError(stderr: string): "not-installed" | "auth" | "other" {
+  if (NOT_INSTALLED_PATTERNS.some((p) => p.test(stderr))) return "not-installed";
+  if (AUTH_PATTERNS.some((p) => p.test(stderr))) return "auth";
+  return "other";
+}
+
+function throwForFailure(result: CommandResult): never {
+  const kind = classifyError(result.stderr);
+  if (kind === "not-installed") throw new GhNotInstalledError();
+  if (kind === "auth") throw new GhAuthError(result.stderr.trim());
+  throw new Error(`gh failed: ${result.stderr.trim() || `exit ${result.exitCode}`}`);
+}
+
+async function lookupOne(
+  ctx: SpryContext,
+  branch: string,
+  options?: FindPRsOptions,
+): Promise<PRInfo | null> {
+  const args = ["api", "graphql", "-F", `branch=${branch}`, "-f", `query=${PR_QUERY}`];
+  const result = await withRetry(
+    () => ctx.gh.run(args, { cwd: options?.cwd }),
+    (r) => {
+      if (r.exitCode === 0) return false;
+      if (classifyError(r.stderr) !== "other") return false;
+      return isTransientFailure(r);
+    },
+  );
+
+  if (result.exitCode !== 0) throwForFailure(result);
+  return parsePRResponse(result.stdout);
+}
+
+export async function findPRsForBranches(
+  ctx: SpryContext,
+  branches: string[],
+  options?: FindPRsOptions,
+): Promise<Map<string, PRInfo | null>> {
+  const result = new Map<string, PRInfo | null>();
+  for (const branch of branches) {
+    result.set(branch, await lookupOne(ctx, branch, options));
+  }
+  return result;
 }
