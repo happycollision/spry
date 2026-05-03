@@ -15,7 +15,8 @@ const ctx: SpryContext = {
 
 program
   .command("view")
-  .description("View the current stack of commits")
-  .action(() => viewCommand(ctx));
+  .description("View the current stack of commits with PR status")
+  .option("--no-fetch", "Skip GitHub enrichment (local view only)")
+  .action((opts: { fetch: boolean }) => viewCommand(ctx, { noFetch: !opts.fetch }));
 
 program.parse();
