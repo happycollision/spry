@@ -1,6 +1,8 @@
 export type { SpryConfig, ConfigOptions } from "./config.ts";
 export { trunkRef, checkGitVersion, readConfig, loadConfig } from "./config.ts";
 
+export { branchForUnit } from "./branch.ts";
+
 export type { QueryOptions } from "./queries.ts";
 export {
   getCurrentBranch,
