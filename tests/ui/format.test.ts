@@ -1,10 +1,38 @@
 import { describe, test, expect } from "bun:test";
 import { formatStackView, formatValidationError } from "../../src/ui/format.ts";
 import type { PRUnit, StackParseResult } from "../../src/parse/types.ts";
+import type { EnrichedUnit, EnrichmentError } from "../../src/gh/enrich.ts";
+import type { PRInfo } from "../../src/gh/pr.ts";
 
 // Strip ANSI escape codes for clean assertions
 function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+function asEnriched(units: PRUnit[]): EnrichedUnit[] {
+  return units.map((unit) => ({ unit, pr: null }));
+}
+
+function withPR(unit: PRUnit, pr: PRInfo): EnrichedUnit {
+  return { unit, pr };
+}
+
+function withError(unit: PRUnit, error: EnrichmentError): EnrichedUnit {
+  return { unit, pr: null, error };
+}
+
+function makePR(overrides: Partial<PRInfo> = {}): PRInfo {
+  return {
+    number: 123,
+    url: "https://github.com/owner/repo/pull/123",
+    state: "OPEN",
+    title: "T",
+    baseRefName: "main",
+    checksStatus: "passing",
+    reviewDecision: "approved",
+    reviewThreads: { resolved: 2, total: 3 },
+    ...overrides,
+  };
 }
 
 describe("formatStackView", () => {
@@ -24,7 +52,9 @@ describe("formatStackView", () => {
         subjects: ["Add feature"],
       },
     ];
-    const output = stripAnsi(formatStackView(units, "feature-branch", 1, "origin/main"));
+    const output = stripAnsi(
+      formatStackView(asEnriched(units), "feature-branch", 1, "origin/main"),
+    );
     expect(output).toContain("Stack: feature-branch (1 commit)");
   });
 
@@ -47,7 +77,7 @@ describe("formatStackView", () => {
         subjects: ["Second"],
       },
     ];
-    const output = stripAnsi(formatStackView(units, "feat", 2, "origin/main"));
+    const output = stripAnsi(formatStackView(asEnriched(units), "feat", 2, "origin/main"));
     expect(output).toContain("(2 commits)");
   });
 
@@ -62,7 +92,7 @@ describe("formatStackView", () => {
         subjects: ["Commit"],
       },
     ];
-    const output = stripAnsi(formatStackView(units, "feat", 1, "origin/main"));
+    const output = stripAnsi(formatStackView(asEnriched(units), "feat", 1, "origin/main"));
     expect(output).toContain("→ origin/main");
   });
 
@@ -77,7 +107,7 @@ describe("formatStackView", () => {
         subjects: ["Add feature"],
       },
     ];
-    const output = stripAnsi(formatStackView(units, "feat", 1, "origin/main"));
+    const output = stripAnsi(formatStackView(asEnriched(units), "feat", 1, "origin/main"));
     expect(output).toContain("○ Add feature (abc12345)");
   });
 
@@ -92,7 +122,7 @@ describe("formatStackView", () => {
         subjects: ["Add feature"],
       },
     ];
-    const output = stripAnsi(formatStackView(units, "feat", 1, "origin/main"));
+    const output = stripAnsi(formatStackView(asEnriched(units), "feat", 1, "origin/main"));
     expect(output).toContain("○ Add feature (no ID)");
   });
 
@@ -107,7 +137,7 @@ describe("formatStackView", () => {
         subjects: ["Add middleware", "Add session"],
       },
     ];
-    const output = stripAnsi(formatStackView(units, "feat", 2, "origin/main"));
+    const output = stripAnsi(formatStackView(asEnriched(units), "feat", 2, "origin/main"));
     expect(output).toContain("○ Auth system");
     expect(output).toContain("├─ Add middleware (a1)");
     expect(output).toContain("└─ Add session (b2)");
@@ -124,7 +154,7 @@ describe("formatStackView", () => {
         subjects: ["Add middleware", "Add session"],
       },
     ];
-    const output = stripAnsi(formatStackView(units, "feat", 2, "origin/main"));
+    const output = stripAnsi(formatStackView(asEnriched(units), "feat", 2, "origin/main"));
     expect(output).toContain("○ A (2 commits)");
   });
 
@@ -155,7 +185,7 @@ describe("formatStackView", () => {
         subjects: ["Third", "Fourth"],
       },
     ];
-    const output = stripAnsi(formatStackView(units, "feat", 4, "origin/main"));
+    const output = stripAnsi(formatStackView(asEnriched(units), "feat", 4, "origin/main"));
     expect(output).toContain("○ A (2 commits)");
     expect(output).toContain("○ B (2 commits)");
   });
@@ -179,7 +209,7 @@ describe("formatStackView", () => {
         subjects: ["Third", "Fourth"],
       },
     ];
-    const output = stripAnsi(formatStackView(units, "feat", 4, "origin/main"));
+    const output = stripAnsi(formatStackView(asEnriched(units), "feat", 4, "origin/main"));
     expect(output).toContain("○ Named group");
     expect(output).toContain("○ A (2 commits)");
   });
@@ -195,7 +225,7 @@ describe("formatStackView", () => {
         subjects: ["Commit"],
       },
     ];
-    const output = stripAnsi(formatStackView(units, "feat", 1, "origin/main"));
+    const output = stripAnsi(formatStackView(asEnriched(units), "feat", 1, "origin/main"));
     expect(output).toContain("○ no PR");
     expect(output).toContain("◐ open");
     expect(output).toContain("✓ merged");
@@ -213,9 +243,175 @@ describe("formatStackView", () => {
         subjects: ["With ID", "Without ID"],
       },
     ];
-    const output = stripAnsi(formatStackView(units, "feat", 2, "origin/main"));
+    const output = stripAnsi(formatStackView(asEnriched(units), "feat", 2, "origin/main"));
     expect(output).toContain("├─ With ID (a1)");
     expect(output).toContain("└─ Without ID (no ID)");
+  });
+
+  test("renders two lines for unit with open PR", () => {
+    const unit: PRUnit = {
+      type: "single",
+      id: "a1b2c3d4",
+      title: "Add login page",
+      commitIds: ["a1b2c3d4"],
+      commits: ["aaa"],
+      subjects: ["Add login page"],
+    };
+    const output = stripAnsi(
+      formatStackView([withPR(unit, makePR({ state: "OPEN" }))], "feat", 1, "origin/main"),
+    );
+
+    expect(output).toContain("◐ Add login page (a1b2c3d4)");
+    expect(output).toContain("https://github.com/owner/repo/pull/123");
+    expect(output).toContain("checks:✓");
+    expect(output).toContain("approval:✓");
+    expect(output).toContain("comments:2/3");
+  });
+
+  test("uses ✓ for merged PR", () => {
+    const unit: PRUnit = {
+      type: "single",
+      id: "a1",
+      title: "Done",
+      commitIds: ["a1"],
+      commits: ["aaa"],
+      subjects: ["Done"],
+    };
+    const output = stripAnsi(
+      formatStackView([withPR(unit, makePR({ state: "MERGED" }))], "feat", 1, "origin/main"),
+    );
+    expect(output).toContain("✓ Done");
+  });
+
+  test("uses ✗ for closed PR", () => {
+    const unit: PRUnit = {
+      type: "single",
+      id: "a1",
+      title: "Abandoned",
+      commitIds: ["a1"],
+      commits: ["aaa"],
+      subjects: ["Abandoned"],
+    };
+    const output = stripAnsi(
+      formatStackView([withPR(unit, makePR({ state: "CLOSED" }))], "feat", 1, "origin/main"),
+    );
+    expect(output).toContain("✗ Abandoned");
+  });
+
+  test("uses ○ and one-line layout for unit without PR", () => {
+    const unit: PRUnit = {
+      type: "single",
+      id: "a1b2c3d4",
+      title: "Pending",
+      commitIds: ["a1b2c3d4"],
+      commits: ["aaa"],
+      subjects: ["Pending"],
+    };
+    const output = stripAnsi(formatStackView([{ unit, pr: null }], "feat", 1, "origin/main"));
+    expect(output).toContain("○ Pending (a1b2c3d4)");
+    expect(output).not.toContain("https://");
+    expect(output).not.toContain("checks:");
+  });
+
+  test("renders em-dash for none values in checks/approval", () => {
+    const unit: PRUnit = {
+      type: "single",
+      id: "a1",
+      title: "T",
+      commitIds: ["a1"],
+      commits: ["aaa"],
+      subjects: ["T"],
+    };
+    const output = stripAnsi(
+      formatStackView(
+        [
+          withPR(
+            unit,
+            makePR({
+              checksStatus: "none",
+              reviewDecision: "none",
+              reviewThreads: { resolved: 0, total: 0 },
+            }),
+          ),
+        ],
+        "feat",
+        1,
+        "origin/main",
+      ),
+    );
+    expect(output).toContain("checks:—");
+    expect(output).toContain("approval:—");
+    expect(output).toContain("comments:0/0");
+  });
+
+  test("renders extended legend when any unit has a PR", () => {
+    const unit: PRUnit = {
+      type: "single",
+      id: "a1",
+      title: "T",
+      commitIds: ["a1"],
+      commits: ["aaa"],
+      subjects: ["T"],
+    };
+    const output = stripAnsi(formatStackView([withPR(unit, makePR())], "feat", 1, "origin/main"));
+    expect(output).toContain("checks: ✓ pass");
+    expect(output).toContain("approval: ✓ approved");
+  });
+
+  test("shows fallback hint when all units share the same enrichment error", () => {
+    const unit: PRUnit = {
+      type: "single",
+      id: "a1",
+      title: "T",
+      commitIds: ["a1"],
+      commits: ["aaa"],
+      subjects: ["T"],
+    };
+    const output = stripAnsi(formatStackView([withError(unit, "auth")], "feat", 1, "origin/main"));
+    expect(output).toContain("PR status unavailable: gh auth login");
+    expect(output).toContain("○ T");
+    expect(output).not.toContain("https://");
+  });
+
+  test("fallback hint varies by error class", () => {
+    const unit: PRUnit = {
+      type: "single",
+      id: "a1",
+      title: "T",
+      commitIds: ["a1"],
+      commits: ["aaa"],
+      subjects: ["T"],
+    };
+
+    expect(
+      stripAnsi(formatStackView([withError(unit, "no-gh")], "feat", 1, "origin/main")),
+    ).toContain("install gh");
+
+    expect(
+      stripAnsi(formatStackView([withError(unit, "no-remote")], "feat", 1, "origin/main")),
+    ).toContain("not a GitHub repository");
+
+    expect(
+      stripAnsi(formatStackView([withError(unit, "network")], "feat", 1, "origin/main")),
+    ).toContain("network error");
+  });
+
+  test("group with PR renders state icon + URL line then tree", () => {
+    const unit: PRUnit = {
+      type: "group",
+      id: "grp1",
+      title: "Auth system",
+      commitIds: ["a1", "b2"],
+      commits: ["aaa", "bbb"],
+      subjects: ["Add middleware", "Add session"],
+    };
+    const output = stripAnsi(
+      formatStackView([withPR(unit, makePR({ state: "OPEN" }))], "feat", 2, "origin/main"),
+    );
+    expect(output).toContain("◐ Auth system");
+    expect(output).toContain("https://github.com/owner/repo/pull/123");
+    expect(output).toContain("├─ Add middleware (a1)");
+    expect(output).toContain("└─ Add session (b2)");
   });
 });
 
