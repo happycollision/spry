@@ -17,6 +17,7 @@ describe("sp view docs", () => {
   docTest("Viewing a simple stack", { section: "commands/view", order: 10 }, async (doc) => {
     const repo = await createRepo();
     repos.push(repo);
+    doc.scrub(repo);
     const git = createRealGitRunner();
 
     // Configure spry
@@ -52,6 +53,7 @@ describe("sp view docs", () => {
   docTest("Viewing an empty stack", { section: "commands/view", order: 20 }, async (doc) => {
     const repo = await createRepo();
     repos.push(repo);
+    doc.scrub(repo);
     const git = createRealGitRunner();
 
     await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
