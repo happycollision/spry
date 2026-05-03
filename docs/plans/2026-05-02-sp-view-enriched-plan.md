@@ -12,10 +12,11 @@
 
 **Important notes:**
 
-- This machine has an old git version. Run all tests via `bun run test:docker`, never `bun test` directly.
+- This machine has an old git version. Run all tests via `bun run test:docker`, never `bun test` directly. Use `bun run test:local:docker` for `view.doc.test.ts` per project convention.
 - Existing cassettes at `fixtures/tests/gh/` will be invalidated by the GraphQL query change in Task 4. They are re-recorded in Task 5.
 - The convention `<prefix>/<unit-id>` makes legacy parity available to users by setting `spry.branchPrefix = "spry/<their-username>"`.
 - Commit each task at its end — frequent commits make rollback cheap.
+- **Doc-fragment scrub:** `doc.scrub(repo)` is already in use to keep `docs/generated/` deterministic across test runs. Every `docTest` that creates a repo MUST call `doc.scrub(repo)` immediately after `repos.push(repo)`. See Task 9 for details.
 
 ---
 
@@ -1466,6 +1467,7 @@ describe("sp view docs", () => {
     async (doc) => {
       const repo = await createRepo();
       repos.push(repo);
+      doc.scrub(repo);
       const git = createRealGitRunner();
 
       await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
@@ -1505,6 +1507,7 @@ describe("sp view docs", () => {
     async (doc) => {
       const repo = await createRepo();
       repos.push(repo);
+      doc.scrub(repo);
       const git = createRealGitRunner();
 
       await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
@@ -1529,6 +1532,7 @@ describe("sp view docs", () => {
     async (doc) => {
       const repo = await createRepo();
       repos.push(repo);
+      doc.scrub(repo);
       const git = createRealGitRunner();
 
       await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
@@ -1563,7 +1567,7 @@ describe("sp view docs", () => {
 **Step 2: Run doc tests**
 
 ```bash
-bun run test:docker tests/commands/view.doc.test.ts
+bun run test:local:docker tests/commands/view.doc.test.ts
 ```
 
 Expected: all green. Doc fragments written to `.test-tmp/doc-fragments/`.
@@ -1583,8 +1587,19 @@ Open [docs/generated/commands/view.md](docs/generated/commands/view.md) and veri
 - Three doc sections appear (Viewing a simple stack, Viewing an empty stack, PR status unavailable).
 - The `--no-fetch` invocations show local-only output.
 - The fallback section shows a "PR status unavailable: ..." hint.
+- Branch names appear as `feature` (no random suffix) — confirms `doc.scrub(repo)` is taking effect.
 
-**Step 5: Commit**
+**Step 5: Verify determinism**
+
+Re-run the doc tests + rebuild and confirm zero diff between consecutive runs:
+
+```bash
+bun run test:local:docker tests/commands/view.doc.test.ts && bun run docs:build && git diff docs/generated/commands/view.md
+```
+
+Expected: empty diff. If non-empty, a dynamic value is leaking into a fragment — find it and add a `doc.scrub(...)` for it before continuing.
+
+**Step 6: Commit**
 
 ```bash
 git add tests/commands/view.doc.test.ts docs/generated/commands/view.md
