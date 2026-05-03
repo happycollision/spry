@@ -34,6 +34,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Doc-fragment disk bridge: `docTest` writes passing fragments to `.test-tmp/doc-fragments/`; `scripts/build-docs.ts` reads them and produces `docs/generated/<section>.md`
 - `docs:build` and `docs:clean` npm scripts
 - `fragmentPath` helper exported from `tests/lib` for deterministic fragment file paths
+- `sp view` now enriches each unit with PR state (◐ open, ✓ merged, ✗ closed),
+  PR URL, checks status, review decision, and resolved-comment count on a
+  two-line layout. Defaults to enrichment; falls back to local-only with a
+  hint when gh is missing, unauthenticated, the repo isn't a GitHub repo, or
+  the network is unreachable.
+- `sp view --no-fetch` flag for offline/CI use (skips GitHub enrichment).
+- `spry.branchPrefix` config (required) — derives PR branch names as
+  `<prefix>/<unit-id>`. For legacy parity, set to `spry/<your-username>`.
+- `branchForUnit(unit, config)` helper in `src/git/branch.ts`.
+- `enrichUnits(ctx, units, config)` orchestrator in `src/gh/enrich.ts` that
+  classifies infra failures into `EnrichmentError` (`no-gh` | `auth` |
+  `network` | `no-remote`).
+- `PRInfo.reviewThreads: { resolved, total }` from extended GraphQL query.
 
 ### Changed
 
