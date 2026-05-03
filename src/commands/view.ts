@@ -1,9 +1,15 @@
 import type { SpryContext } from "../lib/context.ts";
 import { loadConfig, trunkRef, getCurrentBranch, getStackCommits } from "../git/index.ts";
 import { parseCommitTrailers, parseStack } from "../parse/index.ts";
+import { enrichUnits } from "../gh/enrich.ts";
+import type { EnrichedUnit } from "../gh/enrich.ts";
 import { formatStackView, formatValidationError } from "../ui/format.ts";
 
-export async function viewCommand(ctx: SpryContext): Promise<void> {
+export interface ViewOptions {
+  noFetch?: boolean;
+}
+
+export async function viewCommand(ctx: SpryContext, opts: ViewOptions = {}): Promise<void> {
   const config = await loadConfig(ctx.git);
   const branch = await getCurrentBranch(ctx.git);
   const ref = trunkRef(config);
@@ -16,5 +22,9 @@ export async function viewCommand(ctx: SpryContext): Promise<void> {
     process.exit(1);
   }
 
-  console.log(formatStackView(result.units, branch, commits.length, ref));
+  const enriched: EnrichedUnit[] = opts.noFetch
+    ? result.units.map((unit) => ({ unit, pr: null }))
+    : await enrichUnits(ctx, result.units, config);
+
+  console.log(formatStackView(enriched, branch, commits.length, ref));
 }
