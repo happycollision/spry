@@ -67,6 +67,7 @@ export function docTest(
         if (isRepoLike(arg)) {
           subs.push({ pattern: arg.path, replacement: "/tmp/repo" });
           subs.push({ pattern: arg.originPath, replacement: "/tmp/repo-origin" });
+          subs.push({ pattern: `-${arg.uniqueId}`, replacement: "" });
           subs.push({ pattern: arg.uniqueId, replacement: "" });
         } else if (typeof arg === "string" || arg instanceof RegExp) {
           subs.push({ pattern: arg, replacement: replacement ?? "" });

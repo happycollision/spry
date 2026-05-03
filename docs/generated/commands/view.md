@@ -7,7 +7,7 @@ sp view
 ```
 
 ```
-Stack: feature- (2 commits)
+Stack: feature (2 commits)
 ○ no PR  ◐ open  ✓ merged  ✗ closed
 
   → origin/main

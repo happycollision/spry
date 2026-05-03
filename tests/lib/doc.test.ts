@@ -93,13 +93,13 @@ docTest(
   },
 );
 
-test("scrub(repo): paths replaced as a unit, then bare uniqueId stripped", async () => {
+test("scrub(repo): paths replaced as a unit, dashed uniqueId collapses, bare uniqueId stripped", async () => {
   const path = fragmentPath({ section: "doc/scrub/repo", order: 903 });
   const parsed = JSON.parse(await readFile(path, "utf8"));
   expect(parsed.entries).toEqual([
     {
       type: "output",
-      content: "branch=feature- cwd=/tmp/repo origin=/tmp/repo-origin",
+      content: "branch=feature cwd=/tmp/repo origin=/tmp/repo-origin",
     },
   ]);
 });
