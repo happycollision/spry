@@ -23,6 +23,7 @@ describe("sp view docs", () => {
     // Configure spry
     await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
     await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+    await git.run(["config", "spry.branchPrefix", "spry/test"], { cwd: repo.path });
 
     // Create feature branch with two commits
     await repo.branch("feature");
@@ -58,6 +59,7 @@ describe("sp view docs", () => {
 
     await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
     await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+    await git.run(["config", "spry.branchPrefix", "spry/test"], { cwd: repo.path });
 
     doc.prose("When you're on a branch with no commits ahead of trunk:");
 

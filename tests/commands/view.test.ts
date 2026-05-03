@@ -57,6 +57,7 @@ describe("viewCommand", () => {
     const git = createRealGitRunner();
     await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
     await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+    await git.run(["config", "spry.branchPrefix", "spry/test"], { cwd: repo.path });
 
     const ctx = createCtx(repo.path);
     const { stdout, exitCode } = await captureView(ctx);
@@ -71,6 +72,7 @@ describe("viewCommand", () => {
     const git = createRealGitRunner();
     await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
     await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+    await git.run(["config", "spry.branchPrefix", "spry/test"], { cwd: repo.path });
 
     // Create a feature branch and commit with Spry-Commit-Id trailer
     await git.run(["checkout", "-b", "feature/login"], { cwd: repo.path });
@@ -95,6 +97,7 @@ describe("viewCommand", () => {
     const git = createRealGitRunner();
     await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
     await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+    await git.run(["config", "spry.branchPrefix", "spry/test"], { cwd: repo.path });
 
     // Create a feature branch with a plain commit (no trailer)
     await git.run(["checkout", "-b", "feature/plain"], { cwd: repo.path });
@@ -117,6 +120,7 @@ describe("viewCommand", () => {
     const git = createRealGitRunner();
     await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
     await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+    await git.run(["config", "spry.branchPrefix", "spry/test"], { cwd: repo.path });
 
     await git.run(["checkout", "-b", "feature/multi"], { cwd: repo.path });
     await git.run(["commit", "--allow-empty", "-m", "First commit\n\nSpry-Commit-Id: bbb22222"], {

@@ -118,7 +118,7 @@ describe("rebaseOntoTrunk", () => {
 
   test("rebases stack onto updated trunk", async () => {
     repo = await createRepo();
-    const config: SpryConfig = { trunk: "main", remote: "origin" };
+    const config: SpryConfig = { trunk: "main", remote: "origin", branchPrefix: "spry/test" };
 
     // Create a feature branch
     const branchName = await repo.branch("rebase-trunk");
@@ -143,7 +143,7 @@ describe("rebaseOntoTrunk", () => {
 
   test("returns ok with commitCount 0 for empty stack", async () => {
     repo = await createRepo();
-    const config: SpryConfig = { trunk: "main", remote: "origin" };
+    const config: SpryConfig = { trunk: "main", remote: "origin", branchPrefix: "spry/test" };
     await repo.fetch();
 
     const result = await rebaseOntoTrunk(git, config, { cwd: repo.path });
@@ -156,7 +156,7 @@ describe("rebaseOntoTrunk", () => {
 
   test("returns error for detached HEAD", async () => {
     repo = await createRepo();
-    const config: SpryConfig = { trunk: "main", remote: "origin" };
+    const config: SpryConfig = { trunk: "main", remote: "origin", branchPrefix: "spry/test" };
     const sha = await getFullSha(git, "HEAD", { cwd: repo.path });
     await repo.checkout(sha);
 
@@ -169,7 +169,7 @@ describe("rebaseOntoTrunk", () => {
 
   test("detects conflict", async () => {
     repo = await createRepo();
-    const config: SpryConfig = { trunk: "main", remote: "origin" };
+    const config: SpryConfig = { trunk: "main", remote: "origin", branchPrefix: "spry/test" };
 
     // Create shared file on main
     await repo.commitFiles({ "shared.txt": "base content" }, "add shared");
@@ -177,17 +177,11 @@ describe("rebaseOntoTrunk", () => {
 
     // Branch off
     const branchName = await repo.branch("conflict-rebase");
-    await repo.commitFiles(
-      { "shared.txt": "feature version" },
-      "modify shared on feature",
-    );
+    await repo.commitFiles({ "shared.txt": "feature version" }, "modify shared on feature");
 
     // Go back to main, modify same file, push
     await repo.checkout(repo.defaultBranch);
-    await repo.commitFiles(
-      { "shared.txt": "main version" },
-      "modify shared on main",
-    );
+    await repo.commitFiles({ "shared.txt": "main version" }, "modify shared on main");
     await git.run(["push", "origin", "main"], { cwd: repo.path });
     await repo.fetch();
 

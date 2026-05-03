@@ -8,12 +8,16 @@ const git = createRealGitRunner();
 
 describe("trunkRef", () => {
   test("combines remote and trunk into ref", () => {
-    const config: SpryConfig = { trunk: "main", remote: "origin" };
+    const config: SpryConfig = { trunk: "main", remote: "origin", branchPrefix: "spry/test" };
     expect(trunkRef(config)).toBe("origin/main");
   });
 
   test("works with non-standard remote and trunk", () => {
-    const config: SpryConfig = { trunk: "develop", remote: "upstream" };
+    const config: SpryConfig = {
+      trunk: "develop",
+      remote: "upstream",
+      branchPrefix: "spry/test",
+    };
     expect(trunkRef(config)).toBe("upstream/develop");
   });
 });
@@ -50,15 +54,52 @@ describe("readConfig", () => {
     if (repo) await repo.cleanup();
   });
 
-  test("reads trunk and remote when both set", async () => {
+  test("reads trunk and remote and branchPrefix when set", async () => {
+    repo = await createRepo();
+    const { $ } = await import("bun");
+    await $`git config spry.trunk main`.cwd(repo.path).quiet();
+    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
+
+    const config = await readConfig(git, { cwd: repo.path });
+    expect(config.trunk).toBe("main");
+    expect(config.remote).toBe("origin");
+    expect(config.branchPrefix).toBe("spry/test");
+  });
+
+  test("reads branchPrefix when set", async () => {
+    repo = await createRepo();
+    const { $ } = await import("bun");
+    await $`git config spry.trunk main`.cwd(repo.path).quiet();
+    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+    await $`git config spry.branchPrefix spry/dondenton`.cwd(repo.path).quiet();
+
+    const config = await readConfig(git, { cwd: repo.path });
+    expect(config.branchPrefix).toBe("spry/dondenton");
+  });
+
+  test('throws mentioning "spry.branchPrefix" when not set', async () => {
     repo = await createRepo();
     const { $ } = await import("bun");
     await $`git config spry.trunk main`.cwd(repo.path).quiet();
     await $`git config spry.remote origin`.cwd(repo.path).quiet();
 
-    const config = await readConfig(git, { cwd: repo.path });
-    expect(config.trunk).toBe("main");
-    expect(config.remote).toBe("origin");
+    await expect(readConfig(git, { cwd: repo.path })).rejects.toThrow("spry.branchPrefix");
+  });
+
+  test("error suggests prefix format with username", async () => {
+    repo = await createRepo();
+    const { $ } = await import("bun");
+    await $`git config spry.trunk main`.cwd(repo.path).quiet();
+    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+
+    try {
+      await readConfig(git, { cwd: repo.path });
+      expect(true).toBe(false);
+    } catch (e: any) {
+      expect(e.message).toContain("spry.branchPrefix");
+      expect(e.message).toContain("git config spry.branchPrefix");
+    }
   });
 
   test('throws mentioning "spry.trunk" when trunk not set', async () => {
@@ -98,15 +139,17 @@ describe("loadConfig", () => {
     if (repo) await repo.cleanup();
   });
 
-  test("returns config when both set", async () => {
+  test("returns config when all three set", async () => {
     repo = await createRepo();
     const { $ } = await import("bun");
     await $`git config spry.trunk main`.cwd(repo.path).quiet();
     await $`git config spry.remote origin`.cwd(repo.path).quiet();
+    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
 
     const config = await loadConfig(git, { cwd: repo.path });
     expect(config.trunk).toBe("main");
     expect(config.remote).toBe("origin");
+    expect(config.branchPrefix).toBe("spry/test");
   });
 
   test("throws about version for old git", async () => {

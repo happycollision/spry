@@ -3,6 +3,7 @@ import type { GitRunner } from "../lib/context.ts";
 export interface SpryConfig {
   trunk: string;
   remote: string;
+  branchPrefix: string;
 }
 
 export function trunkRef(config: SpryConfig): string {
@@ -80,7 +81,18 @@ export async function readConfig(git: GitRunner, options?: ConfigOptions): Promi
   }
   const trunk = trunkResult.stdout.trim();
 
-  return { trunk, remote };
+  // Read branchPrefix
+  const prefixResult = await git.run(["config", "--get", "spry.branchPrefix"], { cwd });
+  if (prefixResult.exitCode !== 0 || !prefixResult.stdout.trim()) {
+    throw new Error(
+      `spry.branchPrefix is not configured.\n` +
+        `Set it with: git config spry.branchPrefix spry/<your-username>\n` +
+        `(Used to derive branch names for synced PRs: <prefix>/<unit-id>)`,
+    );
+  }
+  const branchPrefix = prefixResult.stdout.trim();
+
+  return { trunk, remote, branchPrefix };
 }
 
 export async function loadConfig(git: GitRunner, options?: ConfigOptions): Promise<SpryConfig> {
