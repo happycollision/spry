@@ -98,6 +98,13 @@ describe("sp view docs", () => {
         "If gh isn't installed, isn't authenticated, or can't reach GitHub, sp view falls back to local mode with a hint:",
       );
 
+      // Canonicalize the hint variant so the captured fragment is deterministic
+      // across machines (gh installed/not, authed/not, network/no-network).
+      doc.scrub(
+        /PR status unavailable: [^\n]+ \(showing local view\)/,
+        "PR status unavailable: <hint> (showing local view)",
+      );
+
       // Default invocation (no --no-fetch). With no gh on PATH or no auth in test
       // env, we get the no-gh / auth fallback. We assert only on the "PR status
       // unavailable" prefix to keep this stable across environments.

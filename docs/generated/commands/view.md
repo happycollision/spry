@@ -38,7 +38,7 @@ sp view
 
 ```
 Stack: feature (1 commit)
-PR status unavailable: network error (showing local view)
+PR status unavailable: <hint> (showing local view)
 ○ no PR  ◐ open  ✓ merged  ✗ closed
 
   → origin/main
