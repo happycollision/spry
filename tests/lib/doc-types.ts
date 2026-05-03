@@ -15,4 +15,6 @@ export interface DocContext {
   command(input: string): void;
   output(text: string): void;
   screen(text: string): void;
+  scrub(repo: { uniqueId: string; path: string; originPath: string }): void;
+  scrub(pattern: string | RegExp, replacement: string): void;
 }
