@@ -13,16 +13,15 @@ async function captureView(
   const chunks: string[] = [];
   const originalLog = console.log;
   const originalError = console.error;
-  const originalExit = process.exit;
+  const originalExit = process.exit.bind(process);
 
   let exitCode = 0;
   console.log = (...args: unknown[]) => chunks.push(args.map(String).join(" "));
   console.error = (...args: unknown[]) => chunks.push(args.map(String).join(" "));
-  // @ts-expect-error — mock process.exit to throw instead
-  process.exit = (code?: number) => {
+  process.exit = ((code?: number) => {
     exitCode = code ?? 0;
     throw new Error("EXIT");
-  };
+  }) as typeof process.exit;
 
   try {
     await viewCommand(ctx, opts);
