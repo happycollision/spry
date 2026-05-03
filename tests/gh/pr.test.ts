@@ -49,6 +49,7 @@ const samplePR = {
   title: "T",
   baseRefName: "main",
   reviewDecision: null,
+  reviewThreads: { totalCount: 0, nodes: [] },
   commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
 };
 

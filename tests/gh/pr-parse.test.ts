@@ -115,6 +115,7 @@ describe("parsePRResponse", () => {
       baseRefName: "main",
       checksStatus: "passing",
       reviewDecision: "approved",
+      reviewThreads: { resolved: 0, total: 0 },
     });
   });
 
@@ -170,5 +171,50 @@ describe("parsePRResponse", () => {
       commits: { nodes: [] },
     });
     expect(parsePRResponse(json)?.checksStatus).toBe("none");
+  });
+
+  test("counts reviewThreads as { resolved, total }", () => {
+    const json = makeResponse({
+      number: 1,
+      url: "https://github.com/owner/repo/pull/1",
+      state: "OPEN",
+      title: "T",
+      baseRefName: "main",
+      reviewDecision: null,
+      commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
+      reviewThreads: {
+        totalCount: 3,
+        nodes: [{ isResolved: true }, { isResolved: false }, { isResolved: true }],
+      },
+    });
+    expect(parsePRResponse(json)?.reviewThreads).toEqual({ resolved: 2, total: 3 });
+  });
+
+  test("reviewThreads defaults to 0/0 when missing", () => {
+    const json = makeResponse({
+      number: 2,
+      url: "https://github.com/owner/repo/pull/2",
+      state: "OPEN",
+      title: "T",
+      baseRefName: "main",
+      reviewDecision: null,
+      commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
+      // reviewThreads field intentionally omitted
+    });
+    expect(parsePRResponse(json)?.reviewThreads).toEqual({ resolved: 0, total: 0 });
+  });
+
+  test("reviewThreads with totalCount but no nodes counts resolved as 0", () => {
+    const json = makeResponse({
+      number: 3,
+      url: "https://github.com/owner/repo/pull/3",
+      state: "OPEN",
+      title: "T",
+      baseRefName: "main",
+      reviewDecision: null,
+      commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
+      reviewThreads: { totalCount: 5, nodes: [] },
+    });
+    expect(parsePRResponse(json)?.reviewThreads).toEqual({ resolved: 0, total: 5 });
   });
 });

@@ -14,6 +14,7 @@ export interface PRInfo {
   baseRefName: string;
   checksStatus: ChecksStatus;
   reviewDecision: ReviewDecision;
+  reviewThreads: { resolved: number; total: number };
 }
 
 interface CheckContextNode {
@@ -38,6 +39,10 @@ interface PRNode {
         } | null;
       };
     }>;
+  };
+  reviewThreads?: {
+    totalCount?: number;
+    nodes?: Array<{ isResolved?: boolean }>;
   };
 }
 
@@ -130,6 +135,10 @@ export function parsePRResponse(json: string): PRInfo | null {
   const node = parsed.data?.repository?.pullRequests?.nodes?.[0];
   if (!node) return null;
 
+  const threads = node.reviewThreads;
+  const total = threads?.totalCount ?? 0;
+  const resolved = (threads?.nodes ?? []).filter((t) => t.isResolved === true).length;
+
   return {
     number: node.number,
     url: node.url,
@@ -138,6 +147,7 @@ export function parsePRResponse(json: string): PRInfo | null {
     baseRefName: node.baseRefName,
     checksStatus: determineChecksStatus(flattenCheckContexts(node)),
     reviewDecision: determineReviewDecision(node.reviewDecision),
+    reviewThreads: { resolved, total },
   };
 }
 
@@ -152,6 +162,10 @@ query($branch: String!) {
         title
         baseRefName
         reviewDecision
+        reviewThreads(first: 100) {
+          totalCount
+          nodes { isResolved }
+        }
         commits(last: 1) {
           nodes {
             commit {
