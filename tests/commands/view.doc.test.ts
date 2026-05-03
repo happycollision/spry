@@ -1,3 +1,11 @@
+// Doc-producing tests for `sp view`. Each docTest must:
+//   1. Call doc.scrub(repo) immediately after repos.push(repo) so the random
+//      unique-id suffix is stripped from captured fragments.
+//   2. Pass an explicit branch name to repo.branch(...) — never rely on the
+//      auto-generated default. Branch names appear in `Stack: <branch>` and
+//      will leak through if not deterministic.
+//   3. Set spry.trunk, spry.remote, AND spry.branchPrefix before invoking sp
+//      (loadConfig requires all three).
 import { describe, afterAll } from "bun:test";
 import { join } from "node:path";
 import { docTest, createRunner, createRepo, createRealGitRunner } from "../lib/index.ts";

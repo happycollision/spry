@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { formatStackView, formatValidationError } from "../../src/ui/format.ts";
 import type { PRUnit, StackParseResult } from "../../src/parse/types.ts";
 import type { EnrichedUnit, EnrichmentError } from "../../src/gh/enrich.ts";
-import type { PRInfo } from "../../src/gh/pr.ts";
+import type { ChecksStatus, PRInfo, ReviewDecision } from "../../src/gh/pr.ts";
 
 // Strip ANSI escape codes for clean assertions
 function stripAnsi(str: string): string {
@@ -412,6 +412,51 @@ describe("formatStackView", () => {
     expect(output).toContain("https://github.com/owner/repo/pull/123");
     expect(output).toContain("├─ Add middleware (a1)");
     expect(output).toContain("└─ Add session (b2)");
+  });
+
+  const checksCases: Array<[ChecksStatus, string]> = [
+    ["failing", "✗"],
+    ["pending", "⏳"],
+  ];
+
+  test.each(checksCases)("renders checks glyph for status=%s", (status, glyph) => {
+    const unit: PRUnit = {
+      type: "single",
+      id: "a1",
+      title: "T",
+      commitIds: ["a1"],
+      commits: ["aaa"],
+      subjects: ["T"],
+    };
+    const output = stripAnsi(
+      formatStackView([withPR(unit, makePR({ checksStatus: status }))], "feat", 1, "origin/main"),
+    );
+    expect(output).toContain(`checks:${glyph}`);
+  });
+
+  const approvalCases: Array<[ReviewDecision, string]> = [
+    ["changes_requested", "✗"],
+    ["review_required", "?"],
+  ];
+
+  test.each(approvalCases)("renders approval glyph for decision=%s", (decision, glyph) => {
+    const unit: PRUnit = {
+      type: "single",
+      id: "a1",
+      title: "T",
+      commitIds: ["a1"],
+      commits: ["aaa"],
+      subjects: ["T"],
+    };
+    const output = stripAnsi(
+      formatStackView(
+        [withPR(unit, makePR({ reviewDecision: decision }))],
+        "feat",
+        1,
+        "origin/main",
+      ),
+    );
+    expect(output).toContain(`approval:${glyph}`);
   });
 });
 

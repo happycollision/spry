@@ -9,7 +9,7 @@ import { GhAuthError, GhNotInstalledError } from "./errors.ts";
 export type EnrichmentError = "no-gh" | "auth" | "network" | "no-remote";
 
 export type EnrichedUnit =
-  | { unit: PRUnit; pr: PRInfo | null; error?: undefined }
+  | { unit: PRUnit; pr: PRInfo | null; error?: never }
   | { unit: PRUnit; pr: null; error: EnrichmentError };
 
 export async function enrichUnits(
