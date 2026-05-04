@@ -1,5 +1,10 @@
 import type { CommitInfo, PRUnit } from "../parse/types.ts";
 
+// Matches `Key: value` lines git treats as trailers. Continuation lines (per
+// git interpret-trailers, lines starting with whitespace are folded into the
+// previous trailer) are NOT recognized; a multi-line trailer will leave the
+// whole trailer block in the body. Spry-generated commits don't use folded
+// trailers, so we accept that limitation here.
 const TRAILER_LINE = /^[A-Za-z][A-Za-z0-9-]*\s*:\s.+$/;
 
 export function stripTrailers(body: string): string {
@@ -32,7 +37,7 @@ export function formatPRTitle(unit: PRUnit, commits: CommitInfo[]): string {
 
 export function formatPRBody(unit: PRUnit, commits: CommitInfo[]): string {
   if (unit.type !== "single") {
-    throw new Error("formatPRBody: groups not supported in Step 6");
+    throw new Error(`formatPRBody: groups not supported in Step 6 (unit ${unit.id})`);
   }
   const commit = commits.find((c) => c.hash === unit.commits[0]);
   if (!commit) return "";
