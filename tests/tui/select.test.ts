@@ -104,4 +104,50 @@ describe("selectUnits", () => {
     const result = await readResult(driver);
     expect(result.cancelled).toBe(true);
   });
+
+  test("ArrowUp from first item wraps to last", async () => {
+    const driver = await spawn(
+      JSON.stringify([
+        { id: "a", label: "Alpha" },
+        { id: "b", label: "Bravo" },
+      ]),
+    );
+    await driver.waitForText("Alpha");
+    driver.press("ArrowUp");
+    driver.press("Space");
+    driver.press("Enter");
+    const result = await readResult(driver);
+    expect(result.selectedIds).toEqual(["b"]);
+  });
+
+  test("Space on disabled option does not toggle", async () => {
+    const driver = await spawn(
+      JSON.stringify([
+        { id: "a", label: "Alpha", disabled: true },
+        { id: "b", label: "Bravo" },
+      ]),
+    );
+    await driver.waitForText("Alpha");
+    driver.press("Space"); // would toggle 'a' if not disabled
+    driver.press("ArrowDown");
+    driver.press("Space"); // toggle 'b'
+    driver.press("Enter");
+    const result = await readResult(driver);
+    expect(result.selectedIds).toEqual(["b"]);
+  });
+
+  test("'a' toggles all but skips disabled options", async () => {
+    const driver = await spawn(
+      JSON.stringify([
+        { id: "a", label: "Alpha" },
+        { id: "b", label: "Bravo", disabled: true },
+        { id: "c", label: "Charlie" },
+      ]),
+    );
+    await driver.waitForText("Charlie");
+    driver.type("a");
+    driver.press("Enter");
+    const result = await readResult(driver);
+    expect(result.selectedIds).toEqual(["a", "c"]);
+  });
 });

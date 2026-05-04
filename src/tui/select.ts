@@ -54,81 +54,99 @@ export async function selectUnits(
     stdout.write(lines.join("\n"));
   }
 
+  // Idempotent: safe to call multiple times. setRawMode(false) after a
+  // previous false is a no-op; signal listener removal is no-op if absent.
+  let cleanedUp = false;
   function cleanup(): void {
+    if (cleanedUp) return;
+    cleanedUp = true;
     stdout.write(SHOW_CURSOR);
     stdout.write("\n");
     stdin.setRawMode?.(false);
     stdin.pause();
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
   }
 
+  function onSignal(): void {
+    // process.exit skips finally blocks, so cleanup directly here.
+    // cleanup() is idempotent so a later finally-triggered call is harmless.
+    cleanup();
+    process.exit(130);
+  }
+
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
   stdin.setRawMode?.(true);
   stdin.resume();
   stdout.write(HIDE_CURSOR);
-  render();
 
-  return new Promise<SelectResult>((resolve) => {
-    function onData(chunk: Buffer): void {
-      const data = chunk.toString();
-      // Parse the chunk into individual keys so multiple keys arriving in a
-      // single read (e.g. Space+Enter) are handled correctly.
-      const keys: string[] = [];
-      let i = 0;
-      while (i < data.length) {
-        const ch = data[i];
-        if (ch === "\x1b") {
-          // Lone ESC vs CSI sequence (e.g. arrow keys "\x1b[A").
-          if (data[i + 1] === "[" && i + 2 < data.length) {
-            keys.push(data.slice(i, i + 3));
-            i += 3;
+  try {
+    render();
+    return await new Promise<SelectResult>((resolve) => {
+      function onData(chunk: Buffer): void {
+        const data = chunk.toString();
+        // Parse the chunk into individual keys so multiple keys arriving in a
+        // single read (e.g. Space+Enter) are handled correctly.
+        const keys: string[] = [];
+        let i = 0;
+        while (i < data.length) {
+          const ch = data[i];
+          if (ch === "\x1b") {
+            // Lone ESC vs CSI sequence (e.g. arrow keys "\x1b[A").
+            if (data[i + 1] === "[" && i + 2 < data.length) {
+              keys.push(data.slice(i, i + 3));
+              i += 3;
+              continue;
+            }
+            keys.push("\x1b");
+            i += 1;
             continue;
           }
-          keys.push("\x1b");
+          keys.push(ch ?? "");
           i += 1;
-          continue;
         }
-        keys.push(ch ?? "");
-        i += 1;
+
+        for (const key of keys) {
+          if (key === "\x03" || key === "\x1b") {
+            // Ctrl+C or Esc
+            stdin.off("data", onData);
+            resolve({ cancelled: true, selectedIds: [] });
+            return;
+          }
+          if (key === "\r" || key === "\n") {
+            stdin.off("data", onData);
+            resolve({
+              cancelled: false,
+              selectedIds: options.filter((o) => selected.has(o.id)).map((o) => o.id),
+            });
+            return;
+          }
+          if (key === " ") {
+            const opt = options[cursor];
+            if (opt && !opt.disabled) {
+              if (selected.has(opt.id)) selected.delete(opt.id);
+              else selected.add(opt.id);
+            }
+          } else if (key === "a") {
+            const allSelected = options.every((o) => o.disabled || selected.has(o.id));
+            if (allSelected) {
+              selected.clear();
+            } else {
+              for (const o of options) if (!o.disabled) selected.add(o.id);
+            }
+          } else if (key === "\x1b[A") {
+            cursor = (cursor - 1 + options.length) % options.length;
+          } else if (key === "\x1b[B") {
+            cursor = (cursor + 1) % options.length;
+          }
+        }
+        render();
       }
 
-      for (const key of keys) {
-        if (key === "\x03" || key === "\x1b") {
-          // Ctrl+C or Esc
-          stdin.off("data", onData);
-          cleanup();
-          resolve({ cancelled: true, selectedIds: [] });
-          return;
-        }
-        if (key === "\r" || key === "\n") {
-          stdin.off("data", onData);
-          cleanup();
-          resolve({
-            cancelled: false,
-            selectedIds: options.filter((o) => selected.has(o.id)).map((o) => o.id),
-          });
-          return;
-        }
-        if (key === " ") {
-          const opt = options[cursor];
-          if (opt && !opt.disabled) {
-            if (selected.has(opt.id)) selected.delete(opt.id);
-            else selected.add(opt.id);
-          }
-        } else if (key === "a") {
-          const allSelected = options.every((o) => o.disabled || selected.has(o.id));
-          if (allSelected) {
-            selected.clear();
-          } else {
-            for (const o of options) if (!o.disabled) selected.add(o.id);
-          }
-        } else if (key === "\x1b[A") {
-          cursor = (cursor - 1 + options.length) % options.length;
-        } else if (key === "\x1b[B") {
-          cursor = (cursor + 1) % options.length;
-        }
-      }
-      render();
-    }
-
-    stdin.on("data", onData);
-  });
+      stdin.on("data", onData);
+    });
+  } finally {
+    cleanup();
+  }
 }
