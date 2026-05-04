@@ -317,9 +317,8 @@ describe("syncCommand bare", () => {
     const { gh } = stubGh(ghPRMap({}));
     const ctx = makeCtx(repo, gh);
     const logs = captureLogs();
-    let exitCode: number | null = null;
+    let exitCode = -1;
     const origExit = process.exit;
-    // @ts-expect-error - test stub
     process.exit = ((code: number) => {
       exitCode = code;
       throw new Error(`__exit:${code}`);
@@ -379,9 +378,8 @@ describe("syncCommand bare", () => {
     });
     const ctx = makeCtx(repo, gh);
     const logs = captureLogs();
-    let exitCode: number | null = null;
+    let exitCode = -1;
     const origExit = process.exit;
-    // @ts-expect-error - test stub
     process.exit = ((code: number) => {
       exitCode = code;
       throw new Error(`__exit:${code}`);
@@ -413,9 +411,8 @@ describe("syncCommand bare", () => {
     const { gh } = stubGh(ghPRMap({}));
     const ctx = makeCtx(repo, gh);
     const logs = captureLogs();
-    let exitCode: number | null = null;
+    let exitCode = -1;
     const origExit = process.exit;
-    // @ts-expect-error - test stub
     process.exit = ((code: number) => {
       exitCode = code;
       throw new Error(`__exit:${code}`);
@@ -636,9 +633,8 @@ describe("syncCommand --open <ids>", () => {
     });
     const ctx = makeCtx(repo, gh);
     const logs = captureLogs();
-    let exitCode: number | null = null;
+    let exitCode = -1;
     const origExit = process.exit;
-    // @ts-expect-error - test stub
     process.exit = ((code: number) => {
       exitCode = code;
       throw new Error(`__exit:${code}`);
@@ -668,7 +664,6 @@ describe("syncCommand --open <ids>", () => {
     const ctx = makeCtx(repo, gh);
     const logs = captureLogs();
     const origExit = process.exit;
-    // @ts-expect-error - test stub
     process.exit = ((code: number) => {
       throw new Error(`__exit:${code}`);
     }) as unknown as typeof process.exit;
@@ -695,7 +690,6 @@ describe("syncCommand --open <ids>", () => {
     const ctx = makeCtx(repo, gh);
     const logs = captureLogs();
     const origExit = process.exit;
-    // @ts-expect-error - test stub
     process.exit = ((code: number) => {
       throw new Error(`__exit:${code}`);
     }) as unknown as typeof process.exit;
