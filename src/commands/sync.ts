@@ -84,13 +84,13 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
       const result = await selectUnits(candidates);
       if (result.cancelled) {
         console.log("Cancelled.");
-        return;
-      }
-      if (result.selectedIds.length === 0) {
+        // fall through — retarget still runs on push-phase output
+      } else if (result.selectedIds.length === 0) {
         console.log("(no units selected)");
-        return;
+        // fall through — retarget still runs on push-phase output
+      } else {
+        opened = await openPRs(ctx, config, units, result.selectedIds, withTrailers, cwd);
       }
-      opened = await openPRs(ctx, config, units, result.selectedIds, withTrailers, cwd);
     } else {
       const targets = resolveOpenTargets(opts.open, units, withTrailers, existing, config);
       if (!targets.ok) {
@@ -99,8 +99,10 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
       }
       opened = await openPRs(ctx, config, units, targets.unitIds, withTrailers, cwd);
     }
-    openedBranches = opened.branches;
-    openHadFailure = opened.hadFailure;
+    if (opened) {
+      openedBranches = opened.branches;
+      openHadFailure = opened.hadFailure;
+    }
   }
 
   // 6. Retarget phase — gh required, falls back gracefully
