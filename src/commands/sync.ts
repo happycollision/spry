@@ -222,6 +222,7 @@ async function openPRs(
   cwd: string | undefined,
 ): Promise<OpenPRsResult> {
   const targetSet = new Set(targetIds);
+  const failedPushTargets = new Set<string>();
   const branches: string[] = [];
   let hadFailure = false;
   const commitInfos = commitsToInfos(commits);
@@ -235,6 +236,18 @@ async function openPRs(
     const headHash = unit.commits.at(-1);
     if (!headHash) continue;
 
+    // Skip when our predecessor in the stack is also a target whose push
+    // failed: its remote branch doesn't exist, so `gh pr create --base` for
+    // this unit would fail with a less actionable error. Predecessors that
+    // are already published (not in targetSet) are trusted to have valid
+    // remote branches.
+    const prev = i > 0 ? units[i - 1] : undefined;
+    if (prev && targetSet.has(prev.id) && failedPushTargets.has(prev.id)) {
+      console.error(`⚠ Skipping ${branch}: predecessor ${prev.id}'s push failed.`);
+      hadFailure = true;
+      continue;
+    }
+
     const pushResult = await pushBranch(ctx.git, {
       cwd,
       remote: config.remote,
@@ -244,13 +257,13 @@ async function openPRs(
     });
     if (!pushResult.ok) {
       console.error(`⚠ Failed to push ${branch}: ${pushResult.stderr.trim()}`);
+      failedPushTargets.add(unit.id);
       hadFailure = true;
       continue;
     }
     console.log(`↑ pushed ${branch}`);
 
     // Base is previous unit's branch in the local stack (or trunk for the first unit).
-    const prev = i > 0 ? units[i - 1] : undefined;
     const base = prev ? branchForUnit(prev, config) : config.trunk;
 
     const title = formatPRTitle(unit, commitInfos);

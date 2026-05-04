@@ -595,6 +595,120 @@ describe("syncCommand --open <ids>", () => {
     expect(logs.err.join("\n")).toMatch(/matches multiple/i);
   });
 
+  test("--open: per-target createPR failure mid-stack reports first PR and exits 1", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    await git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: bbb22222"], {
+      cwd: repo.path,
+    });
+
+    let createCount = 0;
+    const { gh } = stubGh((call) => {
+      if (call.args[0] === "api" && call.args[1] === "graphql") {
+        return {
+          stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: [] } } } }),
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "create") {
+        createCount++;
+        if (createCount === 1) {
+          return {
+            stdout: "https://github.com/owner/repo/pull/100\n",
+            stderr: "",
+            exitCode: 0,
+          };
+        }
+        // Second pr create fails non-transiently
+        return {
+          stdout: "",
+          stderr: "validation error: branch already has open PR",
+          exitCode: 1,
+        };
+      }
+      return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
+    });
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    let exitCode: number | null = null;
+    const origExit = process.exit;
+    // @ts-expect-error - test stub
+    process.exit = ((code: number) => {
+      exitCode = code;
+      throw new Error(`__exit:${code}`);
+    }) as unknown as typeof process.exit;
+    try {
+      await syncCommand(ctx, { cwd: repo.path, open: "aaa11111,bbb22222" });
+    } catch (e) {
+      if (!(e instanceof Error) || !e.message.startsWith("__exit:")) throw e;
+    } finally {
+      process.exit = origExit;
+      logs.restore();
+    }
+    expect(exitCode).toBe(1);
+    expect(logs.out.join("\n")).toMatch(/Created PR #100/);
+    expect(logs.err.join("\n")).toMatch(/Failed to create PR for spry\/test\/bbb22222/);
+  });
+
+  test("--open with empty string errors with no IDs provided", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+
+    const { gh } = stubGh(ghPRMap({}));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const origExit = process.exit;
+    // @ts-expect-error - test stub
+    process.exit = ((code: number) => {
+      throw new Error(`__exit:${code}`);
+    }) as unknown as typeof process.exit;
+    try {
+      await syncCommand(ctx, { cwd: repo.path, open: "" });
+    } catch (e) {
+      if (!(e instanceof Error) || !e.message.startsWith("__exit:")) throw e;
+    } finally {
+      process.exit = origExit;
+      logs.restore();
+    }
+    expect(logs.err.join("\n")).toMatch(/no IDs provided/i);
+  });
+
+  test("--open of unknown id errors with not-found message", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+
+    const { gh } = stubGh(ghPRMap({}));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const origExit = process.exit;
+    // @ts-expect-error - test stub
+    process.exit = ((code: number) => {
+      throw new Error(`__exit:${code}`);
+    }) as unknown as typeof process.exit;
+    try {
+      await syncCommand(ctx, { cwd: repo.path, open: "zzz99999" });
+    } catch (e) {
+      if (!(e instanceof Error) || !e.message.startsWith("__exit:")) throw e;
+    } finally {
+      process.exit = origExit;
+      logs.restore();
+    }
+    expect(logs.err.join("\n")).toMatch(/No commit or group matching/i);
+  });
+
   test("--open of a group errors with deferral message", async () => {
     const repo = await makeRepoWithConfig();
     const git = createRealGitRunner();
