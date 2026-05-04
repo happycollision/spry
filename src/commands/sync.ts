@@ -8,14 +8,23 @@ import {
   branchForUnit,
 } from "../git/index.ts";
 import { requireCleanWorkingTree } from "../git/status.ts";
-import { parseCommitTrailers, parseStack } from "../parse/index.ts";
-import type { PRUnit } from "../parse/index.ts";
+import {
+  parseCommitTrailers,
+  parseStack,
+  resolveIdentifiers,
+  formatResolutionError,
+} from "../parse/index.ts";
+import type { PRUnit, CommitInfo } from "../parse/index.ts";
+import type { CommitWithTrailers } from "../parse/index.ts";
 import { formatValidationError } from "../ui/format.ts";
 import {
   listRemoteBranches,
   pushBranch,
   findPRsForBranches,
   retargetPR,
+  createPR,
+  formatPRTitle,
+  formatPRBody,
   GhAuthError,
   GhNotInstalledError,
 } from "../gh/index.ts";
@@ -64,15 +73,33 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   // 4. Push phase — only branches that already exist remotely
   const pushResult = await pushExistingBranches(ctx, config, units, existing, cwd);
 
-  // 5. (--open handling — added in Tasks 6 and 7)
+  // 5. --open: open new PRs (with their own pushes)
+  let openedBranches: string[] = [];
+  let openHadFailure = false;
   if (opts.open !== undefined) {
-    throw new Error("--open: not yet implemented (Task 6/7)");
+    if (opts.open === null) {
+      throw new Error("TUI selector not yet wired (Task 7)");
+    }
+    const targets = resolveOpenTargets(opts.open, units, withTrailers, existing, config);
+    if (!targets.ok) {
+      console.error(targets.error);
+      process.exit(1);
+    }
+    const opened = await openPRs(ctx, config, units, targets.unitIds, withTrailers, cwd);
+    openedBranches = opened.branches;
+    openHadFailure = opened.hadFailure;
   }
 
   // 6. Retarget phase — gh required, falls back gracefully
-  const retargetHadFailure = await retargetMismatched(ctx, config, units, pushResult.pushed, cwd);
+  const retargetHadFailure = await retargetMismatched(
+    ctx,
+    config,
+    units,
+    [...pushResult.pushed, ...openedBranches],
+    cwd,
+  );
 
-  const hadFailure = pushResult.hadFailure || retargetHadFailure;
+  const hadFailure = pushResult.hadFailure || openHadFailure || retargetHadFailure;
   if (hadFailure) {
     console.log("⚠ Sync completed with warnings");
     process.exit(1);
@@ -113,6 +140,149 @@ async function pushExistingBranches(
     }
   }
   return { pushed, hadFailure };
+}
+
+type ResolveTargetsResult = { ok: true; unitIds: string[] } | { ok: false; error: string };
+
+/**
+ * `getStackCommits` populates `body` with the full `%B` output (subject +
+ * blank line + body + trailers). `formatPRBody` / `formatPRTitle` expect
+ * `body` to be just the body (no subject). Strip the subject prefix when
+ * present.
+ */
+function stripSubject(subject: string, body: string): string {
+  if (!body.startsWith(subject)) return body;
+  const rest = body.slice(subject.length);
+  if (rest.length === 0) return "";
+  if (rest.startsWith("\n\n")) return rest.slice(2);
+  if (rest.startsWith("\n")) return rest.slice(1);
+  return body;
+}
+
+function commitsToInfos(commits: CommitWithTrailers[]): CommitInfo[] {
+  return commits.map((c) => {
+    const trailers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(c.trailers)) {
+      if (typeof v === "string") trailers[k] = v;
+    }
+    return {
+      hash: c.hash,
+      subject: c.subject,
+      body: stripSubject(c.subject, c.body),
+      trailers,
+    };
+  });
+}
+
+function resolveOpenTargets(
+  raw: string,
+  units: PRUnit[],
+  commits: CommitWithTrailers[],
+  existing: Set<string>,
+  config: SpryConfig,
+): ResolveTargetsResult {
+  const ids = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (ids.length === 0) {
+    return { ok: false, error: "✗ --open: no IDs provided" };
+  }
+
+  const commitInfos = commitsToInfos(commits);
+  const { unitIds, errors } = resolveIdentifiers(ids, units, commitInfos);
+  if (errors.length > 0) {
+    return { ok: false, error: errors.map((e) => formatResolutionError(e)).join("\n") };
+  }
+
+  for (const id of unitIds) {
+    const unit = units.find((u) => u.id === id);
+    if (!unit) continue;
+    if (unit.type === "group") {
+      return {
+        ok: false,
+        error:
+          `✗ Groups not supported in --open yet (unit ${unit.id}).\n` +
+          `  Group title storage lands with \`sp group\` (Step 7). For now, --open works on singles.`,
+      };
+    }
+    const branch = branchForUnit(unit, config);
+    if (existing.has(branch)) {
+      return {
+        ok: false,
+        error:
+          `✗ Unit ${unit.id} already has a published branch (${branch}).\n` +
+          `  --open is for first-time publish only.\n` +
+          `  Run \`sp sync\` to update the branch (PR title/body updates land in a future step).`,
+      };
+    }
+  }
+
+  // Preserve stack order so stacked-PR base computation is correct.
+  const orderedIds = units.map((u) => u.id).filter((id) => unitIds.has(id));
+  return { ok: true, unitIds: orderedIds };
+}
+
+interface OpenPRsResult {
+  branches: string[];
+  hadFailure: boolean;
+}
+
+async function openPRs(
+  ctx: SpryContext,
+  config: SpryConfig,
+  units: PRUnit[],
+  targetIds: string[],
+  commits: CommitWithTrailers[],
+  cwd: string | undefined,
+): Promise<OpenPRsResult> {
+  const targetSet = new Set(targetIds);
+  const branches: string[] = [];
+  let hadFailure = false;
+  const commitInfos = commitsToInfos(commits);
+
+  for (let i = 0; i < units.length; i++) {
+    const unit = units[i];
+    if (!unit) continue;
+    if (!targetSet.has(unit.id)) continue;
+
+    const branch = branchForUnit(unit, config);
+    const headHash = unit.commits.at(-1);
+    if (!headHash) continue;
+
+    const pushResult = await pushBranch(ctx.git, {
+      cwd,
+      remote: config.remote,
+      sha: headHash,
+      branch,
+      forceWithLease: true,
+    });
+    if (!pushResult.ok) {
+      console.error(`⚠ Failed to push ${branch}: ${pushResult.stderr.trim()}`);
+      hadFailure = true;
+      continue;
+    }
+    console.log(`↑ pushed ${branch}`);
+
+    // Base is previous unit's branch in the local stack (or trunk for the first unit).
+    const prev = i > 0 ? units[i - 1] : undefined;
+    const base = prev ? branchForUnit(prev, config) : config.trunk;
+
+    const title = formatPRTitle(unit, commitInfos);
+    const body = formatPRBody(unit, commitInfos);
+    try {
+      const pr = await createPR(ctx, { title, head: branch, base, body }, { cwd });
+      console.log(`✓ Created PR #${pr.number}: ${title}`);
+      console.log(`  ${pr.url}`);
+      branches.push(branch);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`⚠ Failed to create PR for ${branch}: ${message}`);
+      hadFailure = true;
+    }
+  }
+
+  return { branches, hadFailure };
 }
 
 function expectedBaseFor(unit: PRUnit, units: PRUnit[], config: SpryConfig): string {

@@ -431,3 +431,198 @@ describe("syncCommand bare", () => {
     expect(logs.err.join("\n")).toMatch(/detached HEAD/i);
   });
 });
+
+describe("syncCommand --open <ids>", () => {
+  test("creates a PR for the listed unit", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(
+      [
+        "commit",
+        "--allow-empty",
+        "-m",
+        "Add login\n\nDescription text\n\nSpry-Commit-Id: aaa11111",
+      ],
+      { cwd: repo.path },
+    );
+
+    const { gh, calls } = stubGh((call) => {
+      if (call.args[0] === "api" && call.args[1] === "graphql") {
+        return {
+          stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: [] } } } }),
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "create") {
+        return {
+          stdout: "https://github.com/owner/repo/pull/55\n",
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
+    });
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    try {
+      await syncCommand(ctx, { cwd: repo.path, open: "aaa11111" });
+    } finally {
+      logs.restore();
+    }
+    const create = calls.find((c) => c.args[0] === "pr" && c.args[1] === "create");
+    expect(create).toBeDefined();
+    expect(create?.args).toEqual([
+      "pr",
+      "create",
+      "--title",
+      "Add login",
+      "--head",
+      "spry/test/aaa11111",
+      "--base",
+      "main",
+      "--body-file",
+      "-",
+    ]);
+    expect(create?.stdin).toBe("Description text");
+    expect(logs.out.join("\n")).toContain("Created PR #55");
+    expect(logs.out.join("\n")).toContain("https://github.com/owner/repo/pull/55");
+  });
+
+  test("two-unit --open: second PR's base is first's branch", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    await git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: bbb22222"], {
+      cwd: repo.path,
+    });
+
+    let prCounter = 100;
+    const { gh, calls } = stubGh((call) => {
+      if (call.args[0] === "api" && call.args[1] === "graphql") {
+        return {
+          stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: [] } } } }),
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "create") {
+        const n = prCounter++;
+        return {
+          stdout: `https://github.com/owner/repo/pull/${n}\n`,
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
+    });
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    try {
+      await syncCommand(ctx, { cwd: repo.path, open: "aaa11111,bbb22222" });
+    } finally {
+      logs.restore();
+    }
+    const creates = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "create");
+    expect(creates).toHaveLength(2);
+    const baseIdx0 = creates[0]?.args.indexOf("--base") ?? -1;
+    expect(creates[0]?.args[baseIdx0 + 1]).toBe("main");
+    const baseIdx1 = creates[1]?.args.indexOf("--base") ?? -1;
+    expect(creates[1]?.args[baseIdx1 + 1]).toBe("spry/test/aaa11111");
+  });
+
+  test("--open of unit that already has a remote branch errors", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${head}:refs/heads/spry/test/aaa11111`], { cwd: repo.path });
+
+    const { gh } = stubGh(ghPRMap({ "spry/test/aaa11111": { number: 1, baseRefName: "main" } }));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    let exited = false;
+    const origExit = process.exit;
+    process.exit = ((code: number) => {
+      exited = true;
+      throw new Error(`__exit:${code}`);
+    }) as unknown as typeof process.exit;
+    try {
+      await syncCommand(ctx, { cwd: repo.path, open: "aaa11111" });
+    } catch (e) {
+      if (!(e instanceof Error) || !e.message.startsWith("__exit:")) throw e;
+    } finally {
+      process.exit = origExit;
+      logs.restore();
+    }
+    expect(exited).toBe(true);
+    expect(logs.err.join("\n")).toMatch(/already has a published branch/);
+  });
+
+  test("--open with prefix that matches multiple units errors", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    await git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: aaa22222"], {
+      cwd: repo.path,
+    });
+
+    const { gh } = stubGh(ghPRMap({}));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const origExit = process.exit;
+    process.exit = ((code: number) => {
+      throw new Error(`__exit:${code}`);
+    }) as unknown as typeof process.exit;
+    try {
+      await syncCommand(ctx, { cwd: repo.path, open: "aaa" });
+    } catch (e) {
+      if (!(e instanceof Error) || !e.message.startsWith("__exit:")) throw e;
+    } finally {
+      process.exit = origExit;
+      logs.restore();
+    }
+    expect(logs.err.join("\n")).toMatch(/matches multiple/i);
+  });
+
+  test("--open of a group errors with deferral message", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(
+      ["commit", "--allow-empty", "-m", "First\n\nSpry-Commit-Id: aaa11111\nSpry-Group: grp00001"],
+      { cwd: repo.path },
+    );
+    await git.run(
+      ["commit", "--allow-empty", "-m", "Second\n\nSpry-Commit-Id: bbb22222\nSpry-Group: grp00001"],
+      { cwd: repo.path },
+    );
+
+    const { gh } = stubGh(ghPRMap({}));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const origExit = process.exit;
+    process.exit = ((code: number) => {
+      throw new Error(`__exit:${code}`);
+    }) as unknown as typeof process.exit;
+    try {
+      await syncCommand(ctx, { cwd: repo.path, open: "grp00001" });
+    } catch (e) {
+      if (!(e instanceof Error) || !e.message.startsWith("__exit:")) throw e;
+    } finally {
+      process.exit = origExit;
+      logs.restore();
+    }
+    expect(logs.err.join("\n")).toMatch(/Groups not supported/i);
+  });
+});
