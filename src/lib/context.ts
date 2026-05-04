@@ -47,7 +47,10 @@ export function createRealGitRunner(): GitRunner {
 export function createRealGhClient(): GhClient {
   return {
     async run(args: string[], options?: CommandOptions): Promise<CommandResult> {
-      let proc = $`gh ${args}`.nothrow().quiet();
+      const input = options?.stdin ? Buffer.from(options.stdin) : undefined;
+      let proc = input
+        ? $`gh ${args} < ${input}`.nothrow().quiet()
+        : $`gh ${args}`.nothrow().quiet();
       if (options?.cwd) proc = proc.cwd(options.cwd);
       if (options?.env) proc = proc.env(options.env);
       const result = await proc;

@@ -246,3 +246,73 @@ export async function findPRsForBranches(
   }
   return result;
 }
+
+export interface CreatePRParams {
+  title: string;
+  head: string;
+  base: string;
+  body: string;
+}
+
+export interface CreatePRResult {
+  number: number;
+  url: string;
+}
+
+export interface CreatePROptions {
+  cwd?: string;
+}
+
+const PR_URL_PATTERN = /https:\/\/[^\s]+\/pull\/(\d+)/;
+
+export async function createPR(
+  ctx: SpryContext,
+  params: CreatePRParams,
+  options?: CreatePROptions,
+): Promise<CreatePRResult> {
+  const args = [
+    "pr",
+    "create",
+    "--title",
+    params.title,
+    "--head",
+    params.head,
+    "--base",
+    params.base,
+    "--body-file",
+    "-",
+  ];
+  const result = await withRetry(
+    () => ctx.gh.run(args, { cwd: options?.cwd, stdin: params.body }),
+    (r) => {
+      if (r.exitCode === 0) return false;
+      if (classifyError(r.stderr) !== "other") return false;
+      return isTransientFailure(r);
+    },
+  );
+  if (result.exitCode !== 0) throwForFailure(result);
+  const url = result.stdout.trim().split("\n").pop() ?? "";
+  const match = url.match(PR_URL_PATTERN);
+  if (!match) {
+    throw new Error(`createPR: could not parse PR URL from gh output: ${result.stdout}`);
+  }
+  return { number: Number(match[1]), url };
+}
+
+export async function retargetPR(
+  ctx: SpryContext,
+  prNumber: number,
+  newBase: string,
+  options?: { cwd?: string },
+): Promise<void> {
+  const args = ["pr", "edit", String(prNumber), "--base", newBase];
+  const result = await withRetry(
+    () => ctx.gh.run(args, { cwd: options?.cwd }),
+    (r) => {
+      if (r.exitCode === 0) return false;
+      if (classifyError(r.stderr) !== "other") return false;
+      return isTransientFailure(r);
+    },
+  );
+  if (result.exitCode !== 0) throwForFailure(result);
+}
