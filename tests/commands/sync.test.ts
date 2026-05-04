@@ -1,5 +1,6 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { syncCommand } from "../../src/commands/sync.ts";
+import { syncCommand, buildOpenCandidates } from "../../src/commands/sync.ts";
+import type { PRUnit } from "../../src/parse/types.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
 import type {
   CommandOptions,
@@ -738,5 +739,47 @@ describe("syncCommand --open <ids>", () => {
       logs.restore();
     }
     expect(logs.err.join("\n")).toMatch(/Groups not supported/i);
+  });
+});
+
+describe("buildOpenCandidates", () => {
+  const config = { trunk: "main", remote: "origin", branchPrefix: "spry/test" };
+
+  function single(id: string, title: string): PRUnit {
+    return {
+      type: "single",
+      id,
+      title,
+      commitIds: [id],
+      commits: [id.repeat(5)],
+      subjects: [title],
+    };
+  }
+
+  function group(id: string, title: string): PRUnit {
+    return {
+      type: "group",
+      id,
+      title,
+      commitIds: [id],
+      commits: [id.repeat(5)],
+      subjects: [title],
+    };
+  }
+
+  test("disables units that already have a remote branch", () => {
+    const units = [single("aaa11111", "A"), single("bbb22222", "B")];
+    const existing = new Set(["spry/test/aaa11111"]);
+    const out = buildOpenCandidates(units, existing, config);
+    expect(out[0]?.disabled).toBe(true);
+    expect(out[0]?.hint).toBe("(already published)");
+    expect(out[1]?.disabled).toBeUndefined();
+  });
+
+  test("disables groups with a Step 7 hint", () => {
+    const units = [single("aaa11111", "A"), group("grp00001", "G")];
+    const out = buildOpenCandidates(units, new Set(), config);
+    expect(out[1]?.disabled).toBe(true);
+    expect(out[1]?.hint).toMatch(/Step 7/);
   });
 });

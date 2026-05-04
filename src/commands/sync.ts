@@ -29,6 +29,7 @@ import {
   GhNotInstalledError,
 } from "../gh/index.ts";
 import type { SpryConfig } from "../git/config.ts";
+import { selectUnits } from "../tui/index.ts";
 
 export interface SyncOptions {
   /** undefined = bare; null = boolean --open (TUI); string = comma-separated IDs */
@@ -77,15 +78,27 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   let openedBranches: string[] = [];
   let openHadFailure = false;
   if (opts.open !== undefined) {
+    let opened: OpenPRsResult | undefined;
     if (opts.open === null) {
-      throw new Error("TUI selector not yet wired (Task 7)");
+      const candidates = buildOpenCandidates(units, existing, config);
+      const result = await selectUnits(candidates);
+      if (result.cancelled) {
+        console.log("Cancelled.");
+        return;
+      }
+      if (result.selectedIds.length === 0) {
+        console.log("(no units selected)");
+        return;
+      }
+      opened = await openPRs(ctx, config, units, result.selectedIds, withTrailers, cwd);
+    } else {
+      const targets = resolveOpenTargets(opts.open, units, withTrailers, existing, config);
+      if (!targets.ok) {
+        console.error(targets.error);
+        process.exit(1);
+      }
+      opened = await openPRs(ctx, config, units, targets.unitIds, withTrailers, cwd);
     }
-    const targets = resolveOpenTargets(opts.open, units, withTrailers, existing, config);
-    if (!targets.ok) {
-      console.error(targets.error);
-      process.exit(1);
-    }
-    const opened = await openPRs(ctx, config, units, targets.unitIds, withTrailers, cwd);
     openedBranches = opened.branches;
     openHadFailure = opened.hadFailure;
   }
@@ -140,6 +153,30 @@ async function pushExistingBranches(
     }
   }
   return { pushed, hadFailure };
+}
+
+export function buildOpenCandidates(
+  units: PRUnit[],
+  existing: Set<string>,
+  config: SpryConfig,
+): { id: string; label: string; hint?: string; disabled?: boolean }[] {
+  return units.map((unit) => {
+    const branch = branchForUnit(unit, config);
+    const isPublished = existing.has(branch);
+    const isGroup = unit.type === "group";
+    const disabled = isPublished || isGroup;
+    let hint: string | undefined;
+    if (isPublished) hint = "(already published)";
+    else if (isGroup) hint = "(group — Step 7)";
+    const label = `${unit.id}  ${unit.title ?? unit.subjects[0] ?? "Untitled"}`;
+    const opt: { id: string; label: string; hint?: string; disabled?: boolean } = {
+      id: unit.id,
+      label,
+    };
+    if (hint !== undefined) opt.hint = hint;
+    if (disabled) opt.disabled = true;
+    return opt;
+  });
 }
 
 type ResolveTargetsResult = { ok: true; unitIds: string[] } | { ok: false; error: string };
