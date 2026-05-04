@@ -68,7 +68,15 @@ export async function parseCommitTrailers(
       hash: commit.hash,
       subject: commit.subject,
       body: commit.body,
-      trailers: await parseTrailers(commit.body, git, options),
+      // `interpret-trailers --parse` needs a full message (subject + blank
+      // line + body) to recognize trailers. `commit.body` is body-only, so
+      // reconstitute the full message before parsing.
+      trailers: await parseTrailers(reconstructMessage(commit), git, options),
     })),
   );
+}
+
+function reconstructMessage(commit: CommitInfo): string {
+  if (!commit.body) return commit.subject;
+  return `${commit.subject}\n\n${commit.body}`;
 }

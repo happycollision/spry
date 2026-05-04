@@ -95,7 +95,7 @@ export async function getStackCommits(
 ): Promise<CommitInfo[]> {
   const base = await getMergeBase(git, trunkRef, options);
   const result = await git.run(
-    ["log", "--reverse", "--format=%H%x00%s%x00%B%x01", `${base}..HEAD`],
+    ["log", "--reverse", "--format=%H%x00%s%x00%b%x01", `${base}..HEAD`],
     { cwd: options?.cwd },
   );
   return parseCommitLog(result.stdout);
@@ -108,7 +108,7 @@ export async function getStackCommitsForBranch(
   options?: QueryOptions,
 ): Promise<CommitInfo[]> {
   const result = await git.run(
-    ["log", "--reverse", "--format=%H%x00%s%x00%B%x01", `${trunkRef}..${branch}`],
+    ["log", "--reverse", "--format=%H%x00%s%x00%b%x01", `${trunkRef}..${branch}`],
     { cwd: options?.cwd },
   );
   return parseCommitLog(result.stdout);

@@ -144,21 +144,6 @@ async function pushExistingBranches(
 
 type ResolveTargetsResult = { ok: true; unitIds: string[] } | { ok: false; error: string };
 
-/**
- * `getStackCommits` populates `body` with the full `%B` output (subject +
- * blank line + body + trailers). `formatPRBody` / `formatPRTitle` expect
- * `body` to be just the body (no subject). Strip the subject prefix when
- * present.
- */
-function stripSubject(subject: string, body: string): string {
-  if (!body.startsWith(subject)) return body;
-  const rest = body.slice(subject.length);
-  if (rest.length === 0) return "";
-  if (rest.startsWith("\n\n")) return rest.slice(2);
-  if (rest.startsWith("\n")) return rest.slice(1);
-  return body;
-}
-
 function commitsToInfos(commits: CommitWithTrailers[]): CommitInfo[] {
   return commits.map((c) => {
     const trailers: Record<string, string> = {};
@@ -168,7 +153,7 @@ function commitsToInfos(commits: CommitWithTrailers[]): CommitInfo[] {
     return {
       hash: c.hash,
       subject: c.subject,
-      body: stripSubject(c.subject, c.body),
+      body: c.body,
       trailers,
     };
   });

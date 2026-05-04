@@ -49,7 +49,11 @@ describe("injectMissingIds", () => {
     expect(commits.length).toBe(2);
 
     for (const commit of commits) {
-      const trailers = await parseTrailers(commit.body, git);
+      // `commit.body` is body-only; `parseTrailers` needs a full message
+      // (subject + blank + body) for `interpret-trailers --parse` to
+      // recognize trailers when the body is otherwise empty.
+      const fullMessage = commit.body ? `${commit.subject}\n\n${commit.body}` : commit.subject;
+      const trailers = await parseTrailers(fullMessage, git);
       expect(trailers["Spry-Commit-Id"]).toBeDefined();
       expect(trailers["Spry-Commit-Id"]).toMatch(/^[a-f0-9]{8}$/);
     }

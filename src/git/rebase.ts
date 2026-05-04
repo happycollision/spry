@@ -62,9 +62,12 @@ export async function injectMissingIds(
   }
 
   // 5-6. Parse trailers and filter missing IDs
+  // `commit.body` is body-only (no subject); `interpret-trailers --parse`
+  // needs a full message to recognize trailers, so reconstitute it.
   const missingIds: string[] = [];
   for (const commit of commits) {
-    const trailers = await parseTrailers(commit.body, git);
+    const fullMessage = commit.body ? `${commit.subject}\n\n${commit.body}` : commit.subject;
+    const trailers = await parseTrailers(fullMessage, git);
     if (!trailers["Spry-Commit-Id"]) {
       missingIds.push(commit.hash);
     }
