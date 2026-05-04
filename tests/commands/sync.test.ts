@@ -290,4 +290,144 @@ describe("syncCommand bare", () => {
     expect(logs.out.join("\n")).toContain("pushed spry/test/aaa11111");
     expect(logs.out.join("\n")).toMatch(/PR retargeting unavailable/);
   });
+
+  test("stale-ref push prints warning and exits 1", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "C\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+
+    // Pre-create the remote branch at our local HEAD
+    const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${head}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+
+    // Diverge the remote ref by pointing it at a sha the local clone doesn't
+    // know about (the bare repo's main tip). This invalidates the
+    // force-with-lease guard and triggers a stale-ref rejection.
+    const mainSha = (await git.run(["rev-parse", "main"], { cwd: repo.originPath })).stdout.trim();
+    await git.run(["update-ref", "refs/heads/spry/test/aaa11111", mainSha], {
+      cwd: repo.originPath,
+    });
+
+    const { gh } = stubGh(ghPRMap({}));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    let exitCode: number | null = null;
+    const origExit = process.exit;
+    // @ts-expect-error - test stub
+    process.exit = ((code: number) => {
+      exitCode = code;
+      throw new Error(`__exit:${code}`);
+    }) as unknown as typeof process.exit;
+    try {
+      await syncCommand(ctx, { cwd: repo.path });
+    } catch (e) {
+      if (!(e instanceof Error) || !e.message.startsWith("__exit:")) throw e;
+    } finally {
+      process.exit = origExit;
+      logs.restore();
+    }
+    expect(exitCode).toBe(1);
+    expect(logs.err.join("\n")).toMatch(/Skipped spry\/test\/aaa11111.*remote diverged/);
+  });
+
+  test("per-PR retarget auth failure logs warning and exits 1", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    await git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: bbb22222"], {
+      cwd: repo.path,
+    });
+    const aSha = (await git.run(["rev-parse", "HEAD~1"], { cwd: repo.path })).stdout.trim();
+    const bSha = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${aSha}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+    await git.run(["push", "origin", `${bSha}:refs/heads/spry/test/bbb22222`], {
+      cwd: repo.path,
+    });
+
+    // Both PRs have wrong base so both get retargeted: #10 expects "main"
+    // (first unit), so give it "stale-base"; #11 expects "spry/test/aaa11111"
+    // (chained on #10), so "main" is wrong.
+    const prMapHandler = ghPRMap({
+      "spry/test/aaa11111": { number: 10, baseRefName: "stale-base" },
+      "spry/test/bbb22222": { number: 11, baseRefName: "main" },
+    });
+    const { gh } = stubGh((call) => {
+      if (call.args[0] === "api" && call.args[1] === "graphql") {
+        return prMapHandler(call);
+      }
+      if (call.args[0] === "pr" && call.args[1] === "edit") {
+        const num = call.args[2];
+        if (num === "10") return { stdout: "", stderr: "", exitCode: 0 };
+        return {
+          stdout: "",
+          stderr: "You are not logged into any GitHub hosts.",
+          exitCode: 4,
+        };
+      }
+      return { stdout: "", stderr: "unexpected", exitCode: 1 };
+    });
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    let exitCode: number | null = null;
+    const origExit = process.exit;
+    // @ts-expect-error - test stub
+    process.exit = ((code: number) => {
+      exitCode = code;
+      throw new Error(`__exit:${code}`);
+    }) as unknown as typeof process.exit;
+    try {
+      await syncCommand(ctx, { cwd: repo.path });
+    } catch (e) {
+      if (!(e instanceof Error) || !e.message.startsWith("__exit:")) throw e;
+    } finally {
+      process.exit = origExit;
+      logs.restore();
+    }
+    expect(exitCode).toBe(1);
+    expect(logs.out.join("\n")).toMatch(/retargeted PR #10/);
+    expect(logs.err.join("\n")).toMatch(/Could not retarget PR #11/);
+  });
+
+  test("detached HEAD: errors and exits 1", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "C\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    // Detach HEAD
+    const sha = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["checkout", sha], { cwd: repo.path });
+
+    const { gh } = stubGh(ghPRMap({}));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    let exitCode: number | null = null;
+    const origExit = process.exit;
+    // @ts-expect-error - test stub
+    process.exit = ((code: number) => {
+      exitCode = code;
+      throw new Error(`__exit:${code}`);
+    }) as unknown as typeof process.exit;
+    try {
+      await syncCommand(ctx, { cwd: repo.path });
+    } catch (e) {
+      if (!(e instanceof Error) || !e.message.startsWith("__exit:")) throw e;
+    } finally {
+      process.exit = origExit;
+      logs.restore();
+    }
+    expect(exitCode).toBe(1);
+    expect(logs.err.join("\n")).toMatch(/detached HEAD/i);
+  });
 });

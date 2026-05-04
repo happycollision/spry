@@ -9,7 +9,7 @@ import {
 } from "../git/index.ts";
 import { requireCleanWorkingTree } from "../git/status.ts";
 import { parseCommitTrailers, parseStack } from "../parse/index.ts";
-import type { CommitWithTrailers, PRUnit } from "../parse/index.ts";
+import type { PRUnit } from "../parse/index.ts";
 import { formatValidationError } from "../ui/format.ts";
 import {
   listRemoteBranches,
@@ -62,14 +62,7 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   const existing = await listRemoteBranches(ctx.git, config.remote, config.branchPrefix, { cwd });
 
   // 4. Push phase — only branches that already exist remotely
-  const pushedBranches = await pushExistingBranches(
-    ctx,
-    config,
-    units,
-    withTrailers,
-    existing,
-    cwd,
-  );
+  const pushResult = await pushExistingBranches(ctx, config, units, existing, cwd);
 
   // 5. (--open handling — added in Tasks 6 and 7)
   if (opts.open !== undefined) {
@@ -77,8 +70,13 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   }
 
   // 6. Retarget phase — gh required, falls back gracefully
-  await retargetMismatched(ctx, config, units, pushedBranches, cwd);
+  const retargetHadFailure = await retargetMismatched(ctx, config, units, pushResult.pushed, cwd);
 
+  const hadFailure = pushResult.hadFailure || retargetHadFailure;
+  if (hadFailure) {
+    console.log("⚠ Sync completed with warnings");
+    process.exit(1);
+  }
   console.log("✓ Sync complete");
 }
 
@@ -86,23 +84,20 @@ async function pushExistingBranches(
   ctx: SpryContext,
   config: SpryConfig,
   units: PRUnit[],
-  commits: CommitWithTrailers[],
   existing: Set<string>,
   cwd: string | undefined,
-): Promise<string[]> {
+): Promise<{ pushed: string[]; hadFailure: boolean }> {
   const pushed: string[] = [];
+  let hadFailure = false;
   for (const unit of units) {
     const branch = branchForUnit(unit, config);
     if (!existing.has(branch)) continue;
     const headHash = unit.commits.at(-1);
     if (!headHash) continue;
-    // Re-resolve SHA in case trailer injection changed it
-    const headCommit = commits.find((c) => c.hash === headHash);
-    const sha = headCommit?.hash ?? headHash;
     const result = await pushBranch(ctx.git, {
       cwd,
       remote: config.remote,
-      sha,
+      sha: headHash,
       branch,
       forceWithLease: true,
     });
@@ -110,14 +105,14 @@ async function pushExistingBranches(
       console.log(`↑ pushed ${branch}`);
       pushed.push(branch);
     } else if (result.reason === "stale-ref") {
-      console.error(
-        `✗ Refusing to overwrite ${branch}: remote diverged. Run \`git fetch\` and try again.`,
-      );
+      hadFailure = true;
+      console.error(`⚠ Skipped ${branch}: remote diverged. Run \`git fetch\` and try again.`);
     } else {
-      console.error(`✗ Failed to push ${branch}: ${result.stderr.trim()}`);
+      hadFailure = true;
+      console.error(`⚠ Failed to push ${branch}: ${result.stderr.trim()}`);
     }
   }
-  return pushed;
+  return { pushed, hadFailure };
 }
 
 function expectedBaseFor(unit: PRUnit, units: PRUnit[], config: SpryConfig): string {
@@ -133,18 +128,21 @@ async function retargetMismatched(
   units: PRUnit[],
   branches: string[],
   cwd: string | undefined,
-): Promise<void> {
-  if (branches.length === 0) return;
+): Promise<boolean> {
+  if (branches.length === 0) return false;
 
   let prMap;
   try {
     prMap = await findPRsForBranches(ctx, branches, { cwd });
   } catch (err) {
+    // Documented graceful-degradation path: branches were updated; gh just
+    // can't retarget. Not counted as a failure.
     const hint = retargetingFallbackHint(err);
     console.log(kleur.dim(`${hint} (branches still updated)`));
-    return;
+    return false;
   }
 
+  let hadFailure = false;
   for (const unit of units) {
     const branch = branchForUnit(unit, config);
     const pr = prMap.get(branch);
@@ -155,10 +153,12 @@ async function retargetMismatched(
       await retargetPR(ctx, pr.number, expected, { cwd });
       console.log(`↻ retargeted PR #${pr.number} → ${expected}`);
     } catch (err) {
+      hadFailure = true;
       const message = err instanceof Error ? err.message : String(err);
       console.error(`⚠ Could not retarget PR #${pr.number}: ${message}`);
     }
   }
+  return hadFailure;
 }
 
 function retargetingFallbackHint(err: unknown): string {
