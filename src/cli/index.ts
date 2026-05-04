@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
+import { syncCommand } from "../commands/sync.ts";
 import { viewCommand } from "../commands/view.ts";
 import { createRealGitRunner, createRealGhClient } from "../lib/context.ts";
 import type { SpryContext } from "../lib/context.ts";
@@ -18,5 +19,14 @@ program
   .description("View the current stack of commits with PR status")
   .option("--no-fetch", "Skip GitHub enrichment (local view only)")
   .action((opts: { fetch: boolean }) => viewCommand(ctx, { noFetch: !opts.fetch }));
+
+program
+  .command("sync")
+  .description("Sync the current stack to GitHub")
+  .option("--open [ids]", "Open PRs for selected units (no value = TUI selector)")
+  .action((opts: { open?: string | true }) => {
+    const open = opts.open === undefined ? undefined : opts.open === true ? null : opts.open;
+    return syncCommand(ctx, { open });
+  });
 
 program.parse();
