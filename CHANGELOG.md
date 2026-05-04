@@ -47,6 +47,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   classifies infra failures into `EnrichmentError` (`no-gh` | `auth` |
   `network` | `no-remote`).
 - `PRInfo.reviewThreads: { resolved, total }` from extended GraphQL query.
+- `sp sync` command — first writer in the rebuild.
+  - Bare `sp sync` injects missing `Spry-Commit-Id` trailers, then pushes any
+    units whose `<branchPrefix>/<unit-id>` ref already exists on the remote.
+    Never creates new remote branches. Force-with-lease semantics. After
+    pushing, looks up PRs and retargets any whose base ref doesn't match the
+    current local stack order. If gh is unavailable (no-gh / auth /
+    no-remote / network), prints a hint and exits cleanly — branches were
+    still pushed.
+  - `sp sync --open <ids>` (comma-separated, full or prefix-matched unit
+    IDs) pushes branches and creates PRs for the selected single-commit
+    units. PR title = commit subject; PR body = commit prose with all
+    trailers stripped. Each PR is opened with the appropriate base from the
+    local stack order. Errors if any target is a group, has no match, has
+    multiple matches, or already has a published branch. If a target's push
+    fails, dependent targets are skipped to avoid `gh pr create --base
+<missing-branch>`.
+  - `sp sync --open` (no value) drops into a TUI multi-select listing the
+    units that don't yet have remote branches; cancellable with Esc/Ctrl+C.
+    Already-published and group units are shown disabled with a hint.
+    Cancelling falls through to the retarget phase so push-phase work is
+    still reconciled.
+  - Partial failures (push or PR-creation errors) cause the command to
+    print `⚠ Sync completed with warnings` and exit 1, so CI scripts catch
+    them.
+- `src/gh/pr-body.ts` — pure `formatPRTitle`, `formatPRBody`, and
+  `stripTrailers` helpers. `stripTrailers` removes the entire trailer block
+  (Spry-Commit-Id, Co-Authored-By, Signed-off-by, etc.) when preceded by a
+  blank line.
+- `src/gh/push.ts` — `pushBranch` (force-with-lease, classifies stale-ref
+  vs other rejection) and `listRemoteBranches` (returns `Set<string>` for a
+  given prefix).
+- `src/gh/pr.ts` — `createPR` and `retargetPR` write operations. Both use
+  the shared retry predicate; bodies are passed via stdin (`--body-file -`)
+  to avoid shell-quoting and arg-length limits.
+- `createRealGhClient` extended to forward `stdin` symmetrically with
+  `createRealGitRunner`.
+- `src/tui/select.ts` — multi-select widget over the Phase 1
+  `TerminalDriver`. Handles Space/Enter/Esc/Ctrl+C/'a'/Arrow keys with
+  wrap-around. First feature use of the PTY infrastructure. Restores
+  terminal state on errors and signals (SIGINT/SIGTERM).
+- `src/git/queries.ts` — `getStackCommits`/`getStackCommitsForBranch` now
+  use `%b` (body without subject) so `CommitInfo.body` matches the contract
+  the rest of the codebase already assumed. `parseCommitTrailers` and
+  `injectMissingIds` reconstruct full messages before calling
+  `git interpret-trailers --parse`.
 
 ### Changed
 
