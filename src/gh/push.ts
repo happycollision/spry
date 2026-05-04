@@ -12,11 +12,7 @@ export type PushResult =
   | { ok: true }
   | { ok: false; reason: "rejected" | "stale-ref"; stderr: string };
 
-const STALE_REF_PATTERNS = [
-  /stale info/i,
-  /rejected.*non-fast-forward/i,
-  /failed to push some refs/i,
-];
+const STALE_REF_PATTERNS = [/stale info/i, /rejected.*non-fast-forward/i];
 
 export async function pushBranch(git: GitRunner, opts: PushOptions): Promise<PushResult> {
   const refspec = `${opts.sha}:refs/heads/${opts.branch}`;

@@ -95,6 +95,33 @@ describe("pushBranch", () => {
       expect(result.reason).toBe("stale-ref");
     }
   });
+
+  test("returns reason: 'rejected' for non-stale rejections (e.g. hook decline)", async () => {
+    const repo = await makeRepo();
+    const git = createRealGitRunner();
+    await repo.branch("feature");
+    const sha = await repo.commit("Work");
+
+    // Install a pre-receive hook in the bare origin that always rejects
+    const hookPath = `${repo.originPath}/hooks/pre-receive`;
+    await Bun.write(hookPath, "#!/bin/sh\necho 'hook says no' >&2\nexit 1\n");
+    // chmod via fs (Bun.write doesn't preserve exec bit)
+    const { chmod } = await import("node:fs/promises");
+    await chmod(hookPath, 0o755);
+
+    const result = await pushBranch(git, {
+      cwd: repo.path,
+      remote: "origin",
+      sha,
+      branch: "spry/test/aaa11111",
+      forceWithLease: true,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("rejected");
+      expect(result.stderr).toMatch(/hook|declined/i);
+    }
+  });
 });
 
 describe("listRemoteBranches", () => {
@@ -135,6 +162,15 @@ describe("listRemoteBranches", () => {
   test("returns empty set when no matching branches exist", async () => {
     const repo = await makeRepo();
     const git = createRealGitRunner();
+    await repo.branch("feature");
+    const sha = await repo.commit("Work");
+    await pushBranch(git, {
+      cwd: repo.path,
+      remote: "origin",
+      sha,
+      branch: "other/zzz",
+      forceWithLease: true,
+    });
     const set = await listRemoteBranches(git, "origin", "spry/nope", { cwd: repo.path });
     expect(set.size).toBe(0);
   });
