@@ -45,11 +45,12 @@ describe("parseCommitTrailers", () => {
   });
 
   test("preserves hash, subject, and body in output", async () => {
+    // body is the post-`%b` shape: trailer-only, no subject prefix
     const commits: CommitInfo[] = [
       {
         hash: "abc123",
         subject: "My subject",
-        body: "My subject\n\nSpry-Commit-Id: id1\n",
+        body: "Spry-Commit-Id: id1\n",
         trailers: {},
       },
     ];
@@ -57,7 +58,7 @@ describe("parseCommitTrailers", () => {
     const result = await parseCommitTrailers(commits, git);
     expect(result[0]!.hash).toBe("abc123");
     expect(result[0]!.subject).toBe("My subject");
-    expect(result[0]!.body).toBe("My subject\n\nSpry-Commit-Id: id1\n");
+    expect(result[0]!.body).toBe("Spry-Commit-Id: id1\n");
   });
 
   test("returns empty array for empty input", async () => {
