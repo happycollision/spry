@@ -120,6 +120,36 @@ describe("createPR", () => {
     );
     expect(calls).toHaveLength(1);
   });
+
+  test("parses URL from stdout even with preamble lines", async () => {
+    const { ctx } = makeCtx([
+      {
+        stdout:
+          "Creating pull request for spry/test/aaa into main in owner/repo\nhttps://github.com/owner/repo/pull/99\n",
+        stderr: "",
+        exitCode: 0,
+      },
+    ]);
+    const result = await createPR(ctx, { title: "T", head: "h", base: "b", body: "" });
+    expect(result.number).toBe(99);
+    expect(result.url).toBe("https://github.com/owner/repo/pull/99");
+  });
+
+  test("body with shell-special characters reaches stdin verbatim", async () => {
+    const body = "Line 1\n--flag-looking\n$VAR `cmd` \"quoted\" 'apostrophes'";
+    const { ctx, calls } = makeCtx([
+      { stdout: "https://github.com/owner/repo/pull/1\n", stderr: "", exitCode: 0 },
+    ]);
+    await createPR(ctx, { title: "T", head: "h", base: "b", body });
+    expect(calls[0]?.stdin).toBe(body);
+  });
+
+  test("throws helpful error when stdout has no PR URL", async () => {
+    const { ctx } = makeCtx([{ stdout: "ok\n", stderr: "", exitCode: 0 }]);
+    await expect(createPR(ctx, { title: "T", head: "h", base: "b", body: "" })).rejects.toThrow(
+      /could not parse PR URL.*ok/,
+    );
+  });
 });
 
 describe("retargetPR", () => {
@@ -142,5 +172,16 @@ describe("retargetPR", () => {
   test("throws on auth failure", async () => {
     const { ctx } = makeCtx([{ stdout: "", stderr: "authentication required", exitCode: 4 }]);
     await expect(retargetPR(ctx, 1, "main")).rejects.toBeInstanceOf(GhAuthError);
+  });
+
+  test("retargetPR throws plain Error after retry exhaustion", async () => {
+    const transient: CommandResult = {
+      stdout: "",
+      stderr: "HTTP 503: Service Unavailable",
+      exitCode: 1,
+    };
+    const { ctx, calls } = makeCtx([transient, transient, transient]);
+    await expect(retargetPR(ctx, 1, "main")).rejects.toThrow(/gh failed/);
+    expect(calls).toHaveLength(3);
   });
 });

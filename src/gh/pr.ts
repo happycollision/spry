@@ -209,6 +209,12 @@ function classifyError(stderr: string): "not-installed" | "auth" | "other" {
   return "other";
 }
 
+function ghRetryPredicate(r: CommandResult): boolean {
+  if (r.exitCode === 0) return false;
+  if (classifyError(r.stderr) !== "other") return false;
+  return isTransientFailure(r);
+}
+
 function throwForFailure(result: CommandResult): never {
   const kind = classifyError(result.stderr);
   if (kind === "not-installed") throw new GhNotInstalledError();
@@ -222,14 +228,7 @@ async function lookupOne(
   options?: FindPRsOptions,
 ): Promise<PRInfo | null> {
   const args = ["api", "graphql", "-F", `branch=${branch}`, "-f", `query=${PR_QUERY}`];
-  const result = await withRetry(
-    () => ctx.gh.run(args, { cwd: options?.cwd }),
-    (r) => {
-      if (r.exitCode === 0) return false;
-      if (classifyError(r.stderr) !== "other") return false;
-      return isTransientFailure(r);
-    },
-  );
+  const result = await withRetry(() => ctx.gh.run(args, { cwd: options?.cwd }), ghRetryPredicate);
 
   if (result.exitCode !== 0) throwForFailure(result);
   return parsePRResponse(result.stdout);
@@ -284,19 +283,14 @@ export async function createPR(
   ];
   const result = await withRetry(
     () => ctx.gh.run(args, { cwd: options?.cwd, stdin: params.body }),
-    (r) => {
-      if (r.exitCode === 0) return false;
-      if (classifyError(r.stderr) !== "other") return false;
-      return isTransientFailure(r);
-    },
+    ghRetryPredicate,
   );
   if (result.exitCode !== 0) throwForFailure(result);
-  const url = result.stdout.trim().split("\n").pop() ?? "";
-  const match = url.match(PR_URL_PATTERN);
+  const match = result.stdout.match(PR_URL_PATTERN);
   if (!match) {
     throw new Error(`createPR: could not parse PR URL from gh output: ${result.stdout}`);
   }
-  return { number: Number(match[1]), url };
+  return { number: Number(match[1]), url: match[0] };
 }
 
 export async function retargetPR(
@@ -306,13 +300,6 @@ export async function retargetPR(
   options?: { cwd?: string },
 ): Promise<void> {
   const args = ["pr", "edit", String(prNumber), "--base", newBase];
-  const result = await withRetry(
-    () => ctx.gh.run(args, { cwd: options?.cwd }),
-    (r) => {
-      if (r.exitCode === 0) return false;
-      if (classifyError(r.stderr) !== "other") return false;
-      return isTransientFailure(r);
-    },
-  );
+  const result = await withRetry(() => ctx.gh.run(args, { cwd: options?.cwd }), ghRetryPredicate);
   if (result.exitCode !== 0) throwForFailure(result);
 }
