@@ -27,6 +27,26 @@ sp sync --open aaa11111
 
 ```
 
+Run `sp sync --open` (no arguments) to choose which unpublished branches to open as PRs. Spry shows an interactive menu — use Space to toggle, Enter to confirm:
+
+```
+sp sync --open
+```
+
+```
+Select units to open (space toggle, a all, enter confirm, esc cancel):
+> [ ] aaa11111  Add login
+
+```
+
+```
+↑ pushed spry/dondenton/aaa11111
+✓ Created PR #42: Add login
+  https://github.com/owner/repo/pull/42
+✓ Sync complete
+
+```
+
 On a branch with no commits ahead of trunk, `sp sync` no-ops:
 
 ```
