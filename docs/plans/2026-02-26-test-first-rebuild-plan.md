@@ -15,6 +15,7 @@
 ## Task 0: The Reset
 
 **Files:**
+
 - Delete: `src/` (entire directory)
 - Delete: `tests/` (entire directory)
 - Modify: `package.json` (strip feature-specific scripts, keep infrastructure)
@@ -112,6 +113,7 @@ ported incrementally, each gated by full test coverage."
 The first building block — used by everything else for test isolation.
 
 **Files:**
+
 - Create: `tests/lib/unique-id.ts`
 - Create: `tests/lib/unique-id.test.ts`
 
@@ -192,6 +194,7 @@ git commit -m "feat(test-lib): add unique ID generator for test isolation"
 ## Task 2: GitRunner Interface & Real Implementation
 
 **Files:**
+
 - Create: `tests/lib/context.ts` (SpryContext and interfaces)
 - Create: `tests/lib/git-runner.ts` (RealGitRunner)
 - Create: `tests/lib/git-runner.test.ts`
@@ -301,6 +304,7 @@ git commit -m "feat(test-lib): add GitRunner interface and real implementation"
 ## Task 3: GhClient Interface & Real Implementation
 
 **Files:**
+
 - Modify: `tests/lib/context.ts` (already has GhClient interface)
 - Create: `tests/lib/gh-client.ts`
 - Create: `tests/lib/gh-client.test.ts`
@@ -375,6 +379,7 @@ git commit -m "feat(test-lib): add GhClient interface and real implementation"
 ## Task 4: Recording Client Wrapper
 
 **Files:**
+
 - Create: `tests/lib/cassette.ts` (cassette read/write)
 - Create: `tests/lib/recording-client.ts` (RecordingClient wrapper)
 - Create: `tests/lib/recording-client.test.ts`
@@ -521,6 +526,7 @@ git commit -m "feat(test-lib): add recording client wrapper with cassette storag
 ## Task 5: Replaying Client
 
 **Files:**
+
 - Create: `tests/lib/replaying-client.ts`
 - Create: `tests/lib/replaying-client.test.ts`
 
@@ -656,6 +662,7 @@ git commit -m "feat(test-lib): add replaying client for cassette-based test repl
 Prove the full cycle works: record with a real command, then replay it.
 
 **Files:**
+
 - Create: `tests/lib/record-replay.integration.test.ts`
 
 **Step 1: Write the test**
@@ -717,6 +724,7 @@ git commit -m "test(test-lib): add record/replay integration test proving full c
 ## Task 7: RepoScenario Builder — Core
 
 **Files:**
+
 - Create: `tests/lib/repo.ts`
 - Create: `tests/lib/repo.test.ts`
 
@@ -936,6 +944,7 @@ git commit -m "feat(test-lib): add RepoScenario builder with local + origin repo
 Wraps `createRepo` with automatic cleanup via bun:test lifecycle hooks.
 
 **Files:**
+
 - Create: `tests/lib/repo-manager.ts`
 - Create: `tests/lib/repo-manager.test.ts`
 
@@ -1019,6 +1028,7 @@ git commit -m "feat(test-lib): add repo manager with automatic lifecycle cleanup
 Core of the TerminalDriver — parses ANSI escape sequences and maintains a virtual screen buffer.
 
 **Files:**
+
 - Create: `tests/lib/ansi-parser.ts`
 - Create: `tests/lib/ansi-parser.test.ts`
 
@@ -1342,6 +1352,7 @@ git commit -m "feat(test-lib): add ANSI parser with virtual screen buffer"
 ## Task 10: TerminalDriver
 
 **Files:**
+
 - Create: `tests/lib/terminal-driver.ts`
 - Create: `tests/lib/terminal-driver.test.ts`
 
@@ -1559,6 +1570,7 @@ git commit -m "feat(test-lib): add TerminalDriver with PTY spawning and screen c
 ## Task 11: DocEmitter
 
 **Files:**
+
 - Create: `tests/lib/doc.ts`
 - Create: `tests/lib/doc.test.ts`
 
@@ -1737,12 +1749,13 @@ git commit -m "feat(test-lib): add DocEmitter for test-derived documentation"
 Assembles doc fragments into markdown files.
 
 **Files:**
+
 - Create: `scripts/build-docs.ts`
 - Create: `scripts/build-docs.test.ts`
 
 **Step 1: Write the failing test**
 
-```ts
+````ts
 // scripts/build-docs.test.ts
 import { test, expect } from "bun:test";
 import { assembleMarkdown } from "./build-docs.ts";
@@ -1804,7 +1817,7 @@ test("screen entries render as code blocks", () => {
 
   expect(groupDoc).toContain("```\nGroup Editor - 3 commits");
 });
-```
+````
 
 **Step 2: Run test to verify it fails**
 
@@ -1907,6 +1920,7 @@ git commit -m "feat(test-lib): add doc builder script for assembling test-derive
 The bridge between tests and the CLI. Returns `{ command, result }` where `command` is the exact invocation string (single source of truth for docs).
 
 **Files:**
+
 - Create: `tests/lib/run.ts`
 - Create: `tests/lib/run.test.ts`
 
@@ -2043,6 +2057,7 @@ git commit -m "feat(test-lib): add command runner with single-source-of-truth co
 Barrel export for the test library, plus a smoke test that exercises all four pillars together.
 
 **Files:**
+
 - Create: `tests/lib/index.ts`
 - Create: `tests/lib/smoke.test.ts`
 
@@ -2163,6 +2178,7 @@ All four testing pillars verified working together:
 ## Task 15: Update CI and Docker for New Structure
 
 **Files:**
+
 - Modify: `.github/workflows/ci.yml`
 - Modify: `scripts/test-docker.sh`
 - Modify: `bunfig.toml`
@@ -2234,3 +2250,30 @@ After completing Tasks 0-15, you will have:
 - Every pillar validated with its own tests plus an end-to-end smoke test
 
 Phase 2 (feature ports) begins after this. Each feature gets its own plan document following the same task structure.
+
+---
+
+## Documentation Testing Standard
+
+Every command and every option — whether non-interactive or TUI — must have at least one `docTest` entry. This is a hard requirement, not a nice-to-have.
+
+### Non-interactive options
+
+Use `createRunner` (or call the command function directly with a stub `SpryContext`) and capture output with `doc.command()` + `doc.output()`. This is the pattern established in `tests/commands/sync.doc.test.ts` and `tests/commands/view.doc.test.ts`.
+
+### TUI options (interactive menus, pickers, editors)
+
+Use the **subprocess harness pattern**:
+
+1. Create `tests/fixtures/<command>-tui-harness.ts` — a thin script that constructs a `SpryContext` with a stub `GhClient` and calls the command function with the interactive option (`open: null`, etc.)
+2. In the `docTest`, spawn the harness via `createTerminalDriver` so the TUI runs in a real PTY
+3. Drive it with keypresses (`driver.press("Space")`, `driver.press("Enter")`, etc.)
+4. Capture the menu with `doc.screen()` — trim trailing blank rows from the 24-row grid before passing
+5. Wait for completion with `driver.waitForText("...", { timeout: 15000 })`
+6. Extract sync output lines from the screen buffer and pass to `doc.output()`
+
+This pattern is established in `tests/fixtures/sync-tui-harness.ts` + the order-25 `docTest` in `tests/commands/sync.doc.test.ts`. Use it as the template for all future TUI docTests.
+
+### Coverage checklist per command plan
+
+Each command plan's docTest task must explicitly list every option and confirm each has a `docTest` entry. If an option is intentionally excluded, the reason must be documented inline. "Not yet settled" is not an acceptable reason — the harness pattern eliminates the previous blocker (stub gh injection).

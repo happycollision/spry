@@ -2276,8 +2276,6 @@ describe("sp sync docs", () => {
 });
 ```
 
-(`--open` examples need a stub gh capable of receiving `pr create` and parroting back a URL. The real CLI run in `runSp` cannot easily inject a stub. Skip `--open` doc fragments in this iteration — they can be added once the cassette story for write ops is settled.)
-
 **Step 2: Run the doc tests**
 
 ```bash
@@ -2292,7 +2290,7 @@ Expected: PASS.
 bun run docs:build
 ```
 
-Expected: `docs/generated/commands/sync.md` is produced with two sections.
+Expected: `docs/generated/commands/sync.md` is produced with sections for "Pushing existing branches", "Opening a new PR", "Auto-injecting commit IDs", "Retargeting stacked PRs", and "Empty stack".
 
 **Step 4: Verify determinism**
 
@@ -2307,6 +2305,152 @@ Expected: empty diff. If non-empty, find the dynamic value and add a `doc.scrub(
 ```bash
 git add tests/commands/sync.doc.test.ts docs/generated/commands/sync.md
 git commit -m "test(sync): doc-producing tests for sp sync"
+```
+
+---
+
+## Task 9b: Doc-producing test for `sp sync --open` (TUI path)
+
+Every command option must have a docTest — including the interactive `--open` (no args) TUI path. The non-interactive `--open <ids>` path is covered in Task 9. This task covers the menu-driven selection flow.
+
+**Approach:** Create a thin subprocess harness (`tests/fixtures/sync-tui-harness.ts`) that constructs a `SpryContext` with a stub `GhClient` and calls `syncCommand(ctx, { open: null })`. Spawn it via `createTerminalDriver` so the TUI runs in a real PTY and can be driven with keypresses. The `doc.screen()` entry captures the menu; `doc.output()` captures the sync result. No fake binary on PATH needed — DI handles `gh`.
+
+**Files:**
+
+- Create: `tests/fixtures/sync-tui-harness.ts`
+- Modify: `tests/commands/sync.doc.test.ts` (add order-25 docTest)
+- Generated: `docs/generated/commands/sync.md` (regenerated)
+
+**Step 1: Create the harness**
+
+```typescript
+// tests/fixtures/sync-tui-harness.ts
+#!/usr/bin/env bun
+import { syncCommand } from "../../src/commands/sync.ts";
+import { createRealGitRunner } from "../lib/index.ts";
+import type { GhClient, CommandOptions, CommandResult, SpryContext } from "../lib/index.ts";
+
+const cwd = process.argv[2];
+if (!cwd) {
+  console.error("Usage: sync-tui-harness.ts <repo-cwd>");
+  process.exit(1);
+}
+
+const gh: GhClient = {
+  async run(args: string[], _opts?: CommandOptions): Promise<CommandResult> {
+    if (args[0] === "pr" && args[1] === "create") {
+      return { stdout: "https://github.com/owner/repo/pull/42\n", stderr: "", exitCode: 0 };
+    }
+    return {
+      stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: [] } } } }),
+      stderr: "",
+      exitCode: 0,
+    };
+  },
+};
+
+const runner = createRealGitRunner();
+const ctx: SpryContext = {
+  git: {
+    run: (args: string[], opts?: { cwd?: string }) =>
+      runner.run(args, { ...opts, cwd: opts?.cwd ?? cwd }),
+  },
+  gh,
+};
+
+await syncCommand(ctx, { cwd, open: null });
+```
+
+**Step 2: Add the docTest**
+
+Add to `tests/commands/sync.doc.test.ts` alongside existing imports:
+
+```typescript
+import { createTerminalDriver } from "../lib/index.ts";
+const harnessPath = join(import.meta.dir, "../fixtures/sync-tui-harness.ts");
+```
+
+Add inside `describe("sp sync docs", ...)`:
+
+```typescript
+docTest(
+  "Selecting which branches to open as PRs",
+  { section: "commands/sync", order: 25 },
+  async (doc) => {
+    const repo = await createRepo();
+    repos.push(repo);
+    doc.scrub(repo);
+    const git = createRealGitRunner();
+
+    await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
+    await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+    await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
+
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(
+      ["commit", "--allow-empty", "-m", "Add login\n\nSpry-Commit-Id: aaa11111"],
+      { cwd: repo.path },
+    );
+
+    doc.prose(
+      "Run `sp sync --open` (no arguments) to choose which unpublished branches to open as PRs. Spry shows an interactive menu — use Space to toggle, Enter to confirm:",
+    );
+    doc.command("sp sync --open");
+
+    const driver = await createTerminalDriver("bun", [harnessPath, repo.path], {
+      cols: 80,
+      rows: 24,
+    });
+    repos.push({ cleanup: () => driver.close() });
+
+    await driver.waitForText("Add login");
+
+    // Capture the TUI menu state (trim trailing blank rows from 24-row grid)
+    const menuLines = driver.capture().lines;
+    const lastMenuRow = menuLines.findLastIndex((l) => l.trim() !== "");
+    doc.screen(menuLines.slice(0, lastMenuRow + 1).join("\n") + "\n");
+
+    driver.press("Space");
+    driver.press("Enter");
+
+    // Note: if this times out, the harness likely hit an error — print driver.capture().text to diagnose
+    await driver.waitForText("Sync complete", { timeout: 15000 });
+
+    const snap = driver.capture();
+    const syncLines = snap.lines
+      .map((l) => l.trimEnd())
+      .filter(
+        (l) =>
+          l.includes("pushed") ||
+          l.includes("Created") ||
+          l.includes("Sync complete") ||
+          l.includes("https://") ||
+          l.includes("↑") ||
+          l.includes("✓"),
+      );
+    doc.output(syncLines.join("\n") + "\n");
+
+    const { expect } = await import("bun:test");
+    expect(snap.text).toContain("Sync complete");
+    expect(syncLines.join("\n")).toContain("pull/42");
+  },
+);
+```
+
+**Step 3: Run and verify**
+
+```bash
+bun run test:local:docker tests/commands/sync.doc.test.ts
+bun run docs:build
+```
+
+Expected: all tests pass; `docs/generated/commands/sync.md` includes a "Selecting which branches to open as PRs" section with a TUI screen block and sync output block.
+
+**Step 4: Commit**
+
+```bash
+git add tests/fixtures/sync-tui-harness.ts tests/commands/sync.doc.test.ts docs/generated/commands/sync.md
+git commit -m "test(sync): end-to-end docTest for sp sync --open TUI selection"
 ```
 
 ---
