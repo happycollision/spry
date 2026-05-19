@@ -285,8 +285,10 @@ describe("sp sync docs", () => {
       // Wait for TUI to render (label is "<id>  <subject>", substring match is sufficient)
       await driver.waitForText("Add login");
 
-      // Capture the menu before any selection — this is the clean TUI state for docs
-      doc.screen(driver.capture().text);
+      // Capture the menu before any selection — trim trailing blank rows from the 24-row grid
+      const menuLines = driver.capture().lines;
+      const lastMenuRow = menuLines.findLastIndex((l) => l.trim() !== "");
+      doc.screen(menuLines.slice(0, lastMenuRow + 1).join("\n") + "\n");
 
       // Select the candidate and confirm
       driver.press("Space");
@@ -306,6 +308,7 @@ describe("sp sync docs", () => {
             l.includes("pushed") ||
             l.includes("Created") ||
             l.includes("Sync complete") ||
+            l.includes("https://") ||
             l.includes("↑") ||
             l.includes("✓"),
         );
@@ -313,7 +316,7 @@ describe("sp sync docs", () => {
 
       const { expect } = await import("bun:test");
       expect(snap.text).toContain("Sync complete");
-      expect(snap.text).toContain("pull/42");
+      expect(syncLines.join("\n")).toContain("pull/42");
     },
   );
 
