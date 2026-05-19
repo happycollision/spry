@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { syncCommand } from "../../src/commands/sync.ts";
 import { createRealGitRunner } from "../lib/index.ts";
 import type { GhClient, CommandOptions, CommandResult, SpryContext } from "../lib/index.ts";
