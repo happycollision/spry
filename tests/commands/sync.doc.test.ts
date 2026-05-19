@@ -1,10 +1,17 @@
 import { describe, afterAll } from "bun:test";
 import { join } from "node:path";
-import { docTest, createRunner, createRepo, createRealGitRunner } from "../lib/index.ts";
+import {
+  docTest,
+  createRunner,
+  createRepo,
+  createRealGitRunner,
+  createTerminalDriver,
+} from "../lib/index.ts";
 import type { GhClient, CommandResult, CommandOptions, SpryContext } from "../lib/index.ts";
 import { syncCommand } from "../../src/commands/sync.ts";
 
 const cliPath = join(import.meta.dir, "../../src/cli/index.ts");
+const harnessPath = join(import.meta.dir, "../fixtures/sync-tui-harness.ts");
 const runSp = createRunner(cliPath);
 
 const repos: Array<{ cleanup(): Promise<void> }> = [];
@@ -243,6 +250,72 @@ describe("sp sync docs", () => {
     expect(lines.join("\n")).toMatch(/retargeted PR #11/);
     expect(lines.join("\n")).toContain("Sync complete");
   });
+
+  docTest(
+    "Selecting which branches to open as PRs",
+    { section: "commands/sync", order: 25 },
+    async (doc) => {
+      const repo = await createRepo();
+      repos.push(repo);
+      doc.scrub(repo);
+      const git = createRealGitRunner();
+
+      await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
+      await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+      await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
+
+      await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+      await git.run(["commit", "--allow-empty", "-m", "Add login\n\nSpry-Commit-Id: aaa11111"], {
+        cwd: repo.path,
+      });
+
+      doc.prose(
+        "Run `sp sync --open` (no arguments) to choose which unpublished branches to open as PRs. Spry shows an interactive menu — use Space to toggle, Enter to confirm:",
+      );
+      doc.command("sp sync --open");
+
+      // Spawn the harness in a real PTY — TUI runs for real, gh is stubbed in-process
+      const driver = await createTerminalDriver("bun", [harnessPath, repo.path], {
+        cols: 80,
+        rows: 24,
+      });
+      // Register cleanup via the repos array so afterAll handles it
+      repos.push({ cleanup: () => driver.close() });
+
+      // Wait for TUI to render (label is "<id>  <subject>", substring match is sufficient)
+      await driver.waitForText("Add login");
+
+      // Capture the menu before any selection — this is the clean TUI state for docs
+      doc.screen(driver.capture().text);
+
+      // Select the candidate and confirm
+      driver.press("Space");
+      driver.press("Enter");
+
+      // Wait for sync to complete
+      // Note: if this times out, the harness likely hit an error path — print driver.capture().text to diagnose
+      await driver.waitForText("Sync complete", { timeout: 15000 });
+
+      // After the TUI exits, sync logs are appended to the 24-row buffer. The upper rows
+      // still contain TUI rendering artifacts. Extract only the sync output lines for docs.
+      const snap = driver.capture();
+      const syncLines = snap.lines
+        .map((l) => l.trimEnd())
+        .filter(
+          (l) =>
+            l.includes("pushed") ||
+            l.includes("Created") ||
+            l.includes("Sync complete") ||
+            l.includes("↑") ||
+            l.includes("✓"),
+        );
+      doc.output(syncLines.join("\n") + "\n");
+
+      const { expect } = await import("bun:test");
+      expect(snap.text).toContain("Sync complete");
+      expect(snap.text).toContain("pull/42");
+    },
+  );
 
   docTest("Empty stack", { section: "commands/sync", order: 30 }, async (doc) => {
     const repo = await createRepo();
