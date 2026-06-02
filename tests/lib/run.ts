@@ -8,11 +8,7 @@ export interface RunResult {
   result: CommandResult;
 }
 
-export type SpryRunner = (
-  cwd: string,
-  command: string,
-  args?: string[],
-) => Promise<RunResult>;
+export type SpryRunner = (cwd: string, command: string, args?: string[]) => Promise<RunResult>;
 
 /**
  * Create a runner bound to a specific CLI entry point.
@@ -21,15 +17,13 @@ export type SpryRunner = (
  */
 export function createRunner(cliPath: string): SpryRunner {
   return async (cwd, command, args = []) => {
-    let proc = $`SPRY_NO_TTY=1 bun run ${cliPath} ${command} ${args}`
+    let proc = $`SPRY_NO_TTY=1 FORCE_COLOR=1 bun run ${cliPath} ${command} ${args}`
       .nothrow()
       .quiet();
     proc = proc.cwd(cwd);
     const result = await proc;
 
-    const commandStr = args.length > 0
-      ? `sp ${command} ${args.join(" ")}`
-      : `sp ${command}`;
+    const commandStr = args.length > 0 ? `sp ${command} ${args.join(" ")}` : `sp ${command}`;
 
     return {
       command: commandStr,
