@@ -14,7 +14,7 @@ import {
   resolveIdentifiers,
   formatResolutionError,
 } from "../parse/index.ts";
-import type { PRUnit, CommitInfo } from "../parse/index.ts";
+import type { PRUnit } from "../parse/index.ts";
 import type { CommitWithTrailers } from "../parse/index.ts";
 import { formatValidationError } from "../ui/format.ts";
 import {
@@ -25,8 +25,7 @@ import {
   createPR,
   formatPRTitle,
   formatPRBody,
-  GhAuthError,
-  GhNotInstalledError,
+  classifyGhInfraError,
 } from "../gh/index.ts";
 import type { SpryConfig } from "../git/config.ts";
 import { selectUnits } from "../tui/index.ts";
@@ -183,21 +182,6 @@ export function buildOpenCandidates(
 
 type ResolveTargetsResult = { ok: true; unitIds: string[] } | { ok: false; error: string };
 
-function commitsToInfos(commits: CommitWithTrailers[]): CommitInfo[] {
-  return commits.map((c) => {
-    const trailers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(c.trailers)) {
-      if (typeof v === "string") trailers[k] = v;
-    }
-    return {
-      hash: c.hash,
-      subject: c.subject,
-      body: c.body,
-      trailers,
-    };
-  });
-}
-
 function resolveOpenTargets(
   raw: string,
   units: PRUnit[],
@@ -213,7 +197,7 @@ function resolveOpenTargets(
     return { ok: false, error: "✗ --open: no IDs provided" };
   }
 
-  const commitInfos = commitsToInfos(commits);
+  const commitInfos = commits;
   const { unitIds, errors } = resolveIdentifiers(ids, units, commitInfos);
   if (errors.length > 0) {
     return { ok: false, error: errors.map((e) => formatResolutionError(e)).join("\n") };
@@ -264,7 +248,7 @@ async function openPRs(
   const failedPushTargets = new Set<string>();
   const branches: string[] = [];
   let hadFailure = false;
-  const commitInfos = commitsToInfos(commits);
+  const commitInfos = commits;
 
   for (let i = 0; i < units.length; i++) {
     const unit = units[i];
@@ -369,14 +353,9 @@ async function retargetMismatched(
 }
 
 function retargetingFallbackHint(err: unknown): string {
-  if (err instanceof GhNotInstalledError) {
-    return "PR retargeting unavailable: install gh (https://cli.github.com)";
-  }
-  if (err instanceof GhAuthError) {
-    return "PR retargeting unavailable: gh auth login";
-  }
-  if (err instanceof Error && /no github remotes|not a github/i.test(err.message)) {
-    return "PR retargeting unavailable: not a GitHub repository";
-  }
+  const kind = classifyGhInfraError(err);
+  if (kind === "no-gh") return "PR retargeting unavailable: install gh (https://cli.github.com)";
+  if (kind === "auth") return "PR retargeting unavailable: gh auth login";
+  if (kind === "no-remote") return "PR retargeting unavailable: not a GitHub repository";
   return "PR retargeting unavailable: network error";
 }
