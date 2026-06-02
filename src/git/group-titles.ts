@@ -75,3 +75,15 @@ export async function saveGroupTitle(
   const ref = await git.run(["update-ref", GROUPS_REF, commit.stdout.trim()], opts);
   if (ref.exitCode !== 0) throw new Error(`saveGroupTitle: update-ref failed: ${ref.stderr}`);
 }
+
+export async function fetchGroupTitles(
+  git: GitRunner,
+  remote: string,
+  opts?: GitOpts,
+): Promise<{ ok: true } | { ok: false; warning: string }> {
+  const refspec = `${GROUPS_REF}:${GROUPS_REF}`;
+  const result = await git.run(["fetch", remote, refspec], opts);
+  if (result.exitCode === 0) return { ok: true };
+  if (result.stderr.includes("couldn't find remote ref")) return { ok: true };
+  return { ok: false, warning: result.stderr.trim() };
+}

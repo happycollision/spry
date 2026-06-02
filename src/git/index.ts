@@ -58,4 +58,4 @@ export {
   formatConflictError,
 } from "./rebase.ts";
 
-export { loadGroupTitles, saveGroupTitle } from "./group-titles.ts";
+export { loadGroupTitles, saveGroupTitle, fetchGroupTitles } from "./group-titles.ts";

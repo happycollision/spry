@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { loadGroupTitles, saveGroupTitle } from "../../src/git/group-titles.ts";
+import { loadGroupTitles, saveGroupTitle, fetchGroupTitles } from "../../src/git/group-titles.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
 import type { TestRepo } from "../lib/index.ts";
 
@@ -61,5 +61,38 @@ describe("saveGroupTitle", () => {
 
     const titles = await loadGroupTitles(git, { cwd: repo.path });
     expect(titles["g1"]).toBe("New Title");
+  });
+});
+
+describe("fetchGroupTitles", () => {
+  test("returns ok when fetch succeeds", async () => {
+    const fakeGit = {
+      async run(_args: string[], _opts?: { cwd?: string; stdin?: string }) {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+    };
+    const result = await fetchGroupTitles(fakeGit, "origin");
+    expect(result.ok).toBe(true);
+  });
+
+  test("returns ok when remote has no groups ref", async () => {
+    const fakeGit = {
+      async run(_args: string[], _opts?: { cwd?: string; stdin?: string }) {
+        return { stdout: "", stderr: "couldn't find remote ref refs/spry/groups", exitCode: 128 };
+      },
+    };
+    const result = await fetchGroupTitles(fakeGit, "origin");
+    expect(result.ok).toBe(true);
+  });
+
+  test("returns warning on other fetch failure", async () => {
+    const fakeGit = {
+      async run(_args: string[], _opts?: { cwd?: string; stdin?: string }) {
+        return { stdout: "", stderr: "Connection refused", exitCode: 1 };
+      },
+    };
+    const result = await fetchGroupTitles(fakeGit, "origin");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.warning).toMatch(/Connection refused/);
   });
 });
