@@ -7,7 +7,7 @@ import {
   injectMissingIds,
   branchForUnit,
 } from "../git/index.ts";
-import { loadGroupTitles } from "../git/group-titles.ts";
+import { loadGroupTitles, fetchGroupTitles } from "../git/group-titles.ts";
 import { requireCleanWorkingTree } from "../git/status.ts";
 import {
   parseCommitTrailers,
@@ -57,6 +57,10 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   // 2. Re-read commits + parse stack
   const commits = await getStackCommits(ctx.git, ref, { cwd });
   const withTrailers = await parseCommitTrailers(commits, ctx.git, { cwd });
+  const fetchResult = await fetchGroupTitles(ctx.git, config.remote, { cwd });
+  if (!fetchResult.ok) {
+    console.log(kleur.dim(`⚠ Could not fetch group titles: ${fetchResult.warning}`));
+  }
   const groupTitles = await loadGroupTitles(ctx.git, { cwd });
   const result = parseStack(withTrailers, groupTitles);
   if (!result.ok) {

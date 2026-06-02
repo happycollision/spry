@@ -397,6 +397,35 @@ describe("syncCommand bare", () => {
     expect(logs.err.join("\n")).toMatch(/Could not retarget PR #11/);
   });
 
+  test("fetches refs/spry/groups before parsing stack", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+
+    const fetchedRefs: string[] = [];
+    const { gh } = stubGh(ghPRMap({}));
+    const realGit = createRealGitRunner();
+    const ctx: SpryContext = {
+      gh,
+      git: {
+        run: async (args, opts) => {
+          if (args[0] === "fetch") fetchedRefs.push(args.slice(1).join(" "));
+          return realGit.run(args, { ...opts, cwd: opts?.cwd ?? repo.path });
+        },
+      },
+    };
+    const logs = captureLogs();
+    try {
+      await syncCommand(ctx, { cwd: repo.path });
+    } finally {
+      logs.restore();
+    }
+    expect(fetchedRefs.some((r) => r.includes("refs/spry/groups"))).toBe(true);
+  });
+
   test("detached HEAD: errors and exits 1", async () => {
     const repo = await makeRepoWithConfig();
     const git = createRealGitRunner();
@@ -716,7 +745,8 @@ describe("syncCommand --open <ids>", () => {
       ["commit", "--allow-empty", "-m", "Second\n\nSpry-Commit-Id: bbb22222\nSpry-Group: grp00001"],
       { cwd: repo.path },
     );
-    await git.run(["config", "spry-group.grp00001.title", "Auth Feature"], { cwd: repo.path });
+    const { saveGroupTitle } = await import("../../src/git/group-titles.ts");
+    await saveGroupTitle(git, "grp00001", "Auth Feature", { cwd: repo.path });
 
     const { gh, calls } = stubGh((call) => {
       if (call.args[0] === "api" && call.args[1] === "graphql") {
