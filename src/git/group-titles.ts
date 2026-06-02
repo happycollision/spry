@@ -14,11 +14,9 @@ interface GitRunner {
 
 const GROUPS_REF = "refs/spry/groups";
 
-export async function loadGroupTitles(
-  git: GitRunner,
-  opts?: { cwd?: string },
-): Promise<GroupTitles> {
+export async function loadGroupTitles(git: GitRunner, opts?: GitOpts): Promise<GroupTitles> {
   const ls = await git.run(["ls-tree", GROUPS_REF], opts);
+  // Non-zero means the ref doesn't exist yet — normal on first use.
   if (ls.exitCode !== 0) return {};
 
   const titles: GroupTitles = {};
@@ -29,7 +27,9 @@ export async function loadGroupTitles(
     if (tab === -1) continue;
     const groupId = line.slice(tab + 1);
     const cat = await git.run(["cat-file", "blob", `${GROUPS_REF}:${groupId}`], opts);
-    if (cat.exitCode === 0) titles[groupId] = cat.stdout;
+    if (cat.exitCode !== 0)
+      throw new Error(`loadGroupTitles: cat-file failed for ${groupId}: ${cat.stderr}`);
+    titles[groupId] = cat.stdout;
   }
   return titles;
 }
@@ -38,7 +38,7 @@ export async function saveGroupTitle(
   git: GitRunner,
   groupId: string,
   title: string,
-  opts?: { cwd?: string },
+  opts?: GitOpts,
 ): Promise<void> {
   // Write blob
   const blob = await git.run(["hash-object", "-w", "--stdin"], { ...opts, stdin: title });
@@ -72,5 +72,6 @@ export async function saveGroupTitle(
     throw new Error(`saveGroupTitle: commit-tree failed: ${commit.stderr}`);
 
   // Update ref
-  await git.run(["update-ref", GROUPS_REF, commit.stdout.trim()], opts);
+  const ref = await git.run(["update-ref", GROUPS_REF, commit.stdout.trim()], opts);
+  if (ref.exitCode !== 0) throw new Error(`saveGroupTitle: update-ref failed: ${ref.stderr}`);
 }
