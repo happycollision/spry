@@ -57,3 +57,5 @@ export {
   getConflictInfo,
   formatConflictError,
 } from "./rebase.ts";
+
+export { loadGroupTitles, saveGroupTitle } from "./group-titles.ts";

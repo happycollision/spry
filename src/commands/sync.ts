@@ -7,6 +7,7 @@ import {
   injectMissingIds,
   branchForUnit,
 } from "../git/index.ts";
+import { loadGroupTitles } from "../git/group-titles.ts";
 import { requireCleanWorkingTree } from "../git/status.ts";
 import {
   parseCommitTrailers,
@@ -56,7 +57,8 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   // 2. Re-read commits + parse stack
   const commits = await getStackCommits(ctx.git, ref, { cwd });
   const withTrailers = await parseCommitTrailers(commits, ctx.git, { cwd });
-  const result = parseStack(withTrailers);
+  const groupTitles = await loadGroupTitles(ctx.git, { cwd });
+  const result = parseStack(withTrailers, groupTitles);
   if (!result.ok) {
     console.error(formatValidationError(result));
     process.exit(1);
@@ -164,11 +166,9 @@ export function buildOpenCandidates(
   return units.map((unit) => {
     const branch = branchForUnit(unit, config);
     const isPublished = existing.has(branch);
-    const isGroup = unit.type === "group";
-    const disabled = isPublished || isGroup;
+    const disabled = isPublished ? true : undefined;
     let hint: string | undefined;
     if (isPublished) hint = "(already published)";
-    else if (isGroup) hint = "(group — Step 7)";
     const label = `${unit.id}  ${unit.title ?? unit.subjects[0] ?? "Untitled"}`;
     const opt: { id: string; label: string; hint?: string; disabled?: boolean } = {
       id: unit.id,
@@ -206,14 +206,6 @@ function resolveOpenTargets(
   for (const id of unitIds) {
     const unit = units.find((u) => u.id === id);
     if (!unit) continue;
-    if (unit.type === "group") {
-      return {
-        ok: false,
-        error:
-          `✗ Groups not supported in --open yet (unit ${unit.id}).\n` +
-          `  Group title storage lands with \`sp group\` (Step 7). For now, --open works on singles.`,
-      };
-    }
     const branch = branchForUnit(unit, config);
     if (existing.has(branch)) {
       return {

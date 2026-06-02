@@ -36,9 +36,7 @@ export function formatPRTitle(unit: PRUnit, commits: CommitInfo[]): string {
 }
 
 export function formatPRBody(unit: PRUnit, commits: CommitInfo[]): string {
-  if (unit.type !== "single") {
-    throw new Error(`formatPRBody: groups not supported in Step 6 (unit ${unit.id})`);
-  }
+  if (unit.type !== "single") return "";
   const commit = commits.find((c) => c.hash === unit.commits[0]);
   if (!commit) return "";
   return stripTrailers(commit.body);

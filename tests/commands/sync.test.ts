@@ -704,7 +704,7 @@ describe("syncCommand --open <ids>", () => {
     expect(logs.err.join("\n")).toMatch(/No commit or group matching/i);
   });
 
-  test("--open of a group errors with deferral message", async () => {
+  test("--open of a group creates a PR with the stored group title", async () => {
     const repo = await makeRepoWithConfig();
     const git = createRealGitRunner();
     await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
@@ -716,8 +716,25 @@ describe("syncCommand --open <ids>", () => {
       ["commit", "--allow-empty", "-m", "Second\n\nSpry-Commit-Id: bbb22222\nSpry-Group: grp00001"],
       { cwd: repo.path },
     );
+    await git.run(["config", "spry-group.grp00001.title", "Auth Feature"], { cwd: repo.path });
 
-    const { gh } = stubGh(ghPRMap({}));
+    const { gh, calls } = stubGh((call) => {
+      if (call.args[0] === "api" && call.args[1] === "graphql") {
+        return {
+          stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: [] } } } }),
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "create") {
+        return {
+          stdout: "https://github.com/owner/repo/pull/42\n",
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
+    });
     const ctx = makeCtx(repo, gh);
     const logs = captureLogs();
     const origExit = process.exit;
@@ -726,13 +743,15 @@ describe("syncCommand --open <ids>", () => {
     }) as unknown as typeof process.exit;
     try {
       await syncCommand(ctx, { cwd: repo.path, open: "grp00001" });
-    } catch (e) {
-      if (!(e instanceof Error) || !e.message.startsWith("__exit:")) throw e;
     } finally {
       process.exit = origExit;
       logs.restore();
     }
-    expect(logs.err.join("\n")).toMatch(/Groups not supported/i);
+    const create = calls.find((c) => c.args[0] === "pr" && c.args[1] === "create");
+    expect(create).toBeDefined();
+    expect(create?.args).toContain("Auth Feature");
+    expect(create?.args).toContain("spry/test/grp00001");
+    expect(logs.out.join("\n")).toContain("Created PR #42");
   });
 });
 
@@ -770,10 +789,10 @@ describe("buildOpenCandidates", () => {
     expect(out[1]?.disabled).toBeUndefined();
   });
 
-  test("disables groups with a Step 7 hint", () => {
+  test("does not disable group units (they can be opened)", () => {
     const units = [single("aaa11111", "A"), group("grp00001", "G")];
     const out = buildOpenCandidates(units, new Set(), config);
-    expect(out[1]?.disabled).toBe(true);
-    expect(out[1]?.hint).toMatch(/Step 7/);
+    expect(out[1]?.disabled).toBeUndefined();
+    expect(out[1]?.hint).toBeUndefined();
   });
 });

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Group-title storage (`loadGroupTitles` / `saveGroupTitle` in `src/git/group-titles.ts`) persists group titles via `git config spry-group.<id>.title`; `sp sync` now loads stored titles so group PRs get correct titles
+- `sp sync --open <group-id>` now works for group units (group-title storage lands this capability)
+- `formatPRBody` now returns empty string for group units instead of throwing (Step 7)
+
 - Doc-fragment `doc.scrub(repo | pattern, replacement?)` helper so generated docs stay deterministic across test runs (eliminates per-run churn from random repo unique IDs and temp paths)
 - GitHub integration module (`src/gh/`) — read-only PR lookup
   - `findPRsForBranches(ctx, branches)` returns `Map<branch, PRInfo | null>` with state, baseRef, checks status, and review decision

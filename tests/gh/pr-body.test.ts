@@ -86,7 +86,7 @@ describe("formatPRBody", () => {
     expect(formatPRBody(unit, commits)).toBe("");
   });
 
-  test("throws for groups (not supported in Step 6)", () => {
+  test("returns empty string for a group unit", () => {
     const groupUnit: PRUnit = {
       type: "group",
       id: "grp1",
@@ -95,6 +95,6 @@ describe("formatPRBody", () => {
       commits: ["aaa", "bbb"],
       subjects: ["A", "B"],
     };
-    expect(() => formatPRBody(groupUnit, [])).toThrow(/groups not supported/i);
+    expect(formatPRBody(groupUnit, [])).toBe("");
   });
 });
