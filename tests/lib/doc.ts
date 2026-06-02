@@ -1,5 +1,7 @@
 import { test as bunTest } from "bun:test";
 import { join } from "node:path";
+import stripAnsi from "strip-ansi";
+import type { ScreenSnapshot } from "./ansi-parser.ts";
 import type { DocContext, DocEntry, DocFragment } from "./doc-types.ts";
 
 export type { DocContext, DocEntry, DocFragment } from "./doc-types.ts";
@@ -58,10 +60,26 @@ export function docTest(
         entries.push({ type: "command", content: applyScrub(input) });
       },
       output(text) {
-        entries.push({ type: "output", content: applyScrub(text) });
+        const plain = stripAnsi(text);
+        if (plain !== text) {
+          entries.push({
+            type: "output",
+            content: applyScrub(plain),
+            ansiContent: applyScrub(text),
+          });
+        } else {
+          entries.push({ type: "output", content: applyScrub(text) });
+        }
       },
-      screen(text) {
-        entries.push({ type: "screen", content: applyScrub(text) });
+      screen(snapshot: ScreenSnapshot) {
+        const lastRow = snapshot.lines.findLastIndex((l) => l.trim() !== "");
+        const trimmedLines = snapshot.lines.slice(0, lastRow + 1);
+        const ansiLines = snapshot.ansi.split("\n").slice(0, lastRow + 1);
+        entries.push({
+          type: "screen",
+          content: applyScrub(trimmedLines.join("\n") + "\n"),
+          ansiContent: applyScrub(ansiLines.join("\n") + "\n"),
+        });
       },
       scrub(arg: unknown, replacement?: string) {
         if (isRepoLike(arg)) {

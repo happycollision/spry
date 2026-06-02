@@ -2,6 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { join } from "node:path";
 import { rm, readFile } from "node:fs/promises";
 import { docTest, fragmentPath } from "./doc.ts";
+import type { ScreenSnapshot } from "./ansi-parser.ts";
 
 const repoRoot = join(import.meta.dir, "../..");
 const fragmentsDir = join(repoRoot, ".test-tmp/doc-fragments");
@@ -11,6 +12,9 @@ const cleanupPaths = [
   "doc__scrub__literal--901.json",
   "doc__scrub__regex--902.json",
   "doc__scrub__repo--903.json",
+  "doc__output_ansi__unit--911.json",
+  "doc__output_ansi__unit--912.json",
+  "doc__screen_ansi__unit--913.json",
 ];
 
 beforeAll(async () => {
@@ -50,7 +54,12 @@ docTest(
     doc.scrub("SECRET", "<redacted>");
     doc.command("echo SECRET");
     doc.output("value=SECRET");
-    doc.screen("frame SECRET");
+    doc.screen({
+      lines: ["frame SECRET"],
+      cursor: { x: 0, y: 0 },
+      text: "frame SECRET",
+      ansi: "frame SECRET",
+    });
     doc.prose("prose SECRET");
   },
 );
@@ -61,7 +70,7 @@ test("scrub literal: command/output/screen are scrubbed, prose is not", async ()
   expect(parsed.entries).toEqual([
     { type: "command", content: "echo <redacted>" },
     { type: "output", content: "value=<redacted>" },
-    { type: "screen", content: "frame <redacted>" },
+    { type: "screen", content: "frame <redacted>\n", ansiContent: "frame <redacted>\n" },
     { type: "prose", content: "prose SECRET" },
   ]);
 });
@@ -102,4 +111,55 @@ test("scrub(repo): paths replaced as a unit, dashed uniqueId collapses, bare uni
       content: "branch=feature cwd=/tmp/repo origin=/tmp/repo-origin",
     },
   ]);
+});
+
+docTest(
+  "output stores ansiContent when ANSI codes present",
+  { section: "doc/output_ansi/unit", order: 911 },
+  async (doc) => {
+    doc.output("\x1b[32mhello\x1b[0m world\n");
+  },
+);
+
+test("output_ansi: content is stripped, ansiContent is raw", async () => {
+  const path = fragmentPath({ section: "doc/output_ansi/unit", order: 911 });
+  const parsed = JSON.parse(await readFile(path, "utf8"));
+  expect(parsed.entries[0].content).toBe("hello world\n");
+  expect(parsed.entries[0].ansiContent).toBe("\x1b[32mhello\x1b[0m world\n");
+});
+
+docTest(
+  "output without ANSI has no ansiContent",
+  { section: "doc/output_ansi/unit", order: 912 },
+  async (doc) => {
+    doc.output("plain text\n");
+  },
+);
+
+test("output_plain: no ansiContent field when no ANSI", async () => {
+  const path = fragmentPath({ section: "doc/output_ansi/unit", order: 912 });
+  const parsed = JSON.parse(await readFile(path, "utf8"));
+  expect(parsed.entries[0].content).toBe("plain text\n");
+  expect(parsed.entries[0].ansiContent).toBeUndefined();
+});
+
+docTest(
+  "screen stores trimmed content and ansiContent from snapshot",
+  { section: "doc/screen_ansi/unit", order: 913 },
+  async (doc) => {
+    const fakeSnap: ScreenSnapshot = {
+      lines: ["hello world", "second line", "", ""],
+      cursor: { x: 0, y: 0 },
+      text: "hello world\nsecond line",
+      ansi: "\x1b[32mhello\x1b[0m world\nsecond line\n\n",
+    };
+    doc.screen(fakeSnap);
+  },
+);
+
+test("screen_ansi: trailing blank rows trimmed, ansiContent stored", async () => {
+  const path = fragmentPath({ section: "doc/screen_ansi/unit", order: 913 });
+  const parsed = JSON.parse(await readFile(path, "utf8"));
+  expect(parsed.entries[0].content).toBe("hello world\nsecond line\n");
+  expect(parsed.entries[0].ansiContent).toBe("\x1b[32mhello\x1b[0m world\nsecond line\n");
 });
