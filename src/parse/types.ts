@@ -7,11 +7,7 @@ export interface CommitInfo {
   trailers: Record<string, string>;
 }
 
-export interface CommitTrailers {
-  "Spry-Commit-Id"?: string;
-  "Spry-Group"?: string;
-  [key: string]: string | undefined;
-}
+export type CommitTrailers = Record<string, string>;
 
 export interface PRUnit {
   type: "single" | "group";
