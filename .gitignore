@@ -42,3 +42,6 @@ docker/.env
 
 # Test temp dir (cassettes, doc fragments, scratch)
 .test-tmp/
+
+# Git worktrees
+.worktrees/
