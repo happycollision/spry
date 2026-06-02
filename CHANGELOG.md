@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Group-title storage (`loadGroupTitles` / `saveGroupTitle` in `src/git/group-titles.ts`) now persists group titles via a commit-tree at `refs/spry/groups` instead of `git config`; avoids polluting `.git/config` and works in bare/shared repos
+
 ### Added
 
 - Group-title storage (`loadGroupTitles` / `saveGroupTitle` in `src/git/group-titles.ts`) persists group titles via `git config spry-group.<id>.title`; `sp sync` now loads stored titles so group PRs get correct titles
