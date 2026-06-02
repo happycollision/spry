@@ -29,7 +29,7 @@ export async function loadGroupTitles(git: GitRunner, opts?: GitOpts): Promise<G
     const cat = await git.run(["cat-file", "blob", `${GROUPS_REF}:${groupId}`], opts);
     if (cat.exitCode !== 0)
       throw new Error(`loadGroupTitles: cat-file failed for ${groupId}: ${cat.stderr}`);
-    titles[groupId] = cat.stdout;
+    titles[groupId] = cat.stdout.trim();
   }
   return titles;
 }
