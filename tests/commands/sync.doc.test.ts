@@ -285,10 +285,8 @@ describe("sp sync docs", () => {
       // Wait for TUI to render (label is "<id>  <subject>", substring match is sufficient)
       await driver.waitForText("Add login");
 
-      // Capture the menu before any selection — trim trailing blank rows from the 24-row grid
-      const menuLines = driver.capture().lines;
-      const lastMenuRow = menuLines.findLastIndex((l) => l.trim() !== "");
-      doc.screen(menuLines.slice(0, lastMenuRow + 1).join("\n") + "\n");
+      // Capture the menu before any selection
+      doc.screen(driver.capture());
 
       // Select the candidate and confirm
       driver.press("Space");
