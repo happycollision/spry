@@ -28,8 +28,7 @@ describe("loadGroupTitles", () => {
 
   test("returns stored group title by group id", async () => {
     const repo = await makeRepo();
-    const { $ } = await import("bun");
-    await $`git config spry-group.g1.title "Auth Feature"`.cwd(repo.path).quiet();
+    await saveGroupTitle(git, "g1", "Auth Feature", { cwd: repo.path });
 
     const titles = await loadGroupTitles(git, { cwd: repo.path });
     expect(titles["g1"]).toBe("Auth Feature");
@@ -37,9 +36,8 @@ describe("loadGroupTitles", () => {
 
   test("returns multiple stored group titles", async () => {
     const repo = await makeRepo();
-    const { $ } = await import("bun");
-    await $`git config spry-group.g1.title "Auth Feature"`.cwd(repo.path).quiet();
-    await $`git config spry-group.g2.title "Login Flow"`.cwd(repo.path).quiet();
+    await saveGroupTitle(git, "g1", "Auth Feature", { cwd: repo.path });
+    await saveGroupTitle(git, "g2", "Login Flow", { cwd: repo.path });
 
     const titles = await loadGroupTitles(git, { cwd: repo.path });
     expect(titles["g1"]).toBe("Auth Feature");
