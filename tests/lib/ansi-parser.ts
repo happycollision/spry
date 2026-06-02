@@ -80,7 +80,16 @@ export function createScreenBuffer(cols: number, rows: number): ScreenBuffer {
       }
     }
     const lastCell = cells[lastCol];
-    if (!lastCell || (lastCell.char === " " && lastCol === 0)) return "";
+    if (
+      !lastCell ||
+      (lastCell.char === " " &&
+        lastCol === 0 &&
+        lastCell.fg === null &&
+        lastCell.bg === null &&
+        !lastCell.bold &&
+        !lastCell.dim)
+    )
+      return "";
 
     let out = "";
     let prev: Omit<Cell, "char"> = { fg: null, bg: null, bold: false, dim: false };
