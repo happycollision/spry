@@ -44,6 +44,14 @@ test("all four pillars work together", async () => {
   expect(screen.lineAt(0)).toBe("Group Editor");
   expect(screen.lineAt(1)).toContain("→ [A] abc123 First commit");
 
+  // Pillar 3 extension: ANSI color tracking
+  const colorScreen = createScreenBuffer(20, 3);
+  colorScreen.write("\x1b[32mhello\x1b[0m world");
+  const colorSnap = colorScreen.capture();
+  expect(colorSnap.ansi).toContain("\x1b[32mhello\x1b[0m");
+  expect(colorSnap.ansi).toContain(" world");
+  expect(colorSnap.text).toBe("hello world"); // plain text unchanged
+
   // Pillar 4: DocEmitter (disk write)
   // Using Bun.write directly to avoid registering a bun test inside a bun test.
   const smokeFragment = {
