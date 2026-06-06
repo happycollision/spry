@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Group membership now stored in `refs/spry/groups` alongside titles instead of `Spry-Group` commit trailers. Each group record is a JSON blob `{"title":"...","members":["commitId1",...]}`. `parseStack` now accepts an explicit `CommitGroupMap` (Spry-Commit-Id → groupId) instead of reading `Spry-Group` from commit messages, so grouping never requires a commit rewrite.
+- `loadGroupTitles`/`saveGroupTitle`/`fetchGroupTitles` replaced by `loadGroupRecords`/`saveGroupRecord`/`fetchGroupRecords` plus `buildCommitGroupMap` and `extractGroupTitles` helpers.
+- `sp view` now fetches and loads group records so groups appear correctly (previously group titles were not loaded in view).
+
 ### Added
 
 - Group-title storage (`loadGroupTitles` / `saveGroupTitle` / `fetchGroupTitles` in `src/git/group-titles.ts`) persists group titles as a metadata commit tree at `refs/spry/groups`; portable across clones and collaborators

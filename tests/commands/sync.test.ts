@@ -737,16 +737,19 @@ describe("syncCommand --open <ids>", () => {
     const repo = await makeRepoWithConfig();
     const git = createRealGitRunner();
     await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
-    await git.run(
-      ["commit", "--allow-empty", "-m", "First\n\nSpry-Commit-Id: aaa11111\nSpry-Group: grp00001"],
+    await git.run(["commit", "--allow-empty", "-m", "First\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    await git.run(["commit", "--allow-empty", "-m", "Second\n\nSpry-Commit-Id: bbb22222"], {
+      cwd: repo.path,
+    });
+    const { saveGroupRecord } = await import("../../src/git/group-titles.ts");
+    await saveGroupRecord(
+      git,
+      "grp00001",
+      { title: "Auth Feature", members: ["aaa11111", "bbb22222"] },
       { cwd: repo.path },
     );
-    await git.run(
-      ["commit", "--allow-empty", "-m", "Second\n\nSpry-Commit-Id: bbb22222\nSpry-Group: grp00001"],
-      { cwd: repo.path },
-    );
-    const { saveGroupTitle } = await import("../../src/git/group-titles.ts");
-    await saveGroupTitle(git, "grp00001", "Auth Feature", { cwd: repo.path });
 
     const { gh, calls } = stubGh((call) => {
       if (call.args[0] === "api" && call.args[1] === "graphql") {

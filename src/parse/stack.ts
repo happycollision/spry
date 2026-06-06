@@ -1,4 +1,10 @@
-import type { CommitTrailers, PRUnit, GroupTitles, StackParseResult } from "./types.ts";
+import type {
+  CommitTrailers,
+  PRUnit,
+  GroupTitles,
+  CommitGroupMap,
+  StackParseResult,
+} from "./types.ts";
 
 export interface CommitWithTrailers {
   hash: string;
@@ -7,13 +13,17 @@ export interface CommitWithTrailers {
   trailers: CommitTrailers;
 }
 
-export function detectPRUnits(commits: CommitWithTrailers[], titles: GroupTitles = {}): PRUnit[] {
+export function detectPRUnits(
+  commits: CommitWithTrailers[],
+  titles: GroupTitles = {},
+  commitGroups: CommitGroupMap = {},
+): PRUnit[] {
   const units: PRUnit[] = [];
   let currentGroup: PRUnit | null = null;
 
   for (const commit of commits) {
     const commitId = commit.trailers["Spry-Commit-Id"];
-    const groupId = commit.trailers["Spry-Group"];
+    const groupId = commitId ? commitGroups[commitId] : undefined;
 
     if (groupId) {
       if (currentGroup && currentGroup.id === groupId) {
@@ -54,6 +64,7 @@ export function detectPRUnits(commits: CommitWithTrailers[], titles: GroupTitles
 export function parseStack(
   commits: CommitWithTrailers[],
   titles: GroupTitles = {},
+  commitGroups: CommitGroupMap = {},
 ): StackParseResult {
   const groupPositions = new Map<string, number[]>();
   const groupCommits = new Map<string, string[]>();
@@ -61,7 +72,8 @@ export function parseStack(
   for (let i = 0; i < commits.length; i++) {
     const commit = commits[i];
     if (!commit) continue;
-    const groupId = commit.trailers["Spry-Group"];
+    const commitId = commit.trailers["Spry-Commit-Id"];
+    const groupId = commitId ? commitGroups[commitId] : undefined;
     if (groupId) {
       const positions = groupPositions.get(groupId) || [];
       positions.push(i);
@@ -102,5 +114,5 @@ export function parseStack(
     }
   }
 
-  return { ok: true, units: detectPRUnits(commits, titles) };
+  return { ok: true, units: detectPRUnits(commits, titles, commitGroups) };
 }

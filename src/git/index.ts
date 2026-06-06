@@ -58,4 +58,11 @@ export {
   formatConflictError,
 } from "./rebase.ts";
 
-export { loadGroupTitles, saveGroupTitle, fetchGroupTitles } from "./group-titles.ts";
+export {
+  loadGroupRecords,
+  saveGroupRecord,
+  fetchGroupRecords,
+  buildCommitGroupMap,
+  extractGroupTitles,
+} from "./group-titles.ts";
+export type { GroupRecord } from "../parse/types.ts";

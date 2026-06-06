@@ -1,4 +1,4 @@
-import type { GroupTitles } from "../parse/types.ts";
+import type { GroupTitles, GroupRecord, GroupRecords, CommitGroupMap } from "../parse/types.ts";
 
 interface GitOpts {
   cwd?: string;
@@ -14,35 +14,58 @@ interface GitRunner {
 
 const GROUPS_REF = "refs/spry/groups";
 
-export async function loadGroupTitles(git: GitRunner, opts?: GitOpts): Promise<GroupTitles> {
+export async function loadGroupRecords(git: GitRunner, opts?: GitOpts): Promise<GroupRecords> {
   const ls = await git.run(["ls-tree", GROUPS_REF], opts);
   // Non-zero means the ref doesn't exist yet — normal on first use.
   if (ls.exitCode !== 0) return {};
 
-  const titles: GroupTitles = {};
+  const records: GroupRecords = {};
   for (const line of ls.stdout.trim().split("\n")) {
     if (!line) continue;
-    // format: "<mode> blob <sha>\t<name>"
     const tab = line.indexOf("\t");
     if (tab === -1) continue;
     const groupId = line.slice(tab + 1);
     const cat = await git.run(["cat-file", "blob", `${GROUPS_REF}:${groupId}`], opts);
     if (cat.exitCode !== 0)
-      throw new Error(`loadGroupTitles: cat-file failed for ${groupId}: ${cat.stderr}`);
-    titles[groupId] = cat.stdout.trim();
+      throw new Error(`loadGroupRecords: cat-file failed for ${groupId}: ${cat.stderr}`);
+    try {
+      records[groupId] = JSON.parse(cat.stdout.trim()) as GroupRecord;
+    } catch {
+      // Skip malformed entries — don't crash on corrupt or legacy plain-text blobs
+    }
+  }
+  return records;
+}
+
+export function buildCommitGroupMap(records: GroupRecords): CommitGroupMap {
+  const map: CommitGroupMap = {};
+  for (const [groupId, record] of Object.entries(records)) {
+    for (const commitId of record.members) {
+      map[commitId] = groupId;
+    }
+  }
+  return map;
+}
+
+export function extractGroupTitles(records: GroupRecords): GroupTitles {
+  const titles: GroupTitles = {};
+  for (const [groupId, record] of Object.entries(records)) {
+    titles[groupId] = record.title;
   }
   return titles;
 }
 
-export async function saveGroupTitle(
+export async function saveGroupRecord(
   git: GitRunner,
   groupId: string,
-  title: string,
+  record: GroupRecord,
   opts?: GitOpts,
 ): Promise<void> {
+  const content = JSON.stringify(record);
+
   // Write blob
-  const blob = await git.run(["hash-object", "-w", "--stdin"], { ...opts, stdin: title });
-  if (blob.exitCode !== 0) throw new Error(`saveGroupTitle: hash-object failed: ${blob.stderr}`);
+  const blob = await git.run(["hash-object", "-w", "--stdin"], { ...opts, stdin: content });
+  if (blob.exitCode !== 0) throw new Error(`saveGroupRecord: hash-object failed: ${blob.stderr}`);
   const blobSha = blob.stdout.trim();
 
   // Read existing tree entries (excluding this groupId)
@@ -60,23 +83,23 @@ export async function saveGroupTitle(
   const newEntry = `100644 blob ${blobSha}\t${groupId}`;
   const treeInput = [...existing, newEntry].join("\n") + "\n";
   const tree = await git.run(["mktree"], { ...opts, stdin: treeInput });
-  if (tree.exitCode !== 0) throw new Error(`saveGroupTitle: mktree failed: ${tree.stderr}`);
+  if (tree.exitCode !== 0) throw new Error(`saveGroupRecord: mktree failed: ${tree.stderr}`);
   const treeSha = tree.stdout.trim();
 
   // Create commit (with parent if ref exists)
-  const commitArgs = ["commit-tree", treeSha, "-m", `set group title: ${groupId}`];
+  const commitArgs = ["commit-tree", treeSha, "-m", `set group record: ${groupId}`];
   const parent = await git.run(["rev-parse", "--verify", GROUPS_REF], opts);
   if (parent.exitCode === 0) commitArgs.push("-p", parent.stdout.trim());
   const commit = await git.run(commitArgs, opts);
   if (commit.exitCode !== 0)
-    throw new Error(`saveGroupTitle: commit-tree failed: ${commit.stderr}`);
+    throw new Error(`saveGroupRecord: commit-tree failed: ${commit.stderr}`);
 
   // Update ref
   const ref = await git.run(["update-ref", GROUPS_REF, commit.stdout.trim()], opts);
-  if (ref.exitCode !== 0) throw new Error(`saveGroupTitle: update-ref failed: ${ref.stderr}`);
+  if (ref.exitCode !== 0) throw new Error(`saveGroupRecord: update-ref failed: ${ref.stderr}`);
 }
 
-export async function fetchGroupTitles(
+export async function fetchGroupRecords(
   git: GitRunner,
   remote: string,
   opts?: GitOpts,

@@ -24,8 +24,17 @@ export interface GroupInfo {
   commits: string[];
 }
 
-/** Type alias — storage/retrieval deferred to Git operations phase */
 export type GroupTitles = Record<string, string>;
+
+export interface GroupRecord {
+  title: string;
+  members: string[]; // Spry-Commit-Id values
+}
+
+export type GroupRecords = Record<string, GroupRecord>;
+
+// Maps Spry-Commit-Id → group ID — built from GroupRecords, passed to parseStack
+export type CommitGroupMap = Record<string, string>;
 
 export type StackParseResult =
   | { ok: true; units: PRUnit[] }
