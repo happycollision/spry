@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { createRealGitRunner, repoManager } from "../lib/index.ts";
 import { viewCommand } from "../../src/commands/view.ts";
+import { saveGroupRecord } from "../../src/git/group-titles.ts";
 import type { SpryContext } from "../../src/lib/context.ts";
 
 const repos = repoManager();
@@ -176,6 +177,42 @@ describe("viewCommand", () => {
     expect(exitCode).toBe(0);
     expect(plain).toContain("○ C");
     expect(ghCalled).toBe(false);
+  });
+
+  test("group commits stored in refs/spry/groups are shown as a group with stored title", async () => {
+    const repo = await repos.create();
+    const git = createRealGitRunner();
+    await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
+    await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+    await git.run(["config", "spry.branchPrefix", "spry/test"], { cwd: repo.path });
+
+    await git.run(["checkout", "-b", "feature/grouped"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "Auth part 1\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    await git.run(["commit", "--allow-empty", "-m", "Auth part 2\n\nSpry-Commit-Id: bbb22222"], {
+      cwd: repo.path,
+    });
+
+    await saveGroupRecord(
+      git,
+      "grp00001",
+      { title: "Auth Feature", members: ["aaa11111", "bbb22222"] },
+      { cwd: repo.path },
+    );
+
+    const ctx = createCtx(repo.path);
+    const { stdout, exitCode } = await captureView(ctx, { noFetch: true });
+    const plain = stripAnsi(stdout);
+
+    expect(exitCode).toBe(0);
+    // Group title from ref appears as the unit header
+    expect(plain).toContain("Auth Feature");
+    // Individual commit subjects appear as sub-entries within the group
+    expect(plain).toContain("Auth part 1");
+    expect(plain).toContain("Auth part 2");
+    // Both commits are grouped under one unit, not shown as separate PR units
+    expect(plain).toContain("2 commits");
   });
 
   test("default (no --no-fetch) calls gh and falls back gracefully when gh missing", async () => {
