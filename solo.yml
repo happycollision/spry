@@ -1,0 +1,17 @@
+name: spry
+icon: null
+processes:
+  Clean, Test, Rebuild docs:
+    command: bun run docs:clean && bun run test:docker ./**/*.doc.test.ts &&  bun run docs:build
+    working_dir: null
+    auto_start: false
+    auto_restart: false
+    restart_when_changed: []
+    env: {}
+  bun:test:
+    command: bun run test
+    working_dir: null
+    auto_start: false
+    auto_restart: false
+    restart_when_changed: []
+    env: {}
