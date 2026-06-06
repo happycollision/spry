@@ -201,8 +201,12 @@ export function createScreenBuffer(cols: number, rows: number): ScreenBuffer {
       case "H":
       case "f": {
         const parts = params.split(";");
-        cursor.y = Math.max(0, Math.min(rows - 1, parseInt(parts[0] ?? "1", 10) - 1));
-        cursor.x = Math.max(0, Math.min(cols - 1, parseInt(parts[1] ?? "1", 10) - 1));
+        // VT100: absent or 0 params default to 1 (1-based).
+        // ?? guards null/undefined but not "", so use || 1 after parseInt.
+        const row = parseInt(parts[0] ?? "", 10) || 1;
+        const col = parseInt(parts[1] ?? "", 10) || 1;
+        cursor.y = Math.max(0, Math.min(rows - 1, row - 1));
+        cursor.x = Math.max(0, Math.min(cols - 1, col - 1));
         break;
       }
       case "J":

@@ -253,7 +253,7 @@ describe("sp sync docs", () => {
 
   docTest(
     "Selecting which branches to open as PRs",
-    { section: "commands/sync", order: 25 },
+    { section: "commands/sync", order: 25, timeout: 40000 },
     async (doc) => {
       const repo = await createRepo();
       repos.push(repo);
@@ -283,7 +283,8 @@ describe("sp sync docs", () => {
       repos.push({ cleanup: () => driver.close() });
 
       // Wait for TUI to render (label is "<id>  <subject>", substring match is sufficient)
-      await driver.waitForText("Add login");
+      // 15 s matches the later waitForText — Bun cold-start + git ops can exceed 5 s in Docker
+      await driver.waitForText("Add login", { timeout: 15000 });
 
       // Capture the menu before any selection
       doc.screen(driver.capture());

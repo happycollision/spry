@@ -51,15 +51,14 @@ export async function createTerminalDriver(
       cols,
       rows,
       data(_terminal, data) {
-        const text =
-          typeof data === "string" ? data : new TextDecoder().decode(data);
+        const text = typeof data === "string" ? data : new TextDecoder().decode(data);
         screen.write(text);
       },
     },
   });
 
   function type(text: string): void {
-    proc.terminal!.write(text);
+    proc.terminal?.write(text);
   }
 
   function press(key: string): void {
@@ -69,23 +68,30 @@ export async function createTerminalDriver(
     } else if (key.length === 1) {
       type(key);
     } else {
-      throw new Error(
-        `Unknown key: "${key}". Use KEY_MAP entries or single characters.`,
-      );
+      throw new Error(`Unknown key: "${key}". Use KEY_MAP entries or single characters.`);
     }
   }
 
-  async function waitForText(
-    text: string,
-    opts?: { timeout?: number },
-  ): Promise<void> {
+  async function waitForText(text: string, opts?: { timeout?: number }): Promise<void> {
     const timeout = opts?.timeout ?? 5000;
     const pollInterval = 50;
     const deadline = Date.now() + timeout;
 
     while (Date.now() < deadline) {
+      // Fail fast if the process has already exited — prevents waiting the full
+      // timeout when the harness crashes before rendering the expected text.
+      const exitCode = await Promise.race([
+        proc.exited.then((code) => code),
+        Bun.sleep(0).then(() => null),
+      ]);
       const snapshot = screen.capture();
       if (snapshot.text.includes(text)) return;
+      if (exitCode !== null) {
+        throw new Error(
+          `Process exited (code ${exitCode}) before text "${text}" appeared.\n` +
+            `Screen at exit:\n${snapshot.text}`,
+        );
+      }
       await Bun.sleep(pollInterval);
     }
 

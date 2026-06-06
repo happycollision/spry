@@ -55,9 +55,10 @@ test("waitForText times out if text never appears", async () => {
     rows: 24,
   });
 
-  await expect(
-    term.waitForText("this will never appear", { timeout: 500 }),
-  ).rejects.toThrow(/timeout/i);
+  // May throw "Timeout" (process still running) or "Process exited" (exited early)
+  await expect(term.waitForText("this will never appear", { timeout: 500 })).rejects.toThrow(
+    /timeout|process exited/i,
+  );
 
   await term.close();
 });
