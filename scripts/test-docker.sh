@@ -18,7 +18,7 @@ usage() {
     echo ""
     echo "Commands:"
     echo "  shell [2.40|2.38]    Start interactive shell (default: 2.40)"
-    echo "  test [2.40|2.38]     Run all unit tests (default: 2.40)"
+    echo "  test [2.40|2.38] [files...]  Run all unit tests (default: 2.40), or specific files/globs"
     echo "  test-all             Run both test suites (2.40 full, 2.38 version only)"
     echo "  test-local           Run integration tests (local only, no GitHub)"
     echo "  test-github          Run integration tests with GitHub API"
@@ -58,13 +58,24 @@ run_docker_test() {
 }
 
 test_cmd() {
-    local version="${1:-2.40}"
+    local version="2.40"
+    local extra_args=""
+
+    # If first arg looks like a version number, consume it; otherwise treat all args as bun test args
+    if [ "${1:-}" = "2.40" ] || [ "${1:-}" = "2.38" ]; then
+        version="$1"
+        shift
+    fi
+    extra_args="$*"
+
     local service=$(get_service "$version")
     local test_cmd="bun test"
 
     # Only run version tests for old git
     if [ "$version" = "2.38" ]; then
         test_cmd="bun test tests/git-version.test.ts"
+    elif [ -n "$extra_args" ]; then
+        test_cmd="bun test $extra_args"
     fi
 
     run_docker_test "$service" "$test_cmd"
@@ -113,7 +124,8 @@ case "${1:-help}" in
         shell_cmd "$2"
         ;;
     test)
-        test_cmd "$2"
+        shift
+        test_cmd "$@"
         ;;
     test-local)
         test_local_cmd
