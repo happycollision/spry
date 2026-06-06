@@ -1,7 +1,7 @@
 import { test, expect, afterEach } from "bun:test";
 import { join } from "node:path";
 import { mkdir, rm, readFile } from "node:fs/promises";
-import { assembleMarkdown, buildDocsFromDisk } from "./build-docs.ts";
+import { assembleMarkdown, assembleHtml, buildDocsFromDisk } from "./build-docs.ts";
 import type { DocFragment } from "../tests/lib/doc-types.ts";
 
 test("assembles fragments into markdown grouped by section", () => {
@@ -99,9 +99,80 @@ test("buildDocsFromDisk reads fragments and writes markdown", async () => {
   expect(markdown).toContain("Hello, docs.");
   expect(markdown).toContain("```\nsp demo\n```");
   expect(markdown.indexOf("Hello, docs.")).toBeLessThan(markdown.indexOf("sp demo"));
+
+  const html = await readFile(join(outDir, "commands/demo.html"), "utf8");
+  expect(html).toContain("<!DOCTYPE html>");
+  expect(html).toContain("Hello, docs.");
 });
 
 test("buildDocsFromDisk returns 0 when fragments dir is missing", async () => {
   const count = await buildDocsFromDisk(join(tmpRoot, "nonexistent"), join(tmpRoot, "out"));
   expect(count).toBe(0);
+});
+
+test("assembleHtml renders prose as <p> and plain output as <pre class=output>", () => {
+  const fragments: DocFragment[] = [
+    {
+      title: "Basic sync",
+      section: "commands/sync",
+      order: 10,
+      entries: [
+        { type: "prose", content: "Run sync:" },
+        { type: "command", content: "sp sync" },
+        { type: "output", content: "✓ Synced" },
+      ],
+    },
+  ];
+
+  const result = assembleHtml(fragments);
+  const html = result.get("commands/sync");
+  expect(html).toBeDefined();
+  expect(html).toContain("<p>Run sync:</p>");
+  expect(html).toContain('class="command"');
+  expect(html).toContain("sp sync");
+  expect(html).toContain('class="output"');
+  expect(html).toContain("✓ Synced");
+});
+
+test("assembleHtml renders ansiContent as colored spans for output", () => {
+  const fragments: DocFragment[] = [
+    {
+      title: "Colored output",
+      section: "commands/color",
+      order: 10,
+      entries: [
+        {
+          type: "output",
+          content: "hello world",
+          ansiContent: "\x1b[32mhello\x1b[0m world",
+        },
+      ],
+    },
+  ];
+
+  const result = assembleHtml(fragments);
+  const html = result.get("commands/color");
+  expect(html).toBeDefined();
+  expect(html).toContain("<span");
+  expect(html).not.toContain("\x1b");
+  expect(html).toContain("hello");
+  expect(html).toContain("world");
+});
+
+test("assembleHtml produces valid standalone HTML structure", () => {
+  const fragments: DocFragment[] = [
+    {
+      title: "Demo",
+      section: "commands/demo",
+      order: 10,
+      entries: [{ type: "prose", content: "Demo command." }],
+    },
+  ];
+
+  const result = assembleHtml(fragments);
+  const html = result.get("commands/demo")!;
+  expect(html).toContain("<!DOCTYPE html>");
+  expect(html).toContain("<style>");
+  expect(html).toContain("</html>");
+  expect(html).toContain("Demo command.");
 });
