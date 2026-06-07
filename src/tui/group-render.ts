@@ -12,6 +12,8 @@ export function renderGroupEditor(state: GroupEditorState, branch: string): stri
   lines.push(`Stack: ${branch} (${state.rows.length} commit${state.rows.length === 1 ? "" : "s"})`);
   lines.push("");
 
+  const seenGroupLetters = new Set<string>();
+
   for (let i = 0; i < state.rows.length; i++) {
     const row = state.rows[i];
     if (!row) continue;
@@ -28,11 +30,18 @@ export function renderGroupEditor(state: GroupEditorState, branch: string): stri
     if (row.groupLetter) {
       const entry = state.groups.get(row.groupLetter);
       if (entry) {
-        const titleDisplay =
-          state.mode === "rename" && isCursor
+        const isFirstInGroup = !seenGroupLetters.has(row.groupLetter);
+        seenGroupLetters.add(row.groupLetter);
+        if (isFirstInGroup) {
+          const isBeingRenamed =
+            state.mode === "rename" && state.rows[state.cursor]?.groupLetter === row.groupLetter;
+          const titleDisplay = isBeingRenamed
             ? state.renameBuffer + "▌"
             : entry.title || kleur.dim("(no title)");
-        groupTag = ` [${row.groupLetter}: ${titleDisplay}]`;
+          groupTag = ` [${row.groupLetter}: ${titleDisplay}]`;
+        } else {
+          groupTag = ` [${row.groupLetter}]`;
+        }
       }
     }
 
