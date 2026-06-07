@@ -34,6 +34,8 @@ Use `bun test` to run tests ONLY after you have checked the version of Git that 
 
 If you change code that needs github integration, run the integration tests via either `test:github` (skips CI dependent tests for speed) or `test:ci` (runs all github tests).
 
+Every user-facing command or UI output must have doc-producing tests in a `tests/commands/<command>.doc.test.ts` file using the `docTest` helper from `tests/lib/index.ts`. Doc tests are the source of truth for generated documentation in `docs/generated/`. See `tests/commands/sync.doc.test.ts` or `tests/commands/view.doc.test.ts` for the pattern.
+
 ```ts#index.test.ts
 import { test, expect } from "bun:test";
 
