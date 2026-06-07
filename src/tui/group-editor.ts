@@ -103,11 +103,11 @@ export async function runGroupEditor(
         const event = keyToEvent(key);
         if (!event) continue;
 
-        const prevGrabbed = state.grabbed;
+        const prevOrder = state.rows.map((r) => r.hash).join();
         state = applyEvent(state, event);
 
-        // Trigger conflict prediction after each move step
-        if (state.mode === "move" && state.grabbed !== prevGrabbed) {
+        // Trigger conflict prediction after each reorder step in move mode
+        if (state.mode === "move" && state.rows.map((r) => r.hash).join() !== prevOrder) {
           updateConflicts(state).catch(() => {});
         }
       }
