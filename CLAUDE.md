@@ -1,3 +1,7 @@
+## Rebuild Roadmap
+
+See @docs/rebuild-roadmap.md for the feature gap between `main` and this branch, and decisions about what to port, redesign, or drop.
+
 ## Git
 
 Please don't use `git -C ...` because it makes it impossible for me to whitelist commands for you. Just be in the correct directory and do normal git operations. Please pass this instruction to any sub-agents you spawn.
