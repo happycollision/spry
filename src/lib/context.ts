@@ -28,7 +28,7 @@ export interface SpryContext {
 export function createRealGitRunner(): GitRunner {
   return {
     async run(args: string[], options?: CommandOptions): Promise<CommandResult> {
-      const input = options?.stdin ? Buffer.from(options.stdin) : undefined;
+      const input = options?.stdin !== undefined ? Buffer.from(options.stdin) : undefined;
       let proc = input
         ? $`git ${args} < ${input}`.nothrow().quiet()
         : $`git ${args}`.nothrow().quiet();

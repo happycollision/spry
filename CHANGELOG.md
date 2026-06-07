@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- PR status cache stored in `refs/spry/prs` — `sp view` now reads PR status instantly from a local git ref written by `sp sync`, with no `gh` API calls needed. Teammates can get PR status via `git fetch` without gh auth.
+- `sp sync` writes and pushes `refs/spry/prs` after each run; `sp view` reads from it.
+- `src/gh/pr-cache.ts` — `loadPRCache`, `savePRCache`, `fetchPRCache`, `pushPRCache`
+- `enrichFromCache` in `src/gh/enrich.ts` — synchronous cache-backed unit enrichment
+
 - `sp group` command — interactive TUI for grouping, renaming, and reordering commits
   - ↑↓ to move cursor, ←→ to assign/remove group membership
   - Space to grab a commit and reorder via ↑↓; live conflict prediction as you drag

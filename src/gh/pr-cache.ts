@@ -49,7 +49,13 @@ export async function savePRCache(git: GitRunner, cache: PRCache, opts?: GitOpts
     entries.push(`100644 blob ${blob.stdout.trim()}\t${unitId}`);
   }
 
-  const treeInput = entries.length > 0 ? entries.join("\n") + "\n" : "";
+  if (entries.length === 0) {
+    // Delete the ref to clear the cache; ignore error if ref doesn't exist
+    await git.run(["update-ref", "-d", PR_CACHE_REF], opts);
+    return;
+  }
+
+  const treeInput = entries.join("\n") + "\n";
   const tree = await git.run(["mktree"], { ...opts, stdin: treeInput });
   if (tree.exitCode !== 0) throw new Error(`savePRCache: mktree failed: ${tree.stderr}`);
 

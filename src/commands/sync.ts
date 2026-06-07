@@ -33,6 +33,9 @@ import {
   formatPRBody,
   classifyGhInfraError,
 } from "../gh/index.ts";
+import { fetchPRCache, savePRCache, pushPRCache } from "../gh/pr-cache.ts";
+import type { PRCache } from "../gh/pr-cache.ts";
+import type { PRInfo } from "../gh/pr.ts";
 import type { SpryConfig } from "../git/config.ts";
 import { selectUnits } from "../tui/index.ts";
 
@@ -65,6 +68,10 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   const fetchResult = await fetchGroupRecords(ctx.git, config.remote, { cwd });
   if (!fetchResult.ok) {
     console.log(kleur.dim(`⚠ Could not fetch group records: ${fetchResult.warning}`));
+  }
+  const prCacheFetch = await fetchPRCache(ctx.git, config.remote, { cwd });
+  if (!prCacheFetch.ok) {
+    console.log(kleur.dim(`⚠ Could not fetch PR cache: ${prCacheFetch.warning}`));
   }
   const groupRecords = await loadGroupRecords(ctx.git, { cwd });
   const groupTitles = extractGroupTitles(groupRecords);
@@ -117,14 +124,24 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
     }
   }
 
-  // 6. Retarget phase — gh required, falls back gracefully
-  const retargetHadFailure = await retargetMismatched(
-    ctx,
-    config,
-    units,
-    [...pushResult.pushed, ...openedBranches],
-    cwd,
-  );
+  // 6. Fetch PR info for all branches once; use for both retarget and cache
+  const allBranches = units.map((u) => branchForUnit(u, config));
+  let prMap: Map<string, PRInfo | null> | undefined;
+  try {
+    prMap = await findPRsForBranches(ctx, allBranches, { cwd });
+  } catch (err) {
+    const hint = retargetingFallbackHint(err);
+    console.log(kleur.dim(`${hint} (branches still updated)`));
+  }
+
+  const retargetBranches = [...pushResult.pushed, ...openedBranches];
+  const retargetHadFailure = prMap
+    ? await retargetMismatched(ctx, config, units, retargetBranches, prMap, cwd)
+    : false;
+
+  if (prMap) {
+    await writePRCache(ctx, config, units, prMap, cwd);
+  }
 
   const hadFailure = pushResult.hadFailure || openHadFailure || retargetHadFailure;
   if (hadFailure) {
@@ -321,24 +338,15 @@ async function retargetMismatched(
   config: SpryConfig,
   units: PRUnit[],
   branches: string[],
+  prMap: Map<string, PRInfo | null>,
   cwd: string | undefined,
 ): Promise<boolean> {
   if (branches.length === 0) return false;
 
-  let prMap;
-  try {
-    prMap = await findPRsForBranches(ctx, branches, { cwd });
-  } catch (err) {
-    // Documented graceful-degradation path: branches were updated; gh just
-    // can't retarget. Not counted as a failure.
-    const hint = retargetingFallbackHint(err);
-    console.log(kleur.dim(`${hint} (branches still updated)`));
-    return false;
-  }
-
   let hadFailure = false;
   for (const unit of units) {
     const branch = branchForUnit(unit, config);
+    if (!branches.includes(branch)) continue;
     const pr = prMap.get(branch);
     if (!pr || pr.state !== "OPEN") continue;
     const expected = expectedBaseFor(unit, units, config);
@@ -353,6 +361,31 @@ async function retargetMismatched(
     }
   }
   return hadFailure;
+}
+
+async function writePRCache(
+  ctx: SpryContext,
+  config: SpryConfig,
+  units: PRUnit[],
+  prMap: Map<string, PRInfo | null>,
+  cwd: string | undefined,
+): Promise<void> {
+  const now = new Date().toISOString();
+  const cache: PRCache = {};
+  for (const unit of units) {
+    const branch = branchForUnit(unit, config);
+    const pr = prMap.get(branch);
+    if (pr) cache[unit.id] = { ...pr, branch, cachedAt: now };
+  }
+  if (Object.keys(cache).length === 0) return;
+  try {
+    await savePRCache(ctx.git, cache, { cwd });
+    const push = await pushPRCache(ctx.git, config.remote, { cwd });
+    if (!push.ok) console.log(kleur.dim(`⚠ Could not push PR cache: ${push.warning}`));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.log(kleur.dim(`⚠ Could not save PR cache: ${message}`));
+  }
 }
 
 function retargetingFallbackHint(err: unknown): string {

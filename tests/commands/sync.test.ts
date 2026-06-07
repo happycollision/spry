@@ -9,6 +9,7 @@ import type {
   SpryContext,
   TestRepo,
 } from "../lib/index.ts";
+import { loadPRCache } from "../../src/gh/pr-cache.ts";
 
 const repos: TestRepo[] = [];
 
@@ -188,8 +189,9 @@ describe("syncCommand bare", () => {
     } finally {
       logs.restore();
     }
-    // No remote branch yet → no push, no gh call
-    expect(calls).toHaveLength(0);
+    // No remote branch yet → no push, no retarget; gh called once for PR cache refresh
+    const editCalls = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
+    expect(editCalls).toHaveLength(0);
     expect(logs.out.join("\n")).toContain("Sync complete");
   });
 
@@ -827,5 +829,71 @@ describe("buildOpenCandidates", () => {
     const out = buildOpenCandidates(units, new Set(), config);
     expect(out[1]?.disabled).toBeUndefined();
     expect(out[1]?.hint).toBeUndefined();
+  });
+});
+
+describe("PR cache", () => {
+  test("sync writes PR info to refs/spry/prs after fetching", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "Add login\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+
+    // Pre-publish the branch so sync sees it in existing remote refs
+    const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${head}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+
+    const { gh } = stubGh(ghPRMap({ "spry/test/aaa11111": { number: 5, baseRefName: "main" } }));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    try {
+      await syncCommand(ctx, { cwd: repo.path });
+    } finally {
+      logs.restore();
+    }
+
+    expect(logs.out.join("\n")).toContain("Sync complete");
+
+    const cache = await loadPRCache(git, { cwd: repo.path });
+    expect(cache["aaa11111"]?.number).toBe(5);
+    expect(cache["aaa11111"]?.state).toBe("OPEN");
+    expect(cache["aaa11111"]?.branch).toBe("spry/test/aaa11111");
+    expect(cache["aaa11111"]?.cachedAt).toBeDefined();
+  });
+
+  test("sync does not write cache when gh is unavailable", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "C\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${head}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+
+    const { gh } = stubGh(() => ({
+      stdout: "",
+      stderr: "/bin/sh: gh: command not found",
+      exitCode: 127,
+    }));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    try {
+      await syncCommand(ctx, { cwd: repo.path });
+    } finally {
+      logs.restore();
+    }
+
+    // Cache should be empty — gh unavailable, so no PR info fetched
+    const cache = await loadPRCache(git, { cwd: repo.path });
+    expect(Object.keys(cache)).toHaveLength(0);
   });
 });

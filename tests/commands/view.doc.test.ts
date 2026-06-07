@@ -9,6 +9,8 @@
 import { describe, afterAll } from "bun:test";
 import { join } from "node:path";
 import { docTest, createRunner, createRepo, createRealGitRunner } from "../lib/index.ts";
+import { savePRCache } from "../../src/gh/pr-cache.ts";
+import type { PRCacheEntry } from "../../src/gh/pr-cache.ts";
 
 const cliPath = join(import.meta.dir, "../../src/cli/index.ts");
 const runSp = createRunner(cliPath);
@@ -83,46 +85,49 @@ describe("sp view docs", () => {
     expect(result.stdout).toContain("No commits ahead of");
   });
 
-  docTest(
-    "PR status unavailable (fallback)",
-    { section: "commands/view", order: 30 },
-    async (doc) => {
-      const repo = await createRepo();
-      repos.push(repo);
-      doc.scrub(repo);
-      const git = createRealGitRunner();
+  docTest("PR status from local cache", { section: "commands/view", order: 30 }, async (doc) => {
+    const repo = await createRepo();
+    repos.push(repo);
+    doc.scrub(repo);
+    const git = createRealGitRunner();
 
-      await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
-      await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
-      await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
+    await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
+    await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+    await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
 
-      await repo.branch("feature");
-      await git.run(
-        ["commit", "--allow-empty", "-m", "Add login page\n\nSpry-Commit-Id: aaa11111"],
-        { cwd: repo.path },
-      );
+    await repo.branch("feature");
+    await git.run(["commit", "--allow-empty", "-m", "Add login page\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
 
-      doc.prose(
-        "If gh isn't installed, isn't authenticated, or can't reach GitHub, sp view falls back to local mode with a hint:",
-      );
+    // Seed the local PR cache (normally written by sp sync)
+    const entry: PRCacheEntry = {
+      branch: "spry/dondenton/aaa11111",
+      number: 42,
+      url: "https://github.com/owner/repo/pull/42",
+      state: "OPEN",
+      title: "Add login page",
+      baseRefName: "main",
+      checksStatus: "passing",
+      reviewDecision: "none",
+      reviewThreads: { resolved: 0, total: 2 },
+      cachedAt: "2026-06-07T00:00:00.000Z",
+    };
+    await savePRCache(git, { aaa11111: entry }, { cwd: repo.path });
 
-      // Canonicalize the hint variant so the captured fragment is deterministic
-      // across machines (gh installed/not, authed/not, network/no-network).
-      doc.scrub(
-        /PR status unavailable: [^\n]+ \(showing local view\)/,
-        "PR status unavailable: <hint> (showing local view)",
-      );
+    doc.prose(
+      "sp view reads PR status from a local git ref written by sp sync — no network call needed:",
+    );
 
-      // Default invocation (no --no-fetch). With no gh on PATH or no auth in test
-      // env, we get the no-gh / auth fallback. We assert only on the "PR status
-      // unavailable" prefix to keep this stable across environments.
-      const { command, result } = await runSp(repo.path, "view");
-      doc.command(command);
-      doc.output(result.stdout);
+    // Scrub the full PR URL to a stable placeholder for docs
+    doc.scrub("https://github.com/owner/repo/pull/42", "https://github.com/<owner>/<repo>/pull/42");
 
-      const { expect } = await import("bun:test");
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("PR status unavailable");
-    },
-  );
+    const { command, result } = await runSp(repo.path, "view");
+    doc.command(command);
+    doc.output(result.stdout);
+
+    const { expect } = await import("bun:test");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("pull/42");
+  });
 });
