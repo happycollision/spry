@@ -25,3 +25,5 @@ export type { EnrichedUnit } from "./enrich.ts";
 export { pushBranch, listRemoteBranches } from "./push.ts";
 export type { PushOptions, PushResult } from "./push.ts";
 export { formatPRTitle, formatPRBody, stripTrailers } from "./pr-body.ts";
+export { loadPRCache, savePRCache, fetchPRCache, pushPRCache, PR_CACHE_REF } from "./pr-cache.ts";
+export type { PRCacheEntry, PRCache } from "./pr-cache.ts";
