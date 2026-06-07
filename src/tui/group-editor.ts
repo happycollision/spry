@@ -47,7 +47,7 @@ export async function runGroupEditor(
       const conflictIndices = new Set<number>();
       for (const key of conflictMap.keys()) {
         const [hashA, hashB] = key.split(":");
-        state.rows.forEach((r, i) => {
+        currentState.rows.forEach((r, i) => {
           if (r.hash === hashA || r.hash === hashB) conflictIndices.add(i);
         });
       }
