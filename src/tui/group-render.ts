@@ -19,7 +19,7 @@ export function renderGroupEditor(state: GroupEditorState, branch: string): stri
     const isGrabbed = i === state.grabbed;
     const hasConflict = state.conflicts.has(i);
 
-    const prefix = isGrabbed ? kleur.yellow("●") : isCursor ? kleur.cyan("▶") : " ";
+    const prefix = isGrabbed ? "●" : isCursor ? kleur.cyan("▶") : " ";
     const num = String(i + 1).padStart(2);
     const hash = kleur.dim(row.hash.slice(0, 7));
     const subject = row.subject.slice(0, 40).padEnd(40);
