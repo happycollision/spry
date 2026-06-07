@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `sp rebase` — fetches the remote, checks if the stack is behind trunk, predicts conflicts via dry-run, and rebases if clean. Prints conflicting files and exits 1 if a conflict is detected. Separate from `sp sync` — sync is push-only.
+- `src/git/behind.ts` — `fetchRemote` and `isStackBehindTrunk` primitives used by `sp rebase`
 - PR status cache stored in `refs/spry/prs` — `sp view` now reads PR status instantly from a local git ref written by `sp sync`, with no `gh` API calls needed. Teammates can get PR status via `git fetch` without gh auth.
 - `sp sync` writes and pushes `refs/spry/prs` after each run; `sp view` reads from it.
 - `src/gh/pr-cache.ts` — `loadPRCache`, `savePRCache`, `fetchPRCache`, `pushPRCache`
