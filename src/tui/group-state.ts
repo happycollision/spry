@@ -117,6 +117,7 @@ function applyNormal(state: GroupEditorState, event: EditorEvent): GroupEditorSt
     return { ...state, cursor: Math.max(0, state.cursor - 1) };
   }
   if (event.type === "arrow-down") {
+    if (state.rows.length === 0) return state;
     return { ...state, cursor: Math.min(state.rows.length - 1, state.cursor + 1) };
   }
   if (event.type === "arrow-right") return advanceGroup(state);
@@ -287,7 +288,7 @@ function applyRename(state: GroupEditorState, event: EditorEvent): GroupEditorSt
     const entry = state.groups.get(row.groupLetter);
     if (!entry) return { ...state, mode: "normal", renameBuffer: "" };
     const newGroups = new Map(state.groups);
-    newGroups.set(row.groupLetter, { ...entry, title: state.renameBuffer });
+    newGroups.set(row.groupLetter, { ...entry, title: state.renameBuffer, isNew: false });
     return { ...state, groups: newGroups, mode: "normal", renameBuffer: "", hasChanges: true };
   }
   if (event.type === "escape") {
