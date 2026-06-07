@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { syncCommand } from "../commands/sync.ts";
 import { viewCommand } from "../commands/view.ts";
+import { groupCommand } from "../commands/group.ts";
 import { createRealGitRunner, createRealGhClient } from "../lib/context.ts";
 import type { SpryContext } from "../lib/context.ts";
 
@@ -28,5 +29,10 @@ program
     const open = opts.open === undefined ? undefined : opts.open === true ? null : opts.open;
     return syncCommand(ctx, { open });
   });
+
+program
+  .command("group")
+  .description("Interactively group and reorder commits")
+  .action(() => groupCommand(ctx));
 
 program.parse();
