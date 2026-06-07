@@ -58,6 +58,9 @@ export {
   formatConflictError,
 } from "./rebase.ts";
 
+export type { BehindOptions, FetchResult } from "./behind.ts";
+export { fetchRemote, isStackBehindTrunk } from "./behind.ts";
+
 export {
   loadGroupRecords,
   saveGroupRecord,
