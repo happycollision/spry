@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { syncCommand } from "../commands/sync.ts";
 import { viewCommand } from "../commands/view.ts";
 import { groupCommand } from "../commands/group.ts";
+import { rebaseCommand } from "../commands/rebase.ts";
 import { createRealGitRunner, createRealGhClient } from "../lib/context.ts";
 import type { SpryContext } from "../lib/context.ts";
 
@@ -33,5 +34,10 @@ program
   .command("group")
   .description("Interactively group and reorder commits")
   .action(() => groupCommand(ctx));
+
+program
+  .command("rebase")
+  .description("Fetch, check if behind trunk, and rebase the stack if clean")
+  .action(() => rebaseCommand(ctx));
 
 program.parse();
