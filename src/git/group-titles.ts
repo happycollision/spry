@@ -99,6 +99,37 @@ export async function saveGroupRecord(
   if (ref.exitCode !== 0) throw new Error(`saveGroupRecord: update-ref failed: ${ref.stderr}`);
 }
 
+export async function saveAllGroupRecords(
+  git: GitRunner,
+  records: GroupRecords,
+  opts?: GitOpts,
+): Promise<void> {
+  const entries: string[] = [];
+
+  for (const [groupId, record] of Object.entries(records)) {
+    const content = JSON.stringify(record);
+    const blob = await git.run(["hash-object", "-w", "--stdin"], { ...opts, stdin: content });
+    if (blob.exitCode !== 0)
+      throw new Error(`saveAllGroupRecords: hash-object failed: ${blob.stderr}`);
+    entries.push(`100644 blob ${blob.stdout.trim()}\t${groupId}`);
+  }
+
+  const treeInput = entries.length > 0 ? entries.join("\n") + "\n" : "";
+  const tree = await git.run(["mktree"], { ...opts, stdin: treeInput });
+  if (tree.exitCode !== 0) throw new Error(`saveAllGroupRecords: mktree failed: ${tree.stderr}`);
+  const treeSha = tree.stdout.trim();
+
+  const commitArgs = ["commit-tree", treeSha, "-m", "update group records"];
+  const parent = await git.run(["rev-parse", "--verify", GROUPS_REF], opts);
+  if (parent.exitCode === 0) commitArgs.push("-p", parent.stdout.trim());
+  const commit = await git.run(commitArgs, opts);
+  if (commit.exitCode !== 0)
+    throw new Error(`saveAllGroupRecords: commit-tree failed: ${commit.stderr}`);
+
+  const ref = await git.run(["update-ref", GROUPS_REF, commit.stdout.trim()], opts);
+  if (ref.exitCode !== 0) throw new Error(`saveAllGroupRecords: update-ref failed: ${ref.stderr}`);
+}
+
 export async function fetchGroupRecords(
   git: GitRunner,
   remote: string,

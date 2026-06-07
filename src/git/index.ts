@@ -61,6 +61,7 @@ export {
 export {
   loadGroupRecords,
   saveGroupRecord,
+  saveAllGroupRecords,
   fetchGroupRecords,
   buildCommitGroupMap,
   extractGroupTitles,
