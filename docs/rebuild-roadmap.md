@@ -19,7 +19,7 @@ The rebuild started fresh with better test infrastructure and a cleaner architec
 | Feature          | `main` shape                                                                                                                     | Decision needed                                                                                                                                    |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `sp sync` rebase | `sync` fetches remote, checks if stack is behind, predicts conflicts, rebases automatically                                      | **Decided:** `sp sync` does not rebase. Becomes a standalone `sp rebase` command instead. `sp sync` warns if the stack is behind but does not act. |
-| `sp sync --all`  | Loops over all local spry branches, syncs each one                                                                               | Need to decide: does `--all` rebase each branch too, or just push? See note below.                                                                 |
+| `sp sync --all`  | Loops over all local spry branches, syncs each one                                                                               | **Decided:** Push-only. No rebase, same rule as `sp sync`.                                                                                         |
 | `sp land`        | Merges a PR (or `--all` merges the whole stack bottom-up), retargets downstream PRs after each merge, waits for merge to confirm | Port. May want to redesign the retry/wait flow.                                                                                                    |
 | `sp land --all`  | Merges every PR in the stack bottom-up, retargeting as it goes                                                                   | Port alongside `sp land`.                                                                                                                          |
 | `sp clean`       | Finds orphaned remote spry branches (both SHA-merged and commit-id-landed), deletes them                                         | Port. Useful housekeeping command.                                                                                                                 |
@@ -66,10 +66,11 @@ These are internal and don't map directly to user-facing features, but are neede
 
 ## Open questions
 
-- Does `sp sync --all` include a rebase step per branch, or is it push-only?
 - `stack-settings` (PR body content hashing): is this worth porting, or should we detect body staleness differently?
 - `repair-select` TUI: what scenarios trigger it? Conflict mid-rebase? Split-group validation errors?
 
 ## Decisions
 
-- **`sp sync` does not rebase.** It is a push-only operation. If the stack is behind, `sp sync` should inform the user but not act. The user runs `sp rebase` explicitly.
+- **`sp sync` never rebases.** Push-only. This applies to `sp sync`, `sp sync --open`, and `sp sync --all` — none of them rebase, ever.
+- **`sp sync` fails when the stack is behind.** Exits with an error telling the user to run `sp rebase`. No partial work, no continue-anyway flag. We can do something smarter in the future.
+- **`sp sync --all` is push-only.** Same rule: no rebase step per branch.
