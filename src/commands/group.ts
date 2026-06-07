@@ -6,6 +6,7 @@ import {
   getCurrentBranch,
   getStackCommits,
   injectMissingIds,
+  requireCleanWorkingTree,
   saveAllGroupRecords,
   fetchGroupRecords,
   loadGroupRecords,
@@ -41,6 +42,8 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
     process.exit(1);
   }
 
+  await requireCleanWorkingTree(ctx.git, { cwd });
+
   const commits = await getStackCommits(ctx.git, ref, { cwd });
   if (commits.length === 0) {
     console.log("No commits in stack.");
@@ -70,9 +73,12 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
       prsByBranch = await findPRsForBranches(ctx, branches);
     } catch (err) {
       const kind = classifyGhInfraError(err);
-      if (kind !== "network") {
-        console.log(kleur.dim("PR adoption unavailable: gh not available"));
+      if (kind === "no-gh") {
+        console.log(kleur.dim("PR adoption unavailable: gh not installed"));
+      } else if (kind === "auth") {
+        console.log(kleur.dim("PR adoption unavailable: gh not authenticated"));
       }
+      // network/no-remote errors are silently ignored (best-effort)
     }
   }
 
