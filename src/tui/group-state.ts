@@ -279,6 +279,9 @@ function applyRename(state: GroupEditorState, event: EditorEvent): GroupEditorSt
   if (event.type === "char") {
     return { ...state, renameBuffer: state.renameBuffer + event.char };
   }
+  if (event.type === "space") {
+    return { ...state, renameBuffer: state.renameBuffer + " " };
+  }
   if (event.type === "backspace") {
     return { ...state, renameBuffer: state.renameBuffer.slice(0, -1) };
   }

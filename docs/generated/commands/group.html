@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sp group</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: system-ui, sans-serif; line-height: 1.6; padding: 2rem; max-width: 860px; color: #e8e8e8; background: #1a1a1a; }
+        h1 { font-size: 1.4rem; margin-bottom: 1.5rem; color: #fff; }
+        p { margin-bottom: 1rem; }
+        pre { font-family: ui-monospace, 'Cascadia Code', monospace; font-size: 0.85rem; padding: 1rem; border-radius: 6px; overflow-x: auto; margin-bottom: 1rem; white-space: pre; }
+        pre.command { background: #0d1117; color: #c9d1d9; border-left: 3px solid #58a6ff; }
+        pre.output { background: #0d1117; color: #c9d1d9; }
+        pre.screen { background: #0d1117; color: #c9d1d9; }
+        .ansi-black { color: #000; } .ansi-red { color: #c0392b; } .ansi-green { color: #27ae60; }
+        .ansi-yellow { color: #f39c12; } .ansi-blue { color: #2980b9; } .ansi-magenta { color: #8e44ad; }
+        .ansi-cyan { color: #16a085; } .ansi-white { color: #bdc3c7; }
+        .ansi-bright-black { color: #7f8c8d; } .ansi-bright-red { color: #e74c3c; } .ansi-bright-green { color: #2ecc71; }
+        .ansi-bright-yellow { color: #f1c40f; } .ansi-bright-blue { color: #3498db; } .ansi-bright-magenta { color: #9b59b6; }
+        .ansi-bright-cyan { color: #1abc9c; } .ansi-bright-white { color: #ecf0f1; }
+        .ansi-bold { font-weight: bold; }
+    </style>
+  </head>
+  <body>
+    <h1>sp group</h1>
+    <p>
+      Run `sp group` to open the interactive group editor. Use ↑↓ to move between commits and ←→ to
+      assign or remove group membership. Commits in the same group ship as a single PR.
+    </p>
+    <pre class="screen">Stack: feature/auth (3 commits)
+
+   1  af62d1e  Add login form                           [A: Auth Flow]
+<span style="color:#0AA">&#x25B6;</span>  2  ade6a45  Add session handling                     [A: Auth Flow]
+   3  2fd526c  Fix typo in README
+
+&#x2191;&#x2193; cursor  &#x2190;&#x2192; group  Space grab  r rename  Enter save  q quit</pre>
+    <p>
+      Press Space to grab a commit and ↑↓ to reorder it. Spry predicts rebase conflicts as you move
+      — rows with ⚠ may conflict. Press Space or Enter to drop the commit at its new position.
+    </p>
+    <pre class="screen">Stack: feature/auth (2 commits)
+
+<span style="color:#A50">&#x25CF;  1  68c3485</span><span style="color:#A50">  Add session handling                    </span>
+   2  98eb567  Add login form
+
+<span style="color:#0AA">MOVE MODE</span> &#x2014; &#x2191;&#x2193; reorder  Space/Enter drop  Esc cancel</pre>
+  </body>
+</html>

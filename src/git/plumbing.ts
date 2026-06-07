@@ -169,10 +169,10 @@ export async function rewriteCommitChain(
   git: GitRunner,
   commits: string[],
   rewrites: Map<string, string>,
-  options?: PlumbingOptions,
+  options?: PlumbingOptions & { base?: string },
 ): Promise<ChainRewriteResult> {
   const mapping = new Map<string, string>();
-  let previousNewSha: string | null = null;
+  let previousNewSha: string | null = options?.base ?? null;
 
   for (const commit of commits) {
     const tree = await getTree(git, commit, options);

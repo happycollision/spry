@@ -15,6 +15,7 @@ import {
   rewriteCommitChain,
   finalizeRewrite,
   branchForUnit,
+  getMergeBase,
 } from "../git/index.ts";
 import { parseCommitTrailers, parseStack } from "../parse/index.ts";
 import { findPRsForBranches, classifyGhInfraError } from "../gh/index.ts";
@@ -107,7 +108,11 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
   if (result.newOrder) {
     const oldTip = withTrailers.at(-1)?.hash;
     if (!oldTip) throw new Error("groupCommand: unexpected empty commit list");
-    const rewriteResult = await rewriteCommitChain(ctx.git, result.newOrder, new Map(), { cwd });
+    const mergeBase = await getMergeBase(ctx.git, ref, { cwd });
+    const rewriteResult = await rewriteCommitChain(ctx.git, result.newOrder, new Map(), {
+      cwd,
+      base: mergeBase,
+    });
     await finalizeRewrite(ctx.git, branch, oldTip, rewriteResult.newTip, { cwd });
     console.log(`✓ Reordered ${result.newOrder.length} commits`);
   }

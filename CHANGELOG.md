@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `sp group` reorder: `rewriteCommitChain` now accepts an optional `base` commit so reordered stacks are rooted at the merge base rather than being appended on top of the original chain. Previously, reordering two commits would produce a three-commit history instead of two.
+- `sp group` rename: spaces typed during rename mode were silently dropped because the `space` keypress event was not handled in `applyRename`. Spaces are now treated as literal characters when renaming a group title.
+
+### Added
+
+- Integration tests for `sp group` TUI: assign, rename, cancel, and reorder scenarios (`tests/commands/group.test.ts`)
+- Doc tests for `sp group` producing generated docs for the Grouping and Reordering sections (`tests/commands/group.doc.test.ts`)
+- Generated docs for `sp group` (`docs/generated/commands/group.md`, `docs/generated/commands/group.html`)
+
 ### Changed
 
 - Group membership now stored in `refs/spry/groups` alongside titles instead of `Spry-Group` commit trailers. Each group record is a JSON blob `{"title":"...","members":["commitId1",...]}`. `parseStack` now accepts an explicit `CommitGroupMap` (Spry-Commit-Id → groupId) instead of reading `Spry-Group` from commit messages, so grouping never requires a commit rewrite.
