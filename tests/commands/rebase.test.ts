@@ -37,6 +37,25 @@ function captureLogs(): { restore: () => void; out: string[]; err: string[] } {
   };
 }
 
+function trapExit(): { exitCode: number | undefined; restore: () => void } {
+  const state: { exitCode: number | undefined } = { exitCode: undefined };
+  const origExit = process.exit;
+  // @ts-ignore
+  process.exit = (code: number) => {
+    state.exitCode = code;
+    throw new Error("process.exit");
+  };
+  return {
+    get exitCode() {
+      return state.exitCode;
+    },
+    restore: () => {
+      // @ts-ignore
+      process.exit = origExit;
+    },
+  };
+}
+
 async function makeConfiguredRepo(): Promise<TestRepo> {
   const repo = await createRepo();
   repos.push(repo);
@@ -88,26 +107,28 @@ describe("sp rebase", () => {
 
     const ctx = makeCtx(repo);
     const logs = captureLogs();
-    let exitCode: number | undefined;
-    const origExit = process.exit;
-    // @ts-ignore
-    process.exit = (code: number) => {
-      exitCode = code;
-      throw new Error("process.exit");
-    };
+    const trap = trapExit();
     try {
       await rebaseCommand(ctx, { cwd: repo.path });
     } catch (e: unknown) {
       if (!(e instanceof Error) || e.message !== "process.exit") throw e;
     } finally {
-      // @ts-ignore
-      process.exit = origExit;
+      trap.restore();
       logs.restore();
     }
 
-    expect(exitCode).toBeUndefined(); // no exit
+    expect(trap.exitCode).toBeUndefined(); // no exit
     expect(logs.out.join("\n")).toContain("Rebased 1 commit");
     expect(logs.err).toHaveLength(0);
+
+    // Verify the branch was actually rebased: HEAD should now be ahead of origin/main
+    const newBase = (
+      await git.run(["merge-base", "HEAD", "origin/main"], { cwd: repo.path })
+    ).stdout.trim();
+    const trunkTip = (
+      await git.run(["rev-parse", "origin/main"], { cwd: repo.path })
+    ).stdout.trim();
+    expect(newBase).toBe(trunkTip);
   });
 
   test("behind with conflict: prints conflict info and exits 1", async () => {
@@ -126,24 +147,17 @@ describe("sp rebase", () => {
 
     const ctx = makeCtx(repo);
     const logs = captureLogs();
-    let exitCode: number | undefined;
-    const origExit = process.exit;
-    // @ts-ignore
-    process.exit = (code: number) => {
-      exitCode = code;
-      throw new Error("process.exit");
-    };
+    const trap = trapExit();
     try {
       await rebaseCommand(ctx, { cwd: repo.path });
     } catch (e: unknown) {
       if (!(e instanceof Error) || e.message !== "process.exit") throw e;
     } finally {
-      // @ts-ignore
-      process.exit = origExit;
+      trap.restore();
       logs.restore();
     }
 
-    expect(exitCode).toBe(1);
+    expect(trap.exitCode).toBe(1);
     const errText = logs.err.join("\n");
     expect(errText).toContain("conflict");
     // Working tree should be unchanged — no partial rebase
@@ -161,24 +175,17 @@ describe("sp rebase", () => {
 
     const ctx = makeCtx(repo);
     const logs = captureLogs();
-    let exitCode: number | undefined;
-    const origExit = process.exit;
-    // @ts-ignore
-    process.exit = (code: number) => {
-      exitCode = code;
-      throw new Error("process.exit");
-    };
+    const trap = trapExit();
     try {
       await rebaseCommand(ctx, { cwd: repo.path });
     } catch (e: unknown) {
       if (!(e instanceof Error) || e.message !== "process.exit") throw e;
     } finally {
-      // @ts-ignore
-      process.exit = origExit;
+      trap.restore();
       logs.restore();
     }
 
-    expect(exitCode).toBe(1);
+    expect(trap.exitCode).toBe(1);
     expect(logs.err.join("\n").toLowerCase()).toContain("detached");
   });
 });

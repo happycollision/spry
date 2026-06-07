@@ -47,7 +47,7 @@ export async function rebaseCommand(ctx: SpryContext, opts: RebaseOptions = {}):
   // 3. Get stack commits
   const commits = await getStackCommits(ctx.git, ref, { cwd });
   if (commits.length === 0) {
-    console.log("✓ Already up to date");
+    console.log("✓ No commits in stack");
     return;
   }
 
