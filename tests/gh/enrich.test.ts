@@ -1,7 +1,8 @@
 import { describe, test, expect } from "bun:test";
-import { enrichUnits } from "../../src/gh/enrich.ts";
+import { enrichUnits, enrichFromCache } from "../../src/gh/enrich.ts";
 import type { CommandResult, GhClient, GitRunner, SpryContext } from "../../src/lib/context.ts";
 import type { PRUnit } from "../../src/parse/types.ts";
+import type { PRCache, PRCacheEntry } from "../../src/gh/pr-cache.ts";
 import type { SpryConfig } from "../../src/git/config.ts";
 
 const config: SpryConfig = {
@@ -112,5 +113,53 @@ describe("enrichUnits", () => {
     const ctx = makeCtx([transient, transient, transient]);
     const result = await enrichUnits(ctx, [unit("aaa11111")], config);
     expect(result[0]!.error).toBe("network");
+  });
+});
+
+function makeCacheEntry(overrides: Partial<PRCacheEntry> = {}): PRCacheEntry {
+  return {
+    branch: "spry/test/aaa11111",
+    number: 42,
+    url: "https://github.com/owner/repo/pull/42",
+    state: "OPEN",
+    title: "T",
+    baseRefName: "main",
+    checksStatus: "passing",
+    reviewDecision: "approved",
+    reviewThreads: { resolved: 1, total: 1 },
+    cachedAt: "2026-06-07T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+describe("enrichFromCache", () => {
+  test("returns null pr for units with no cache entry", () => {
+    const result = enrichFromCache([unit("aaa11111"), unit("bbb22222")], {});
+    expect(result).toHaveLength(2);
+    expect(result[0]!.pr).toBeNull();
+    expect(result[1]!.pr).toBeNull();
+    expect(result.every((r) => r.error === undefined)).toBe(true);
+  });
+
+  test("populates pr from cache for known unit IDs", () => {
+    const cache: PRCache = {
+      aaa11111: makeCacheEntry({ number: 42 }),
+    };
+    const result = enrichFromCache([unit("aaa11111"), unit("bbb22222")], cache);
+    expect(result[0]!.pr?.number).toBe(42);
+    expect(result[1]!.pr).toBeNull();
+  });
+
+  test("strips cachedAt and branch before returning PRInfo shape", () => {
+    const cache: PRCache = {
+      aaa11111: makeCacheEntry({ number: 42 }),
+    };
+    const result = enrichFromCache([unit("aaa11111")], cache);
+    const pr = result[0]!.pr as Record<string, unknown> | null;
+    expect(pr).not.toBeNull();
+    expect(pr?.number).toBe(42);
+    expect(pr?.state).toBe("OPEN");
+    expect(pr?.cachedAt).toBeUndefined();
+    expect(pr?.branch).toBeUndefined();
   });
 });

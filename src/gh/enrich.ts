@@ -6,12 +6,22 @@ import { findPRsForBranches } from "./pr.ts";
 import type { PRInfo } from "./pr.ts";
 import { classifyGhInfraError } from "./errors.ts";
 import type { EnrichmentError } from "./errors.ts";
+import type { PRCache } from "./pr-cache.ts";
 
 export type { EnrichmentError } from "./errors.ts";
 
 export type EnrichedUnit =
   | { unit: PRUnit; pr: PRInfo | null; error?: never }
   | { unit: PRUnit; pr: null; error: EnrichmentError };
+
+export function enrichFromCache(units: PRUnit[], cache: PRCache): EnrichedUnit[] {
+  return units.map((unit) => {
+    const entry = cache[unit.id];
+    if (!entry) return { unit, pr: null };
+    const { branch: _branch, cachedAt: _cachedAt, ...prInfo } = entry;
+    return { unit, pr: prInfo };
+  });
+}
 
 export async function enrichUnits(
   ctx: SpryContext,
