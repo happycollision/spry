@@ -30,20 +30,41 @@
     </p>
     <pre class="screen">Stack: feature/auth (3 commits)
 
-   1  af62d1e  Add login form                           [A: Auth Flow]
-<span style="color:#0AA">&#x25B6;</span>  2  ade6a45  Add session handling                     [A: Auth Flow]
-   3  2fd526c  Fix typo in README
+   1  a7b5184  Add login form                           [A: Auth Flow]
+<span style="color:#0AA">&#x25B6;</span>  2  3554140  Add session handling                     [A: Auth Flow]
+   3  fea0a5e  Fix typo in README
 
 &#x2191;&#x2193; cursor  &#x2190;&#x2192; group  Space grab  r rename  Enter save  q quit</pre>
+    <p>
+      Press `r` to rename the group at the cursor. Type a title and press Enter to confirm, or Esc
+      to cancel.
+    </p>
+    <pre class="screen">Stack: feature/auth (2 commits)
+
+   1  5694c98  Add login form                           [A: (no title)]
+<span style="color:#0AA">&#x25B6;</span>  2  3808dfc  Add session handling                     [A: Auth&#x258C;]
+
+<span style="color:#0AA">RENAME MODE</span> &#x2014; Type title  Enter confirm  Esc cancel</pre>
     <p>
       Press Space to grab a commit and ↑↓ to reorder it. Spry predicts rebase conflicts as you move
       — rows with ⚠ may conflict. Press Space or Enter to drop the commit at its new position.
     </p>
     <pre class="screen">Stack: feature/auth (2 commits)
 
-<span style="color:#A50">&#x25CF;  1  68c3485</span><span style="color:#A50">  Add session handling                    </span>
-   2  98eb567  Add login form
+<span style="color:#A50">&#x25CF;  1  9a5a40a</span><span style="color:#A50">  Add session handling                    </span>
+   2  7f2a3f9  Add login form
 
 <span style="color:#0AA">MOVE MODE</span> &#x2014; &#x2191;&#x2193; reorder  Space/Enter drop  Esc cancel</pre>
+    <p>
+      While reordering, Spry predicts rebase conflicts in the background. Rows marked with ⚠ are
+      likely to conflict if dropped in their current position.
+    </p>
+    <pre class="screen">Stack: feature/config (2 commits)
+
+<span style="color:#A50">&#x25CF;  1  9909981</span><span style="color:#A50">  Set version to 2                         <span style="color:#A00">&#x26A0;</span></span>
+   2  55f6fec  Set version to 1                         <span style="color:#A00">&#x26A0;</span>
+
+<span style="color:#0AA">MOVE MODE</span> &#x2014; &#x2191;&#x2193; reorder  Space/Enter drop  Esc cancel
+<span style="color:#A00">&#x26A0; Moving this commit may cause a conflict</span></pre>
   </body>
 </html>
