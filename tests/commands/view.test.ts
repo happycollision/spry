@@ -2,6 +2,8 @@ import { describe, test, expect } from "bun:test";
 import { createRealGitRunner, repoManager } from "../lib/index.ts";
 import { viewCommand } from "../../src/commands/view.ts";
 import { saveGroupRecord } from "../../src/git/group-titles.ts";
+import { savePRCache } from "../../src/gh/pr-cache.ts";
+import type { PRCacheEntry } from "../../src/gh/pr-cache.ts";
 import type { SpryContext } from "../../src/lib/context.ts";
 
 const repos = repoManager();
@@ -215,7 +217,7 @@ describe("viewCommand", () => {
     expect(plain).toContain("2 commits");
   });
 
-  test("default (no --no-fetch) calls gh and falls back gracefully when gh missing", async () => {
+  test("default view never calls gh (cache used instead)", async () => {
     const repo = await repos.create();
     const git = createRealGitRunner();
     await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
@@ -227,16 +229,16 @@ describe("viewCommand", () => {
       cwd: repo.path,
     });
 
+    let ghCalled = false;
     const ctx: SpryContext = {
       git: {
         run: (args, opts) => git.run(args, { ...opts, cwd: opts?.cwd ?? repo.path }),
       },
       gh: {
-        run: async () => ({
-          stdout: "",
-          stderr: "/bin/sh: gh: command not found",
-          exitCode: 127,
-        }),
+        run: async () => {
+          ghCalled = true;
+          return { stdout: "", stderr: "/bin/sh: gh: command not found", exitCode: 127 };
+        },
       },
     };
 
@@ -244,7 +246,86 @@ describe("viewCommand", () => {
     const plain = stripAnsi(stdout);
 
     expect(exitCode).toBe(0);
-    expect(plain).toContain("PR status unavailable: install gh");
+    expect(ghCalled).toBe(false);
     expect(plain).toContain("○ C");
+  });
+
+  test("default view reads PR info from local cache", async () => {
+    const repo = await repos.create();
+    const git = createRealGitRunner();
+    await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
+    await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+    await git.run(["config", "spry.branchPrefix", "spry/test"], { cwd: repo.path });
+
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "Add login page\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+
+    const entry: PRCacheEntry = {
+      branch: "spry/test/aaa11111",
+      number: 7,
+      url: "https://github.com/owner/repo/pull/7",
+      state: "OPEN",
+      title: "Add login page",
+      baseRefName: "main",
+      checksStatus: "passing",
+      reviewDecision: "none",
+      reviewThreads: { resolved: 0, total: 0 },
+      cachedAt: "2026-06-07T00:00:00.000Z",
+    };
+    await savePRCache(git, { aaa11111: entry }, { cwd: repo.path });
+
+    let ghCalled = false;
+    const ctx: SpryContext = {
+      git: {
+        run: (args, opts) => git.run(args, { ...opts, cwd: opts?.cwd ?? repo.path }),
+      },
+      gh: {
+        run: async () => {
+          ghCalled = true;
+          return { stdout: "", stderr: "", exitCode: 0 };
+        },
+      },
+    };
+
+    const { stdout, exitCode } = await captureView(ctx);
+    const plain = stripAnsi(stdout);
+
+    expect(exitCode).toBe(0);
+    expect(ghCalled).toBe(false);
+    // PR URL from cache appears in output (format uses full URL, not #number)
+    expect(plain).toContain("pull/7");
+  });
+
+  test("default view shows stack cleanly when cache is empty", async () => {
+    const repo = await repos.create();
+    const git = createRealGitRunner();
+    await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
+    await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+    await git.run(["config", "spry.branchPrefix", "spry/test"], { cwd: repo.path });
+
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "C\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+
+    let ghCalled = false;
+    const ctx: SpryContext = {
+      git: {
+        run: (args, opts) => git.run(args, { ...opts, cwd: opts?.cwd ?? repo.path }),
+      },
+      gh: {
+        run: async () => {
+          ghCalled = true;
+          return { stdout: "", stderr: "", exitCode: 0 };
+        },
+      },
+    };
+
+    const { stdout, exitCode } = await captureView(ctx);
+    expect(exitCode).toBe(0);
+    expect(ghCalled).toBe(false);
+    expect(stripAnsi(stdout)).toContain("○ C");
   });
 });
