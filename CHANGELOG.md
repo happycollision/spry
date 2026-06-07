@@ -14,6 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `sp group` command — interactive TUI for grouping, renaming, and reordering commits
+  - ↑↓ to move cursor, ←→ to assign/remove group membership
+  - Space to grab a commit and reorder via ↑↓; live conflict prediction as you drag
+  - `r` to rename the group at the cursor (inline edit mode)
+  - Groups saved as JSON records in `refs/spry/groups` — no commit rewrites needed for grouping
+  - Reordering rewrites the commit chain via plumbing
+  - PR adoption: if commits being grouped already have open PRs, group inherits the PR ID automatically (single PR) or prompts for selection (multiple PRs)
+  - Pushes `refs/spry/groups` to the remote after saving (best-effort)
+- `saveAllGroupRecords` in `src/git/group-titles.ts` — atomic write of all group records
 - Integration tests for `sp group` TUI: assign, rename, cancel, and reorder scenarios (`tests/commands/group.test.ts`)
 - Doc tests for `sp group` producing generated docs for the Grouping and Reordering sections (`tests/commands/group.doc.test.ts`)
 - Generated docs for `sp group` (`docs/generated/commands/group.md`, `docs/generated/commands/group.html`)
