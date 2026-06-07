@@ -24,8 +24,8 @@
   </head>
   <body>
     <h1>sp view</h1>
-    <p>View the current stack of commits on your feature branch (use --no-fetch for offline/CI):</p>
-    <pre class="command">sp view --no-fetch</pre>
+    <p>View the current stack of commits on your feature branch:</p>
+    <pre class="command">sp view</pre>
     <pre class="output">Stack: feature (2 commits)
 &#x25CB; no PR  &#x25D0; open  &#x2713; merged  &#x2717; closed<span style="font-weight:normal;text-decoration:none;font-style:normal">
 
@@ -36,20 +36,19 @@
   &#x25CB;<span style="font-weight:normal;text-decoration:none;font-style:normal"> Add signup form (bbb22222)<span style="font-weight:normal;text-decoration:none;font-style:normal">
 &#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;</span></span></span></span></span></pre>
     <p>When you're on a branch with no commits ahead of trunk:</p>
-    <pre class="command">sp view --no-fetch</pre>
+    <pre class="command">sp view</pre>
     <pre class="output">No commits ahead of origin/main</pre>
-    <p>
-      If gh isn't installed, isn't authenticated, or can't reach GitHub, sp view falls back to local
-      mode with a hint:
-    </p>
+    <p>sp view reads PR status from a local git ref written by sp sync — no network call needed:</p>
     <pre class="command">sp view</pre>
     <pre class="output">Stack: feature (1 commit)
-PR status unavailable: &lt;hint&gt; (showing local view)<span style="font-weight:normal;text-decoration:none;font-style:normal">
 &#x25CB; no PR  &#x25D0; open  &#x2713; merged  &#x2717; closed<span style="font-weight:normal;text-decoration:none;font-style:normal">
+checks: &#x2713; pass  &#x2717; fail  &#x23F3; pending  &#x2014; none<span style="font-weight:normal;text-decoration:none;font-style:normal">
+approval: &#x2713; approved  &#x2717; changes  ? required  &#x2014; none<span style="font-weight:normal;text-decoration:none;font-style:normal">
 
   &#x2192; origin/main
 &#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;
-  &#x25CB;<span style="font-weight:normal;text-decoration:none;font-style:normal"> Add login page (aaa11111)<span style="font-weight:normal;text-decoration:none;font-style:normal">
-&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;</span></span></span></span></pre>
+  <span style="color:#00A">&#x25D0;<span style="color:#FFF"> Add login page (aaa11111)<span style="font-weight:normal;text-decoration:none;font-style:normal">
+    <span style="color:#00A">https://github.com/&lt;owner&gt;/&lt;repo&gt;/pull/42<span style="color:#FFF"> - checks:<span style="color:#0A0">&#x2713;<span style="color:#FFF"> approval:&#x2014;<span style="font-weight:normal;text-decoration:none;font-style:normal"> comments:0/2
+&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;</span></span></span></span></span></span></span></span></span></span></span></pre>
   </body>
 </html>

@@ -47,11 +47,9 @@ describe("sp view docs", () => {
         { cwd: repo.path },
       );
 
-      doc.prose(
-        "View the current stack of commits on your feature branch. Pass `--no-fetch` to skip fetching remote refs (useful in CI or offline):",
-      );
+      doc.prose("View the current stack of commits on your feature branch:");
 
-      const { command, result } = await runSp(repo.path, "view", ["--no-fetch"]);
+      const { command, result } = await runSp(repo.path, "view");
       doc.command(command);
       doc.output(result.stdout);
 
@@ -76,7 +74,7 @@ describe("sp view docs", () => {
 
     doc.prose("When you're on a branch with no commits ahead of trunk:");
 
-    const { command, result } = await runSp(repo.path, "view", ["--no-fetch"]);
+    const { command, result } = await runSp(repo.path, "view");
     doc.command(command);
     doc.output(result.stdout);
 

@@ -1,9 +1,9 @@
 # view
 
-View the current stack of commits on your feature branch. Pass `--no-fetch` to skip fetching remote refs (useful in CI or offline):
+View the current stack of commits on your feature branch:
 
 ```
-sp view --no-fetch
+sp view
 ```
 
 ```
@@ -22,7 +22,7 @@ Stack: feature (2 commits)
 When you're on a branch with no commits ahead of trunk:
 
 ```
-sp view --no-fetch
+sp view
 ```
 
 ```

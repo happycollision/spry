@@ -9,10 +9,7 @@ import type { SpryContext } from "../../src/lib/context.ts";
 const repos = repoManager();
 
 // Helper to capture stdout/stderr from viewCommand
-async function captureView(
-  ctx: SpryContext,
-  opts: { noFetch?: boolean } = {},
-): Promise<{ stdout: string; exitCode: number }> {
+async function captureView(ctx: SpryContext): Promise<{ stdout: string; exitCode: number }> {
   const chunks: string[] = [];
   const originalLog = console.log;
   const originalError = console.error;
@@ -27,7 +24,7 @@ async function captureView(
   }) as typeof process.exit;
 
   try {
-    await viewCommand(ctx, opts);
+    await viewCommand(ctx);
   } catch (e) {
     if (!(e instanceof Error && e.message === "EXIT")) throw e;
   } finally {
@@ -147,40 +144,6 @@ describe("viewCommand", () => {
     expect(plain).toContain("ccc33333");
   });
 
-  test("--no-fetch skips gh and shows local-only view", async () => {
-    const repo = await repos.create();
-    const git = createRealGitRunner();
-    await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
-    await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
-    await git.run(["config", "spry.branchPrefix", "spry/test"], { cwd: repo.path });
-
-    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
-    await git.run(["commit", "--allow-empty", "-m", "C\n\nSpry-Commit-Id: aaa11111"], {
-      cwd: repo.path,
-    });
-
-    // Use a context whose gh client throws if called
-    let ghCalled = false;
-    const ctx: SpryContext = {
-      git: {
-        run: (args, opts) => git.run(args, { ...opts, cwd: opts?.cwd ?? repo.path }),
-      },
-      gh: {
-        run: async () => {
-          ghCalled = true;
-          return { stdout: "", stderr: "", exitCode: 1 };
-        },
-      },
-    };
-
-    const { stdout, exitCode } = await captureView(ctx, { noFetch: true });
-    const plain = stripAnsi(stdout);
-
-    expect(exitCode).toBe(0);
-    expect(plain).toContain("○ C");
-    expect(ghCalled).toBe(false);
-  });
-
   test("group commits stored in refs/spry/groups are shown as a group with stored title", async () => {
     const repo = await repos.create();
     const git = createRealGitRunner();
@@ -204,7 +167,7 @@ describe("viewCommand", () => {
     );
 
     const ctx = createCtx(repo.path);
-    const { stdout, exitCode } = await captureView(ctx, { noFetch: true });
+    const { stdout, exitCode } = await captureView(ctx);
     const plain = stripAnsi(stdout);
 
     expect(exitCode).toBe(0);
