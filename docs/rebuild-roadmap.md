@@ -26,15 +26,11 @@ The rebuild started fresh with better test infrastructure and a cleaner architec
 
 ### Sync capabilities not yet on this branch
 
-| Capability                                      | Notes                                                                                                                                              |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Fetch remote before sync                        | `main` runs `git fetch` at the start of every sync                                                                                                 |
-| Conflict prediction before rebase               | `main` uses `predictRebaseConflicts` to warn before rebasing                                                                                       |
-| Auto-rebase when safe                           | `main` rebases automatically if no conflicts predicted                                                                                             |
-| `cleanupMergedPRs`                              | During sync, detects units whose PRs were already merged and removes them from the active set                                                      |
-| `stack-settings` persistence                    | `main` stores per-unit settings (PR body content hash etc.) in `refs/spry/settings` to detect when PR body needs updating; updates PR body on sync |
-| PR body updates on sync                         | `main` regenerates and updates PR body if content has changed since last push                                                                      |
-| `purgeOrphanedTitles` / `purgeOrphanedSettings` | Cleanup of stale refs when commits are removed from the stack                                                                                      |
+| Capability                                      | Notes                                                                                         |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Fetch remote before sync                        | `main` runs `git fetch` at the start of every sync                                            |
+| `cleanupMergedPRs`                              | During sync, detects units whose PRs were already merged and removes them from the active set |
+| `purgeOrphanedTitles` / `purgeOrphanedSettings` | Cleanup of stale refs when commits are removed from the stack                                 |
 
 ### Internal modules not yet on this branch
 
@@ -45,11 +41,9 @@ These are internal and don't map directly to user-facing features, but are neede
 | `src/git/behind.ts`           | `isStackBehindMain`, `getCommitsBehind`, `fastForwardLocalMain`, `fetchRemote`  |
 | `src/git/conflict-predict.ts` | `predictRebaseConflicts` — dry-run rebase to detect conflicts before committing |
 | `src/git/group-rebase.ts`     | Rebase logic that understands group structure                                   |
-| `src/git/stack-settings.ts`   | Per-unit metadata stored in `refs/spry/settings`                                |
 | `src/git/remote.ts`           | `getAllSyncStatuses`, `getSyncSummary`, sync status per branch                  |
 | `src/git/trailers.ts`         | Likely trailer read/write utilities (we have this inline today)                 |
 | `src/git/pr-detection.ts`     | Detects which commits have landed (by SHA or commit-id trailer)                 |
-| `src/tui/repair-select.ts`    | TUI for resolving rebase conflicts or split-group errors                        |
 | `src/tui/open-select.ts`      | Likely the `--open` TUI (we have `select.ts` which may cover this)              |
 | `src/tui/pr-adopt-select.ts`  | PR adoption picker for groups (we have inline in `group.ts`)                    |
 
@@ -63,11 +57,6 @@ These are internal and don't map directly to user-facing features, but are neede
 4. **`sp clean`** — port the orphaned-branch cleanup command.
 
 ---
-
-## Open questions
-
-- `stack-settings` (PR body content hashing): is this worth porting, or should we detect body staleness differently?
-- `repair-select` TUI: what scenarios trigger it? Conflict mid-rebase? Split-group validation errors?
 
 ## Decisions
 
