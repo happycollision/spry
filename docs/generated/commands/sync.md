@@ -66,11 +66,12 @@ sp sync
 
 ```
 ✓ Injected 1 commit ID(s)
+PR retargeting unavailable: network error (branches still updated)
 ✓ Sync complete
 
 ```
 
-After pushing, `sp sync` checks each open PR's base and retargets any that are wrong. This keeps your stacked PRs pointing at each other rather than trunk as the stack evolves:
+After pushing, `sp sync` checks each open PR's base, retargets any that are wrong, and refreshes the local PR status cache read by `sp view`. No network call is needed at view time — sync is the mechanism that fetches fresh status from GitHub:
 
 ```
 sp sync
@@ -80,6 +81,7 @@ sp sync
 ↑ pushed spry/dondenton/aaa11111
 ↑ pushed spry/dondenton/bbb22222
 ↻ retargeted PR #11 → spry/dondenton/aaa11111
+✓ Updated PR cache (2 PRs)
 ✓ Sync complete
 
 ```

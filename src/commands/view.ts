@@ -40,7 +40,7 @@ export async function viewCommand(ctx: SpryContext, opts: ViewOptions = {}): Pro
     process.exit(1);
   }
 
-  const prCache = opts.noFetch ? {} : await loadPRCache(ctx.git);
+  const prCache = await loadPRCache(ctx.git);
   const enriched: EnrichedUnit[] = enrichFromCache(result.units, prCache);
 
   console.log(formatStackView(enriched, branch, commits.length, ref));

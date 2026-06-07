@@ -173,7 +173,7 @@ describe("sp sync docs", () => {
     });
 
     doc.prose(
-      "After pushing, `sp sync` checks each open PR's base and retargets any that are wrong. This keeps your stacked PRs pointing at each other rather than trunk as the stack evolves:",
+      "After pushing, `sp sync` checks each open PR's base, retargets any that are wrong, and refreshes the local PR status cache read by `sp view`. No network call is needed at view time — sync is the mechanism that fetches fresh status from GitHub:",
     );
 
     // PR for bbb22222 has wrong base (main instead of spry/dondenton/aaa11111)
@@ -248,6 +248,7 @@ describe("sp sync docs", () => {
     expect(lines.join("\n")).toContain("pushed spry/dondenton/aaa11111");
     expect(lines.join("\n")).toContain("pushed spry/dondenton/bbb22222");
     expect(lines.join("\n")).toMatch(/retargeted PR #11/);
+    expect(lines.join("\n")).toContain("Updated PR cache");
     expect(lines.join("\n")).toContain("Sync complete");
   });
 

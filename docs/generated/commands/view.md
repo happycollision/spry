@@ -1,6 +1,6 @@
 # view
 
-View the current stack of commits on your feature branch (use --no-fetch for offline/CI):
+View the current stack of commits on your feature branch. Pass `--no-fetch` to skip fetching remote refs (useful in CI or offline):
 
 ```
 sp view --no-fetch
@@ -30,7 +30,7 @@ No commits ahead of origin/main
 
 ```
 
-If gh isn't installed, isn't authenticated, or can't reach GitHub, sp view falls back to local mode with a hint:
+sp view reads PR status from a local git ref written by sp sync — no network call needed:
 
 ```
 sp view
@@ -38,12 +38,14 @@ sp view
 
 ```
 Stack: feature (1 commit)
-PR status unavailable: <hint> (showing local view)
 ○ no PR  ◐ open  ✓ merged  ✗ closed
+checks: ✓ pass  ✗ fail  ⏳ pending  — none
+approval: ✓ approved  ✗ changes  ? required  — none
 
   → origin/main
 ────────────────────────────────────────────────────────────────────────
-  ○ Add login page (aaa11111)
+  ◐ Add login page (aaa11111)
+    https://github.com/<owner>/<repo>/pull/42 - checks:✓ approval:— comments:0/2
 ────────────────────────────────────────────────────────────────────────
 
 ```

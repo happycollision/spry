@@ -48,7 +48,7 @@ describe("sp view docs", () => {
       );
 
       doc.prose(
-        "View the current stack of commits on your feature branch (use --no-fetch for offline/CI):",
+        "View the current stack of commits on your feature branch. Pass `--no-fetch` to skip fetching remote refs (useful in CI or offline):",
       );
 
       const { command, result } = await runSp(repo.path, "view", ["--no-fetch"]);

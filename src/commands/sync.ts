@@ -377,9 +377,11 @@ async function writePRCache(
     const pr = prMap.get(branch);
     if (pr) cache[unit.id] = { ...pr, branch, cachedAt: now };
   }
-  if (Object.keys(cache).length === 0) return;
+  const count = Object.keys(cache).length;
+  if (count === 0) return;
   try {
     await savePRCache(ctx.git, cache, { cwd });
+    console.log(`✓ Updated PR cache (${count} ${count === 1 ? "PR" : "PRs"})`);
     const push = await pushPRCache(ctx.git, config.remote, { cwd });
     if (!push.ok) console.log(kleur.dim(`⚠ Could not push PR cache: ${push.warning}`));
   } catch (err) {
