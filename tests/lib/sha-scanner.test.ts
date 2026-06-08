@@ -13,24 +13,31 @@ const SHA_C = "1122334455667788990011223344556677889900";
 const SPRY_A = "deadbeef";
 const SPRY_B = "cafebabe";
 
+/** Extract a map value, throwing if missing — avoids non-null assertions. */
+function get<K, V>(map: Map<K, V>, key: K): V {
+  const v = map.get(key);
+  if (v === undefined) throw new Error(`sha-scanner test: key not in map: ${String(key)}`);
+  return v;
+}
+
 describe("buildShaMap", () => {
   test("assigns stable pool entries: same SHA always maps to the same fake", () => {
     const map1 = buildShaMap([SHA_A, SHA_B]);
     const map2 = buildShaMap([SHA_B, SHA_A]); // different encounter order
     // Hash-based: order independent
-    expect(map1.get(SHA_A)).toBe(map2.get(SHA_A));
-    expect(map1.get(SHA_B)).toBe(map2.get(SHA_B));
+    expect(get(map1, SHA_A)).toBe(get(map2, SHA_A));
+    expect(get(map1, SHA_B)).toBe(get(map2, SHA_B));
     // Both map to entries from the pool
-    expect(SHA_POOL).toContain(map1.get(SHA_A));
-    expect(SHA_POOL).toContain(map1.get(SHA_B));
+    expect(SHA_POOL).toContain(get(map1, SHA_A));
+    expect(SHA_POOL).toContain(get(map1, SHA_B));
     // Different SHAs get different fakes
-    expect(map1.get(SHA_A)).not.toBe(map1.get(SHA_B));
+    expect(get(map1, SHA_A)).not.toBe(get(map1, SHA_B));
   });
 
   test("deduplicates: same SHA seen twice only uses one pool slot", () => {
     const map = buildShaMap([SHA_A, SHA_A]);
     expect(map.size).toBe(1);
-    expect(SHA_POOL).toContain(map.get(SHA_A));
+    expect(SHA_POOL).toContain(get(map, SHA_A));
   });
 
   test("throws with a clear message when SHA_POOL is exhausted", () => {
@@ -47,13 +54,13 @@ describe("buildSpryMap", () => {
     const map1 = buildSpryMap([SPRY_A, SPRY_B]);
     const map2 = buildSpryMap([SPRY_B, SPRY_A]); // different encounter order
     // Hash-based: order independent
-    expect(map1.get(SPRY_A)).toBe(map2.get(SPRY_A));
-    expect(map1.get(SPRY_B)).toBe(map2.get(SPRY_B));
+    expect(get(map1, SPRY_A)).toBe(get(map2, SPRY_A));
+    expect(get(map1, SPRY_B)).toBe(get(map2, SPRY_B));
     // Both map to entries from the pool
-    expect(SPRY_ID_POOL).toContain(map1.get(SPRY_A));
-    expect(SPRY_ID_POOL).toContain(map1.get(SPRY_B));
+    expect(SPRY_ID_POOL).toContain(get(map1, SPRY_A));
+    expect(SPRY_ID_POOL).toContain(get(map1, SPRY_B));
     // Different ids get different fakes
-    expect(map1.get(SPRY_A)).not.toBe(map1.get(SPRY_B));
+    expect(get(map1, SPRY_A)).not.toBe(get(map1, SPRY_B));
   });
 
   test("throws with a clear message when SPRY_ID_POOL is exhausted", () => {
@@ -67,9 +74,9 @@ describe("buildSpryMap", () => {
 
 // Precompute the fake SHA values that buildShaMap assigns to SHA_A and SHA_B
 // using the hash-based algorithm (order-independent).
-const FAKE_A = buildShaMap([SHA_A]).get(SHA_A)!;
-const FAKE_B = buildShaMap([SHA_B]).get(SHA_B)!;
-const FAKE_SPRY_A = buildSpryMap([SPRY_A]).get(SPRY_A)!;
+const FAKE_A = get(buildShaMap([SHA_A]), SHA_A);
+const FAKE_B = get(buildShaMap([SHA_B]), SHA_B);
+const FAKE_SPRY_A = get(buildSpryMap([SPRY_A]), SPRY_A);
 
 describe("scanAndReplace", () => {
   test("replaces full 40-char SHA", () => {
