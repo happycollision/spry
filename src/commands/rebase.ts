@@ -6,6 +6,7 @@ import {
   getCurrentBranch,
   getFullSha,
   getCommitMessage,
+  registerBranch,
 } from "../git/index.ts";
 import { isDetachedHead } from "../git/queries.ts";
 import { requireCleanWorkingTree } from "../git/status.ts";
@@ -27,6 +28,9 @@ export async function rebaseCommand(ctx: SpryContext, opts: RebaseOptions = {}):
   }
 
   await requireCleanWorkingTree(ctx.git, { cwd });
+
+  const branch = await getCurrentBranch(ctx.git, { cwd });
+  await registerBranch(ctx.git, branch, { cwd });
 
   const ref = trunkRef(config);
 
@@ -78,7 +82,6 @@ export async function rebaseCommand(ctx: SpryContext, opts: RebaseOptions = {}):
   }
 
   // 5. Apply: update branch ref and working tree
-  const branch = await getCurrentBranch(ctx.git, { cwd });
   const oldTip = commitHashes.at(-1) ?? "";
   await finalizeRewrite(ctx.git, branch, oldTip, result.newTip, { cwd });
 

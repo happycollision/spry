@@ -4,8 +4,10 @@ import {
   loadConfig,
   trunkRef,
   getStackCommits,
+  getCurrentBranch,
   injectMissingIds,
   branchForUnit,
+  registerBranch,
 } from "../git/index.ts";
 import {
   loadGroupRecords,
@@ -61,6 +63,9 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   if (inject.modifiedCount > 0) {
     console.log(`✓ Injected ${inject.modifiedCount} commit ID(s)`);
   }
+
+  const currentBranch = await getCurrentBranch(ctx.git, { cwd });
+  await registerBranch(ctx.git, currentBranch, { cwd });
 
   // 2. Re-read commits + parse stack
   const commits = await getStackCommits(ctx.git, ref, { cwd });

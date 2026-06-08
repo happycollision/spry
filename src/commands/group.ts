@@ -16,6 +16,7 @@ import {
   finalizeRewrite,
   branchForUnit,
   getMergeBase,
+  registerBranch,
 } from "../git/index.ts";
 import { parseCommitTrailers, parseStack } from "../parse/index.ts";
 import { findPRsForBranches, classifyGhInfraError } from "../gh/index.ts";
@@ -44,6 +45,8 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
   }
 
   await requireCleanWorkingTree(ctx.git, { cwd });
+
+  await registerBranch(ctx.git, branch, { cwd });
 
   const commits = await getStackCommits(ctx.git, ref, { cwd });
   if (commits.length === 0) {

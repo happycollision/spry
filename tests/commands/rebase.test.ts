@@ -2,6 +2,7 @@ import { describe, test, expect, afterEach } from "bun:test";
 import { rebaseCommand } from "../../src/commands/rebase.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
 import type { SpryContext, TestRepo } from "../lib/index.ts";
+import { loadTrackedBranches } from "../../src/git/tracked-branches.ts";
 
 const repos: TestRepo[] = [];
 
@@ -163,6 +164,25 @@ describe("sp rebase", () => {
     // Working tree should be unchanged — no partial rebase
     const statusResult = await git.run(["status", "--porcelain"], { cwd: repo.path });
     expect(statusResult.stdout.trim()).toBe("");
+  });
+
+  test("registers current branch in tracked-branches ref", async () => {
+    const repo = await makeConfiguredRepo();
+    await repo.fetch();
+    const branchName = await repo.branch("tracked-test");
+    await repo.commit("some work");
+
+    const git = createRealGitRunner();
+    const ctx = makeCtx(repo);
+    const logs = captureLogs();
+    try {
+      await rebaseCommand(ctx, { cwd: repo.path });
+    } finally {
+      logs.restore();
+    }
+
+    const tracked = await loadTrackedBranches(git, { cwd: repo.path });
+    expect(tracked).toContain(branchName);
   });
 
   test("detached HEAD: prints error and exits 1", async () => {
