@@ -75,7 +75,7 @@ export function docTest(
           }
         }
         if (scrubShas) {
-          out = out.replace(/\b[0-9a-f]{7}\b/g, (sha) => {
+          out = out.replace(/\b[0-9a-f]{7,8}\b/g, (sha) => {
             if (!shaMap.has(sha)) {
               shaMap.set(sha, SHA_POOL[shaMap.size] ?? `sha${shaMap.size}`);
             }
