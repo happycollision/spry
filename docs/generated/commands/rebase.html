@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sp rebase</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: system-ui, sans-serif; line-height: 1.6; padding: 2rem; max-width: 860px; color: #e8e8e8; background: #1a1a1a; }
+        h1 { font-size: 1.4rem; margin-bottom: 1.5rem; color: #fff; }
+        p { margin-bottom: 1rem; }
+        pre { font-family: ui-monospace, 'Cascadia Code', monospace; font-size: 0.85rem; padding: 1rem; border-radius: 6px; overflow-x: auto; margin-bottom: 1rem; white-space: pre; }
+        pre.command { background: #0d1117; color: #c9d1d9; border-left: 3px solid #58a6ff; }
+        pre.output { background: #0d1117; color: #c9d1d9; }
+        pre.screen { background: #0d1117; color: #c9d1d9; }
+        .ansi-black { color: #000; } .ansi-red { color: #c0392b; } .ansi-green { color: #27ae60; }
+        .ansi-yellow { color: #f39c12; } .ansi-blue { color: #2980b9; } .ansi-magenta { color: #8e44ad; }
+        .ansi-cyan { color: #16a085; } .ansi-white { color: #bdc3c7; }
+        .ansi-bright-black { color: #7f8c8d; } .ansi-bright-red { color: #e74c3c; } .ansi-bright-green { color: #2ecc71; }
+        .ansi-bright-yellow { color: #f1c40f; } .ansi-bright-blue { color: #3498db; } .ansi-bright-magenta { color: #9b59b6; }
+        .ansi-bright-cyan { color: #1abc9c; } .ansi-bright-white { color: #ecf0f1; }
+        .ansi-bold { font-weight: bold; }
+    </style>
+  </head>
+  <body>
+    <h1>sp rebase</h1>
+    <p>
+      When your stack is already based on the latest trunk, `sp rebase` fetches and exits cleanly:
+    </p>
+    <pre class="command">sp rebase</pre>
+    <pre class="output">✓ Already up to date</pre>
+    <p>
+      When trunk has new commits, `sp rebase` fetches, detects the gap, and replays your stack on
+      top — no conflicts, no prompts:
+    </p>
+    <pre class="command">sp rebase</pre>
+    <pre class="output">✓ Rebased 1 commit onto main</pre>
+    <p>
+      If rebasing would produce a conflict, `sp rebase` reports the conflicting files and exits
+      without touching your working tree. Nothing is rewritten:
+    </p>
+    <pre class="command">sp rebase</pre>
+    <pre
+      class="output"
+    ><span style="color:#A00">&#x2717; Rebase would conflict on commit f50f2f99: Add API handler</span>
+<span style="color:#A00"></span>
+<span style="color:#A00">  Conflicting files:</span>
+<span style="color:#A00">    - api.ts</span>
+<span style="color:#A00"></span>
+<span style="color:#A00">  Resolve the upstream changes manually, then run `sp rebase` again.</span>
+<span style="color:#A00">  Or use `git rebase` for interactive conflict resolution.</span></pre>
+    <p>
+      When all tracked branches are already based on the latest trunk, `sp rebase --all` fetches and
+      reports each as up to date:
+    </p>
+    <pre class="command">sp rebase --all</pre>
+    <pre class="output">feature: ✓ already up to date</pre>
+    <p>
+      When multiple tracked branches are behind trunk, `sp rebase --all` rebases each one in turn
+      without requiring a manual checkout:
+    </p>
+    <pre class="command">sp rebase --all</pre>
+    <pre class="output">
+feature-one: ✓ Rebased 1 commit onto main
+feature-two: ✓ Rebased 2 commits onto main</pre
+    >
+  </body>
+</html>
