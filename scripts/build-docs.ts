@@ -2,6 +2,7 @@ import type { DocFragment, DocEntry } from "../tests/lib/doc-types.ts";
 import { readdir, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import AnsiToHtml from "ansi-to-html";
+import { buildShaMap, buildSpryMap, scanAndReplace } from "../tests/lib/sha-scanner.ts";
 
 /** Assemble doc fragments into markdown strings grouped by section. */
 export function assembleMarkdown(fragments: DocFragment[]): Map<string, string> {
@@ -130,6 +131,40 @@ export function assembleHtml(fragments: DocFragment[]): Map<string, string> {
   return result;
 }
 
+function scrubFragments(fragments: DocFragment[]): DocFragment[] {
+  const allShas: string[] = [];
+  const allSpryIds: string[] = [];
+
+  for (const frag of fragments) {
+    if (frag.shas) {
+      for (const sha of frag.shas) {
+        if (!allShas.includes(sha)) allShas.push(sha);
+      }
+    }
+    if (frag.spryIds) {
+      for (const id of frag.spryIds) {
+        if (!allSpryIds.includes(id)) allSpryIds.push(id);
+      }
+    }
+  }
+
+  if (allShas.length === 0 && allSpryIds.length === 0) return fragments;
+
+  const shaMap = buildShaMap(allShas);
+  const spryMap = buildSpryMap(allSpryIds);
+
+  return fragments.map((frag) => ({
+    ...frag,
+    entries: frag.entries.map((entry) => ({
+      ...entry,
+      content: scanAndReplace(entry.content, shaMap, spryMap),
+      ...(entry.ansiContent !== undefined && {
+        ansiContent: scanAndReplace(entry.ansiContent, shaMap, spryMap),
+      }),
+    })),
+  }));
+}
+
 export async function buildDocsFromDisk(fragmentsDir: string, outDir: string): Promise<number> {
   let files: string[];
   try {
@@ -147,14 +182,15 @@ export async function buildDocsFromDisk(fragmentsDir: string, outDir: string): P
   const fragments: DocFragment[] = await Promise.all(
     jsonFiles.map(async (f) => JSON.parse(await Bun.file(join(fragmentsDir, f)).text())),
   );
-  const docs = assembleMarkdown(fragments);
+  const scrubbedFragments = scrubFragments(fragments);
+  const docs = assembleMarkdown(scrubbedFragments);
   for (const [section, content] of docs) {
     const filePath = join(outDir, `${section}.md`);
     await mkdir(join(filePath, ".."), { recursive: true });
     await Bun.write(filePath, content);
   }
 
-  const htmlDocs = assembleHtml(fragments);
+  const htmlDocs = assembleHtml(scrubbedFragments);
   for (const [section, content] of htmlDocs) {
     const filePath = join(outDir, `${section}.html`);
     await mkdir(join(filePath, ".."), { recursive: true });

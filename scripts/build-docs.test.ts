@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { mkdir, rm, readFile } from "node:fs/promises";
 import { assembleMarkdown, assembleHtml, buildDocsFromDisk } from "./build-docs.ts";
 import type { DocFragment } from "../tests/lib/doc-types.ts";
+import { SHA_POOL, SPRY_ID_POOL } from "../tests/lib/sha-scanner.ts";
 
 test("assembles fragments into markdown grouped by section", () => {
   const fragments: DocFragment[] = [
@@ -175,4 +176,118 @@ test("assembleHtml produces valid standalone HTML structure", () => {
   expect(html).toContain("<style>");
   expect(html).toContain("</html>");
   expect(html).toContain("Demo command.");
+});
+
+const REAL_SHA = "abc1234def5678901234567890abcdef12345678";
+const REAL_SPRY = "deadbeef";
+
+test("buildDocsFromDisk scrubs SHAs in fragment content", async () => {
+  const fragmentsDir = join(tmpRoot, "fragments-sha");
+  const outDir = join(tmpRoot, "out-sha");
+  await mkdir(fragmentsDir, { recursive: true });
+
+  await Bun.write(
+    join(fragmentsDir, "commands__demo--010.json"),
+    JSON.stringify({
+      title: "SHA test",
+      section: "commands/demo",
+      order: 10,
+      shas: [REAL_SHA],
+      spryIds: [REAL_SPRY],
+      entries: [
+        {
+          type: "output",
+          content: `commit ${REAL_SHA.slice(0, 7)} (Spry-Commit-Id: ${REAL_SPRY})`,
+        },
+      ],
+    }),
+  );
+
+  await buildDocsFromDisk(fragmentsDir, outDir);
+  const markdown = await readFile(join(outDir, "commands/demo.md"), "utf8");
+  expect(markdown).not.toContain(REAL_SHA.slice(0, 7));
+  expect(markdown).not.toContain(REAL_SPRY);
+  expect(markdown).toContain(SHA_POOL[0]!.slice(0, 7));
+  expect(markdown).toContain(SPRY_ID_POOL[0]!);
+});
+
+test("same SHA in two fragments gets the same fake value (global map)", async () => {
+  const fragmentsDir = join(tmpRoot, "fragments-global");
+  const outDir = join(tmpRoot, "out-global");
+  await mkdir(fragmentsDir, { recursive: true });
+
+  await Bun.write(
+    join(fragmentsDir, "commands__demo--010.json"),
+    JSON.stringify({
+      title: "Fragment 1",
+      section: "commands/demo",
+      order: 10,
+      shas: [REAL_SHA],
+      entries: [{ type: "output", content: REAL_SHA.slice(0, 7) }],
+    }),
+  );
+  await Bun.write(
+    join(fragmentsDir, "commands__demo--020.json"),
+    JSON.stringify({
+      title: "Fragment 2",
+      section: "commands/demo",
+      order: 20,
+      shas: [REAL_SHA],
+      entries: [{ type: "output", content: REAL_SHA.slice(0, 7) }],
+    }),
+  );
+
+  await buildDocsFromDisk(fragmentsDir, outDir);
+  const markdown = await readFile(join(outDir, "commands/demo.md"), "utf8");
+  const fakeAbbrev = SHA_POOL[0]!.slice(0, 7);
+  expect(markdown.split(fakeAbbrev).length - 1).toBe(2);
+});
+
+test("fragment without shas field passes through unchanged", async () => {
+  const fragmentsDir = join(tmpRoot, "fragments-noshas");
+  const outDir = join(tmpRoot, "out-noshas");
+  await mkdir(fragmentsDir, { recursive: true });
+
+  await Bun.write(
+    join(fragmentsDir, "commands__demo--010.json"),
+    JSON.stringify({
+      title: "No shas",
+      section: "commands/demo",
+      order: 10,
+      entries: [{ type: "prose", content: "Just plain text." }],
+    }),
+  );
+
+  await buildDocsFromDisk(fragmentsDir, outDir);
+  const markdown = await readFile(join(outDir, "commands/demo.md"), "utf8");
+  expect(markdown).toContain("Just plain text.");
+});
+
+test("ansiContent is also scrubbed", async () => {
+  const fragmentsDir = join(tmpRoot, "fragments-ansi");
+  const outDir = join(tmpRoot, "out-ansi");
+  await mkdir(fragmentsDir, { recursive: true });
+
+  const abbrev = REAL_SHA.slice(0, 7);
+  await Bun.write(
+    join(fragmentsDir, "commands__demo--010.json"),
+    JSON.stringify({
+      title: "ANSI test",
+      section: "commands/demo",
+      order: 10,
+      shas: [REAL_SHA],
+      entries: [
+        {
+          type: "output",
+          content: `commit ${abbrev}`,
+          ansiContent: `\x1b[33mcommit ${abbrev}\x1b[0m`,
+        },
+      ],
+    }),
+  );
+
+  await buildDocsFromDisk(fragmentsDir, outDir);
+  const html = await readFile(join(outDir, "commands/demo.html"), "utf8");
+  expect(html).not.toContain(abbrev);
+  expect(html).toContain(SHA_POOL[0]!.slice(0, 7));
 });
