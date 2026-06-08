@@ -11,6 +11,8 @@ export interface DocFragment {
   section: string;
   order: number;
   entries: DocEntry[];
+  shas?: string[]; // all 40-char git SHAs seen in this test's repos
+  spryIds?: string[]; // all Spry-Commit-Id trailer values (8-char hex)
 }
 
 export interface DocContext {
