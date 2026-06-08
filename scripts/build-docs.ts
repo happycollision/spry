@@ -176,7 +176,7 @@ export async function buildDocsFromDisk(fragmentsDir: string, outDir: string): P
       throw err;
     }
   }
-  const jsonFiles = files.filter((f) => f.endsWith(".json"));
+  const jsonFiles = files.filter((f) => f.endsWith(".json")).sort();
   if (jsonFiles.length === 0) return 0;
 
   const fragments: DocFragment[] = await Promise.all(

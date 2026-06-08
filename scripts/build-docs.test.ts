@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { mkdir, rm, readFile } from "node:fs/promises";
 import { assembleMarkdown, assembleHtml, buildDocsFromDisk } from "./build-docs.ts";
 import type { DocFragment } from "../tests/lib/doc-types.ts";
-import { SHA_POOL, SPRY_ID_POOL } from "../tests/lib/sha-scanner.ts";
+import { SHA_POOL, SPRY_ID_POOL, buildShaMap, buildSpryMap } from "../tests/lib/sha-scanner.ts";
 
 test("assembles fragments into markdown grouped by section", () => {
   const fragments: DocFragment[] = [
@@ -203,12 +203,17 @@ test("buildDocsFromDisk scrubs SHAs in fragment content", async () => {
     }),
   );
 
+  const shaMap = buildShaMap([REAL_SHA]);
+  const spryMap = buildSpryMap([REAL_SPRY]);
+  const fakeShaAbbrev = shaMap.get(REAL_SHA)!.slice(0, 7);
+  const fakeSpry = spryMap.get(REAL_SPRY)!;
+
   await buildDocsFromDisk(fragmentsDir, outDir);
   const markdown = await readFile(join(outDir, "commands/demo.md"), "utf8");
   expect(markdown).not.toContain(REAL_SHA.slice(0, 7));
   expect(markdown).not.toContain(REAL_SPRY);
-  expect(markdown).toContain(SHA_POOL[0]!.slice(0, 7));
-  expect(markdown).toContain(SPRY_ID_POOL[0]!);
+  expect(markdown).toContain(fakeShaAbbrev);
+  expect(markdown).toContain(fakeSpry);
 });
 
 test("same SHA in two fragments gets the same fake value (global map)", async () => {
@@ -237,9 +242,11 @@ test("same SHA in two fragments gets the same fake value (global map)", async ()
     }),
   );
 
+  const shaMap = buildShaMap([REAL_SHA]);
+  const fakeAbbrev = shaMap.get(REAL_SHA)!.slice(0, 7);
+
   await buildDocsFromDisk(fragmentsDir, outDir);
   const markdown = await readFile(join(outDir, "commands/demo.md"), "utf8");
-  const fakeAbbrev = SHA_POOL[0]!.slice(0, 7);
   expect(markdown.split(fakeAbbrev).length - 1).toBe(2);
 });
 
@@ -286,8 +293,11 @@ test("ansiContent is also scrubbed", async () => {
     }),
   );
 
+  const shaMap = buildShaMap([REAL_SHA]);
+  const fakeShaAbbrev = shaMap.get(REAL_SHA)!.slice(0, 7);
+
   await buildDocsFromDisk(fragmentsDir, outDir);
   const html = await readFile(join(outDir, "commands/demo.html"), "utf8");
   expect(html).not.toContain(abbrev);
-  expect(html).toContain(SHA_POOL[0]!.slice(0, 7));
+  expect(html).toContain(fakeShaAbbrev);
 });
