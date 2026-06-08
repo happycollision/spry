@@ -81,6 +81,11 @@ export function docTest(
             }
             return shaMap.get(sha) ?? sha;
           });
+          // Second pass: literal replacements catch SHAs inside ANSI escape
+          // sequences where \b doesn't match across non-word escape characters.
+          for (const [original, replacement] of shaMap) {
+            out = out.replaceAll(original, replacement);
+          }
         }
         return out;
       }
