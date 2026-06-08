@@ -7,7 +7,7 @@ sp sync
 ```
 
 ```
-↑ pushed spry/dondenton/aaa1111
+↑ pushed spry/dondenton/aaaa7777
 PR retargeting unavailable: <hint>
 ✓ Sync complete
 
@@ -16,11 +16,11 @@ PR retargeting unavailable: <hint>
 Use `sp sync --open <id>` to publish a commit for the first time — Spry pushes the branch and opens a PR on GitHub targeting trunk (or the previous unit's branch for a stacked PR):
 
 ```
-sp sync --open aaa1111
+sp sync --open aaaa7777
 ```
 
 ```
-↑ pushed spry/dondenton/aaa1111
+↑ pushed spry/dondenton/aaaa7777
 ✓ Created PR #42: Add login
   https://github.com/owner/repo/pull/42
 ✓ Sync complete
@@ -35,12 +35,12 @@ sp sync --open
 
 ```
 Select units to open (space toggle, a all, enter confirm, esc cancel):
-> [ ] aaa1111  Add login
+> [ ] aaaa7777  Add login
 
 ```
 
 ```
-↑ pushed spry/dondenton/aaa1111
+↑ pushed spry/dondenton/aaaa7777
 ✓ Created PR #42: Add login
   https://github.com/owner/repo/pull/42
 ✓ Sync complete
@@ -78,9 +78,9 @@ sp sync
 ```
 
 ```
-↑ pushed spry/dondenton/aaa1111
-↑ pushed spry/dondenton/bbb2222
-↻ retargeted PR #11 → spry/dondenton/aaa1111
+↑ pushed spry/dondenton/aaaa7777
+↑ pushed spry/dondenton/bbbb8888
+↻ retargeted PR #11 → spry/dondenton/aaaa7777
 ✓ Updated PR cache (2 PRs)
 ✓ Sync complete
 
