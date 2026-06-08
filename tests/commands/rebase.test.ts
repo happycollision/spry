@@ -2,7 +2,7 @@ import { describe, test, expect, afterEach } from "bun:test";
 import { rebaseCommand } from "../../src/commands/rebase.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
 import type { SpryContext, TestRepo } from "../lib/index.ts";
-import { loadTrackedBranches } from "../../src/git/tracked-branches.ts";
+import { registerBranch, loadTrackedBranches } from "../../src/git/tracked-branches.ts";
 
 const repos: TestRepo[] = [];
 
@@ -207,5 +207,159 @@ describe("sp rebase", () => {
 
     expect(trap.exitCode).toBe(1);
     expect(logs.err.join("\n").toLowerCase()).toContain("detached");
+  });
+});
+
+describe("sp rebase --all", () => {
+  test("with no pre-existing tracked branches: registers current branch and reports up to date", async () => {
+    const repo = await makeConfiguredRepo();
+    await repo.fetch();
+    await repo.branch("feature-notrack");
+    await repo.commit("some work");
+
+    const ctx = makeCtx(repo);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await rebaseCommand(ctx, { cwd: repo.path, all: true });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBeUndefined();
+    // Should have registered and reported feature-notrack as up to date
+    expect(logs.out.join("\n")).toContain("feature-notrack");
+  });
+
+  test("non-current branch behind: updates ref without touching working tree", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await repo.fetch();
+
+    // Create feature-other, register it
+    const other = await repo.branch("feature-other");
+    await repo.commitFiles({ "other.ts": "feature\n" }, "other work\n\nSpry-Commit-Id: aaa11111");
+    const origTip = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await registerBranch(git, other, { cwd: repo.path });
+
+    // Advance main
+    await repo.checkout(repo.defaultBranch);
+    await repo.commit("trunk advance");
+    await git.run(["push", "origin", repo.defaultBranch], { cwd: repo.path });
+
+    // Switch to a different branch (so feature-other is NOT current)
+    const current = await repo.branch("feature-current");
+    await repo.commit("current work");
+    await registerBranch(git, current, { cwd: repo.path });
+
+    const ctx = makeCtx(repo);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await rebaseCommand(ctx, { cwd: repo.path, all: true });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBeUndefined();
+    expect(logs.out.join("\n")).toContain("feature-other");
+    expect(logs.out.join("\n")).toContain("Rebased");
+
+    // feature-other ref should have moved
+    const newTip = (
+      await git.run(["rev-parse", `refs/heads/${other}`], { cwd: repo.path })
+    ).stdout.trim();
+    expect(newTip).not.toBe(origTip);
+
+    // Working tree still on feature-current, clean
+    const statusResult = await git.run(["status", "--porcelain"], { cwd: repo.path });
+    expect(statusResult.stdout.trim()).toBe("");
+    const headBranch = (
+      await git.run(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: repo.path })
+    ).stdout.trim();
+    expect(headBranch).toBe(current);
+  });
+
+  test("branch no longer exists: removes from tracked list", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await repo.fetch();
+    const aliveBranch = await repo.branch("feature-alive");
+    await repo.commit("some work");
+
+    // Register a branch that doesn't actually exist
+    await registerBranch(git, "ghost-branch", { cwd: repo.path });
+    await registerBranch(git, aliveBranch, { cwd: repo.path });
+
+    const ctx = makeCtx(repo);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await rebaseCommand(ctx, { cwd: repo.path, all: true });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(logs.out.join("\n")).toContain("ghost-branch");
+    expect(logs.out.join("\n")).toContain("removed");
+
+    const tracked = await loadTrackedBranches(git, { cwd: repo.path });
+    expect(tracked).not.toContain("ghost-branch");
+    expect(tracked).toContain(aliveBranch);
+  });
+
+  test("conflict on one branch: reports error, continues to next branch, exits 1", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await repo.fetch();
+
+    // Create conflicting branch
+    const conflict = await repo.branch("feature-conflict");
+    await repo.commitFiles(
+      { "shared.ts": "feature version\n" },
+      "feature: add shared\n\nSpry-Commit-Id: bbb22222",
+    );
+
+    // Advance trunk with conflicting file
+    await repo.checkout(repo.defaultBranch);
+    await repo.commitFiles({ "shared.ts": "trunk version\n" }, "trunk: add shared");
+    await git.run(["push", "origin", repo.defaultBranch], { cwd: repo.path });
+
+    // Create a clean branch too
+    const clean = await repo.branch("feature-clean");
+    await repo.commitFiles({ "clean.ts": "clean\n" }, "clean work\n\nSpry-Commit-Id: ccc33333");
+
+    await registerBranch(git, conflict, { cwd: repo.path });
+    await registerBranch(git, clean, { cwd: repo.path });
+
+    await repo.checkout(clean);
+
+    const ctx = makeCtx(repo);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await rebaseCommand(ctx, { cwd: repo.path, all: true });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBe(1);
+    const errText = logs.err.join("\n");
+    expect(errText).toContain("feature-conflict");
+    expect(errText).toContain("conflict");
+    // Clean branch still processed
+    expect(logs.out.join("\n")).toContain("feature-clean");
   });
 });
