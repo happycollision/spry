@@ -31,6 +31,27 @@ function isRepoLike(
   );
 }
 
+const SHA_POOL = [
+  "aaa1111",
+  "bbb2222",
+  "ccc3333",
+  "ddd4444",
+  "eee5555",
+  "fff6666",
+  "aaa7777",
+  "bbb8888",
+  "ccc9999",
+  "dddaaaa",
+  "eeabbbb",
+  "ffbcccc",
+  "aacdddd",
+  "bbdeeee",
+  "cceffff",
+  "ddf1234",
+  "ee05678",
+  "ff19012",
+];
+
 export function docTest(
   title: string,
   options: { section: string; order: number; timeout?: number },
@@ -41,6 +62,8 @@ export function docTest(
     async () => {
       const entries: DocEntry[] = [];
       const subs: Substitution[] = [];
+      let scrubShas = false;
+      const shaMap = new Map<string, string>();
 
       function applyScrub(text: string): string {
         let out = text;
@@ -50,6 +73,14 @@ export function docTest(
           } else {
             out = out.replace(pattern, replacement);
           }
+        }
+        if (scrubShas) {
+          out = out.replace(/\b[0-9a-f]{7}\b/g, (sha) => {
+            if (!shaMap.has(sha)) {
+              shaMap.set(sha, SHA_POOL[shaMap.size] ?? `sha${shaMap.size}`);
+            }
+            return shaMap.get(sha) ?? sha;
+          });
         }
         return out;
       }
@@ -89,6 +120,7 @@ export function docTest(
             subs.push({ pattern: arg.originPath, replacement: "/tmp/repo-origin" });
             subs.push({ pattern: `-${arg.uniqueId}`, replacement: "" });
             subs.push({ pattern: arg.uniqueId, replacement: "" });
+            scrubShas = true;
           } else if (typeof arg === "string" || arg instanceof RegExp) {
             subs.push({ pattern: arg, replacement: replacement ?? "" });
           } else {

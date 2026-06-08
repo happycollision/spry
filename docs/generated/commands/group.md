@@ -5,9 +5,9 @@ Run `sp group` to open the interactive group editor. Use ↑↓ to move between 
 ```
 Stack: feature/auth (3 commits)
 
-   1  4e90136  Add login form                           [A: Auth Flow]
-▶  2  883737f  Add session handling                     [A]
-   3  8bf701f  Fix typo in README
+   1  aaa1111  Add login form                           [A: Auth Flow]
+▶  2  bbb2222  Add session handling                     [A]
+   3  ccc3333  Fix typo in README
 
 ↑↓ cursor  ←→ group  Space grab  r rename  Enter save  q quit
 
@@ -18,8 +18,8 @@ Press `r` to rename the group at the cursor. Type a title and press Enter to con
 ```
 Stack: feature/auth (2 commits)
 
-   1  34ce7c4  Add login form                           [A: Auth▌]
-▶  2  0a05553  Add session handling                     [A]
+   1  aaa1111  Add login form                           [A: Auth▌]
+▶  2  bbb2222  Add session handling                     [A]
 
 RENAME MODE — Type title  Enter confirm  Esc cancel
 
@@ -30,8 +30,8 @@ Press Space to grab a commit and ↑↓ to reorder it. Spry predicts rebase conf
 ```
 Stack: feature/auth (2 commits)
 
-●  1  b8cbdf5  Add session handling
-   2  799916a  Add login form
+●  1  aaa1111  Add session handling
+   2  bbb2222  Add login form
 
 MOVE MODE — ↑↓ reorder  Space/Enter drop  Esc cancel
 
@@ -42,8 +42,8 @@ While reordering, Spry predicts rebase conflicts in the background. Rows marked 
 ```
 Stack: feature/config (2 commits)
 
-●  1  591256d  Set version to 2                         ⚠
-   2  efcd0a2  Set version to 1                         ⚠
+●  1  aaa1111  Set version to 2                         ⚠
+   2  bbb2222  Set version to 1                         ⚠
 
 MOVE MODE — ↑↓ reorder  Space/Enter drop  Esc cancel
 ⚠ Moving this commit may cause a conflict
