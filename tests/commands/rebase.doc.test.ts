@@ -124,3 +124,93 @@ describe("sp rebase docs", () => {
     expect(result.stderr).toContain("conflict");
   });
 });
+
+describe("sp rebase --all docs", () => {
+  docTest(
+    "All branches already up to date",
+    { section: "commands/rebase", order: 40 },
+    async (doc) => {
+      const repo = await createRepo();
+      repos.push(repo);
+      doc.scrub(repo);
+      const git = createRealGitRunner();
+
+      await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
+      await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+      await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
+
+      await repo.fetch();
+      // Create a feature branch and register it by running sp rebase
+      await repo.branch("feature");
+      await git.run(["commit", "--allow-empty", "-m", "Add feature\n\nSpry-Commit-Id: bbb22222"], {
+        cwd: repo.path,
+      });
+      // Run sp rebase once to register the branch in tracked-branches
+      await runSp(repo.path, "rebase");
+
+      doc.prose(
+        "When all tracked branches are already based on the latest trunk, `sp rebase --all` fetches and reports each as up to date:",
+      );
+
+      const { command, result } = await runSp(repo.path, "rebase", ["--all"]);
+      doc.command(command);
+      doc.output(result.stdout);
+
+      const { expect } = await import("bun:test");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("already up to date");
+    },
+  );
+
+  docTest(
+    "Rebasing multiple tracked branches",
+    { section: "commands/rebase", order: 50 },
+    async (doc) => {
+      const repo = await createRepo();
+      repos.push(repo);
+      doc.scrub(repo);
+      const git = createRealGitRunner();
+
+      await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
+      await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+      await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
+
+      await repo.fetch();
+
+      // Create feature-one and register via sp rebase
+      const featureOneBranch = await repo.branch("feature-one");
+      await git.run(
+        ["commit", "--allow-empty", "-m", "Add feature one\n\nSpry-Commit-Id: ccc33333"],
+        { cwd: repo.path },
+      );
+      await runSp(repo.path, "rebase");
+
+      // Create feature-two on top and register it too
+      const featureTwoBranch = await repo.branch("feature-two");
+      await git.run(
+        ["commit", "--allow-empty", "-m", "Add feature two\n\nSpry-Commit-Id: ddd44444"],
+        { cwd: repo.path },
+      );
+      await runSp(repo.path, "rebase");
+
+      // Advance main on remote (empty commit — no conflict possible)
+      await repo.checkout(repo.defaultBranch);
+      await git.run(["commit", "--allow-empty", "-m", "Bump dependencies"], { cwd: repo.path });
+      await git.run(["push", "origin", repo.defaultBranch], { cwd: repo.path });
+      await repo.checkout(featureTwoBranch);
+
+      doc.prose(
+        "When multiple tracked branches are behind trunk, `sp rebase --all` rebases each one in turn without requiring a manual checkout:",
+      );
+
+      const { command, result } = await runSp(repo.path, "rebase", ["--all"]);
+      doc.command(command);
+      doc.output(result.stdout);
+
+      const { expect } = await import("bun:test");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(featureOneBranch);
+      expect(result.stdout).toContain(featureTwoBranch);
+    },
+  );
+});
