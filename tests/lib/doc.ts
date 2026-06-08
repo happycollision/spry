@@ -1,3 +1,4 @@
+import { $ } from "bun";
 import { test as bunTest } from "bun:test";
 import { join } from "node:path";
 import stripAnsi from "strip-ansi";
@@ -31,27 +32,6 @@ function isRepoLike(
   );
 }
 
-const SHA_POOL = [
-  "aaa1111",
-  "bbb2222",
-  "ccc3333",
-  "ddd4444",
-  "eee5555",
-  "fff6666",
-  "aaa7777",
-  "bbb8888",
-  "ccc9999",
-  "dddaaaa",
-  "eeabbbb",
-  "ffbcccc",
-  "aacdddd",
-  "bbdeeee",
-  "cceffff",
-  "ddf1234",
-  "ee05678",
-  "ff19012",
-];
-
 export function docTest(
   title: string,
   options: { section: string; order: number; timeout?: number },
@@ -62,8 +42,7 @@ export function docTest(
     async () => {
       const entries: DocEntry[] = [];
       const subs: Substitution[] = [];
-      let scrubShas = false;
-      const shaMap = new Map<string, string>();
+      const scrubRepos: Array<{ path: string; originPath: string }> = [];
 
       function applyScrub(text: string): string {
         let out = text;
@@ -72,19 +51,6 @@ export function docTest(
             out = out.replaceAll(pattern, replacement);
           } else {
             out = out.replace(pattern, replacement);
-          }
-        }
-        if (scrubShas) {
-          out = out.replace(/\b[0-9a-f]{7,8}\b/g, (sha) => {
-            if (!shaMap.has(sha)) {
-              shaMap.set(sha, SHA_POOL[shaMap.size] ?? `sha${shaMap.size}`);
-            }
-            return shaMap.get(sha) ?? sha;
-          });
-          // Second pass: literal replacements catch SHAs inside ANSI escape
-          // sequences where \b doesn't match across non-word escape characters.
-          for (const [original, replacement] of shaMap) {
-            out = out.replaceAll(original, replacement);
           }
         }
         return out;
@@ -125,7 +91,7 @@ export function docTest(
             subs.push({ pattern: arg.originPath, replacement: "/tmp/repo-origin" });
             subs.push({ pattern: `-${arg.uniqueId}`, replacement: "" });
             subs.push({ pattern: arg.uniqueId, replacement: "" });
-            scrubShas = true;
+            scrubRepos.push({ path: arg.path, originPath: arg.originPath });
           } else if (typeof arg === "string" || arg instanceof RegExp) {
             subs.push({ pattern: arg, replacement: replacement ?? "" });
           } else {
@@ -136,11 +102,55 @@ export function docTest(
 
       await fn(doc);
 
+      let shas: string[] | undefined;
+      let spryIds: string[] | undefined;
+
+      if (scrubRepos.length > 0) {
+        const allShas = new Set<string>();
+        const allSpryIds = new Set<string>();
+
+        for (const repo of scrubRepos) {
+          const results = await Promise.allSettled([
+            $`git -C ${repo.path} log --all --format=%H`.quiet().text(),
+            $`git -C ${repo.path} reflog --format=%H`.quiet().nothrow().text(),
+            $`git -C ${repo.path} log --all --format=%B`.quiet().text(),
+            $`git -C ${repo.path} reflog --format=%B`.quiet().nothrow().text(),
+            $`git --git-dir=${repo.originPath} log --all --format=%H`.quiet().nothrow().text(),
+            $`git --git-dir=${repo.originPath} log --all --format=%B`.quiet().nothrow().text(),
+            $`git --git-dir=${repo.originPath} reflog --format=%H`.quiet().nothrow().text(),
+            $`git --git-dir=${repo.originPath} reflog --format=%B`.quiet().nothrow().text(),
+          ]);
+
+          const texts = results.map((r) => (r.status === "fulfilled" ? r.value : ""));
+          const logShas = texts[0] ?? "";
+          const reflogShas = texts[1] ?? "";
+          const originLogShas = texts[4] ?? "";
+          const originReflogShas = texts[6] ?? "";
+          const bodies = [texts[2], texts[3], texts[5], texts[7]].join("\n");
+
+          for (const line of [logShas, reflogShas, originLogShas, originReflogShas]
+            .join("\n")
+            .split("\n")) {
+            const sha = line.trim();
+            if (/^[0-9a-f]{40}$/.test(sha)) allShas.add(sha);
+          }
+
+          for (const match of bodies.matchAll(/^Spry-Commit-Id:\s+([0-9a-f]{8})\s*$/gm)) {
+            if (match[1]) allSpryIds.add(match[1]);
+          }
+        }
+
+        shas = [...allShas];
+        spryIds = [...allSpryIds];
+      }
+
       const fragment: DocFragment = {
         title,
         section: options.section,
         order: options.order,
         entries,
+        ...(shas !== undefined && { shas }),
+        ...(spryIds !== undefined && { spryIds }),
       };
       // Bun.write creates parent directories automatically.
       await Bun.write(fragmentPath(fragment), JSON.stringify(fragment, null, 2));
