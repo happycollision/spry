@@ -16,14 +16,14 @@ const SPRY_B = "cafebabe";
 describe("buildShaMap", () => {
   test("assigns pool entries in encounter order", () => {
     const map = buildShaMap([SHA_A, SHA_B]);
-    expect(map.get(SHA_A)).toBe(SHA_POOL[0]);
-    expect(map.get(SHA_B)).toBe(SHA_POOL[1]);
+    expect(map.get(SHA_A)).toBe(SHA_POOL[0]!);
+    expect(map.get(SHA_B)).toBe(SHA_POOL[1]!);
   });
 
   test("deduplicates: same SHA seen twice only uses one pool slot", () => {
     const map = buildShaMap([SHA_A, SHA_A]);
     expect(map.size).toBe(1);
-    expect(map.get(SHA_A)).toBe(SHA_POOL[0]);
+    expect(map.get(SHA_A)).toBe(SHA_POOL[0]!);
   });
 
   test("throws with a clear message when SHA_POOL is exhausted", () => {
@@ -38,8 +38,8 @@ describe("buildShaMap", () => {
 describe("buildSpryMap", () => {
   test("assigns pool entries in encounter order", () => {
     const map = buildSpryMap([SPRY_A, SPRY_B]);
-    expect(map.get(SPRY_A)).toBe(SPRY_ID_POOL[0]);
-    expect(map.get(SPRY_B)).toBe(SPRY_ID_POOL[1]);
+    expect(map.get(SPRY_A)).toBe(SPRY_ID_POOL[0]!);
+    expect(map.get(SPRY_B)).toBe(SPRY_ID_POOL[1]!);
   });
 
   test("throws with a clear message when SPRY_ID_POOL is exhausted", () => {
@@ -57,7 +57,7 @@ describe("scanAndReplace", () => {
     const result = scanAndReplace(`commit ${SHA_A}`, shaMap, new Map());
     expect(result).not.toContain(SHA_A);
     expect(result).toContain("commit ");
-    expect(result).toContain(SHA_POOL[0]);
+    expect(result).toContain(SHA_POOL[0]!);
   });
 
   test("replaces 7-char SHA abbreviation", () => {
@@ -65,14 +65,14 @@ describe("scanAndReplace", () => {
     const abbrev = SHA_A.slice(0, 7);
     const result = scanAndReplace(`commit ${abbrev}`, shaMap, new Map());
     expect(result).not.toContain(abbrev);
-    expect(result).toContain(SHA_POOL[0].slice(0, 7));
+    expect(result).toContain(SHA_POOL[0]!.slice(0, 7));
   });
 
   test("replaces 8-char SHA abbreviation with SHA fake (not Spry fake)", () => {
     const shaMap = buildShaMap([SHA_A]);
     const abbrev = SHA_A.slice(0, 8);
     const result = scanAndReplace(abbrev, shaMap, new Map());
-    expect(result).toBe(SHA_POOL[0].slice(0, 8));
+    expect(result).toBe(SHA_POOL[0]!.slice(0, 8));
   });
 
   test("replaces 6-char SHA abbreviation", () => {
@@ -80,14 +80,14 @@ describe("scanAndReplace", () => {
     const abbrev = SHA_A.slice(0, 6);
     const result = scanAndReplace(abbrev, shaMap, new Map());
     expect(result).not.toContain(abbrev);
-    expect(result).toContain(SHA_POOL[0].slice(0, 6));
+    expect(result).toContain(SHA_POOL[0]!.slice(0, 6));
   });
 
   test("replaces 9-char SHA abbreviation", () => {
     const shaMap = buildShaMap([SHA_A]);
     const abbrev = SHA_A.slice(0, 9);
     const result = scanAndReplace(abbrev, shaMap, new Map());
-    expect(result).toBe(SHA_POOL[0].slice(0, 9));
+    expect(result).toBe(SHA_POOL[0]!.slice(0, 9));
   });
 
   test("two SHAs concatenated with no separator — both replaced", () => {
@@ -96,7 +96,7 @@ describe("scanAndReplace", () => {
     const result = scanAndReplace(concat, shaMap, new Map());
     expect(result).not.toContain(SHA_A.slice(0, 7));
     expect(result).not.toContain(SHA_B.slice(0, 7));
-    expect(result).toBe(SHA_POOL[0].slice(0, 7) + SHA_POOL[1].slice(0, 7));
+    expect(result).toBe(SHA_POOL[0]!.slice(0, 7) + SHA_POOL[1]!.slice(0, 7));
   });
 
   test("hex string NOT in registry passes through unchanged", () => {
@@ -116,7 +116,7 @@ describe("scanAndReplace", () => {
     const spryMap = buildSpryMap([SPRY_A]);
     const result = scanAndReplace(`Spry-Commit-Id: ${SPRY_A}`, new Map(), spryMap);
     expect(result).not.toContain(SPRY_A);
-    expect(result).toContain(SPRY_ID_POOL[0]);
+    expect(result).toContain(SPRY_ID_POOL[0]!);
   });
 
   test("Spry-Commit-Id adjacent to SHA abbreviation — each replaced from correct pool", () => {
@@ -126,8 +126,8 @@ describe("scanAndReplace", () => {
     const result = scanAndReplace(input, shaMap, spryMap);
     expect(result).not.toContain(SHA_A.slice(0, 7));
     expect(result).not.toContain(SPRY_A);
-    expect(result).toContain(SHA_POOL[0].slice(0, 7));
-    expect(result).toContain(SPRY_ID_POOL[0]);
+    expect(result).toContain(SHA_POOL[0]!.slice(0, 7));
+    expect(result).toContain(SPRY_ID_POOL[0]!);
   });
 
   test("SHA abbreviation inside ANSI escape sequence — replaced correctly", () => {
@@ -138,7 +138,7 @@ describe("scanAndReplace", () => {
     expect(result).not.toContain(abbrev);
     expect(result).toContain("\x1b[33m");
     expect(result).toContain("\x1b[0m");
-    expect(result).toContain(SHA_POOL[0].slice(0, 7));
+    expect(result).toContain(SHA_POOL[0]!.slice(0, 7));
   });
 
   test("empty maps — content returned unchanged", () => {
@@ -163,7 +163,7 @@ describe("scanAndReplace", () => {
     const abbrev = SHA_A.slice(0, 7);
     const input = `${abbrev} and again ${abbrev}`;
     const result = scanAndReplace(input, shaMap, new Map());
-    const fake = SHA_POOL[0].slice(0, 7);
+    const fake = SHA_POOL[0]!.slice(0, 7);
     expect(result).toBe(`${fake} and again ${fake}`);
   });
 

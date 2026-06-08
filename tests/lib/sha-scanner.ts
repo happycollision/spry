@@ -50,7 +50,7 @@ export function buildShaMap(shas: string[]): Map<string, string> {
           `Add more 40-char entries to SHA_POOL in tests/lib/sha-scanner.ts.`,
       );
     }
-    map.set(sha, SHA_POOL[map.size]);
+    map.set(sha, SHA_POOL[map.size] as string);
   }
   return map;
 }
@@ -65,7 +65,7 @@ export function buildSpryMap(spryIds: string[]): Map<string, string> {
           `Add more 8-char entries to SPRY_ID_POOL in tests/lib/sha-scanner.ts.`,
       );
     }
-    map.set(id, SPRY_ID_POOL[map.size]);
+    map.set(id, SPRY_ID_POOL[map.size] as string);
   }
   return map;
 }
@@ -87,14 +87,14 @@ export function scanAndReplace(
   let i = 0;
 
   while (i < content.length) {
-    if (!isHexChar(content[i])) {
-      result += content[i++];
+    if (!isHexChar(content.charAt(i))) {
+      result += content.charAt(i++);
       continue;
     }
 
     // Consume hex run greedily up to 40 chars
     let j = i;
-    while (j < content.length && j - i < 40 && isHexChar(content[j])) j++;
+    while (j < content.length && j - i < 40 && isHexChar(content.charAt(j))) j++;
     const runLen = j - i;
 
     if (runLen < 6) {
@@ -122,7 +122,10 @@ export function scanAndReplace(
       // SHA: any registered SHA that starts with this candidate
       const sha = shas.find((s) => s.startsWith(candidate));
       if (sha) {
-        result += shaMap.get(sha)?.slice(0, len) ?? "";
+        const fakeSha = shaMap.get(sha);
+        if (!fakeSha)
+          throw new Error(`sha-scanner: invariant violation — sha key missing from map`);
+        result += fakeSha.slice(0, len);
         i += len;
         matched = true;
         break;
