@@ -33,3 +33,15 @@ export async function isStackBehindTrunk(
   ]);
   return mergeBase !== trunkSha;
 }
+
+export async function isStackBehindTrunkForBranch(
+  git: GitRunner,
+  branch: string,
+  trunkRef: string,
+  options?: BehindOptions,
+): Promise<boolean> {
+  const result = await git.run(["merge-base", branch, trunkRef], { cwd: options?.cwd });
+  const mergeBase = result.stdout.trim();
+  const trunkSha = await getFullSha(git, trunkRef, options);
+  return mergeBase !== trunkSha;
+}

@@ -1,7 +1,11 @@
 import { test, expect, describe, afterEach } from "bun:test";
 import { createRealGitRunner, createRepo } from "../../tests/lib/index.ts";
 import type { TestRepo } from "../../tests/lib/index.ts";
-import { fetchRemote, isStackBehindTrunk } from "../../src/git/behind.ts";
+import {
+  fetchRemote,
+  isStackBehindTrunk,
+  isStackBehindTrunkForBranch,
+} from "../../src/git/behind.ts";
 
 const git = createRealGitRunner();
 
@@ -59,6 +63,44 @@ describe("isStackBehindTrunk", () => {
     await repo.fetch();
 
     const behind = await isStackBehindTrunk(git, "origin/main", { cwd: repo.path });
+    expect(behind).toBe(true);
+  });
+});
+
+describe("isStackBehindTrunkForBranch", () => {
+  test("returns false when branch merge-base equals trunk tip", async () => {
+    const repo = await createRepo();
+    repos.push(repo);
+
+    await repo.fetch();
+    const branch = await repo.branch("feature");
+    await repo.commit("feature work");
+    // origin/main has NOT advanced — branch is up to date
+
+    const behind = await isStackBehindTrunkForBranch(git, branch, "origin/main", {
+      cwd: repo.path,
+    });
+    expect(behind).toBe(false);
+  });
+
+  test("returns true when trunk has new commits", async () => {
+    const repo = await createRepo();
+    repos.push(repo);
+
+    await repo.fetch();
+    const branch = await repo.branch("feature");
+    await repo.commit("feature work");
+
+    // Advance origin/main
+    await repo.checkout(repo.defaultBranch);
+    await repo.commit("trunk advance");
+    await git.run(["push", "origin", repo.defaultBranch], { cwd: repo.path });
+    await repo.checkout(branch);
+    await git.run(["fetch", "origin"], { cwd: repo.path });
+
+    const behind = await isStackBehindTrunkForBranch(git, branch, "origin/main", {
+      cwd: repo.path,
+    });
     expect(behind).toBe(true);
   });
 });

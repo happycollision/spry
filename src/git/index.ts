@@ -59,7 +59,7 @@ export {
 } from "./rebase.ts";
 
 export type { BehindOptions, FetchResult } from "./behind.ts";
-export { fetchRemote, isStackBehindTrunk } from "./behind.ts";
+export { fetchRemote, isStackBehindTrunk, isStackBehindTrunkForBranch } from "./behind.ts";
 
 export {
   loadGroupRecords,
@@ -70,3 +70,10 @@ export {
   extractGroupTitles,
 } from "./group-titles.ts";
 export type { GroupRecord } from "../parse/types.ts";
+
+export {
+  loadTrackedBranches,
+  saveTrackedBranches,
+  registerBranch,
+  TRACKED_BRANCHES_REF,
+} from "./tracked-branches.ts";
