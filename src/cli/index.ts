@@ -38,6 +38,7 @@ program
 program
   .command("rebase")
   .description("Fetch, check if behind trunk, and rebase the stack if clean")
-  .action(() => rebaseCommand(ctx));
+  .option("--all", "Rebase all tracked branches")
+  .action((opts: { all?: boolean }) => rebaseCommand(ctx, { all: opts.all }));
 
 program.parse();
