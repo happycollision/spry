@@ -100,32 +100,57 @@ export const SPRY_ID_POOL: readonly string[] = [
   "ffff7777",
 ];
 
+/**
+ * Compute a stable, order-independent index into a pool for the given hex
+ * string.  Uses a simple djb2-style hash so that the same real SHA always
+ * maps to the same pool entry regardless of the order in which SHAs are
+ * encountered across test runs.  Linear probing resolves collisions.
+ */
+function hashIndex(hex: string, poolSize: number, occupied: Set<number>): number {
+  let h = 5381;
+  for (let i = 0; i < hex.length; i++) {
+    // eslint-disable-next-line no-bitwise
+    h = ((h << 5) + h + hex.charCodeAt(i)) >>> 0;
+  }
+  let idx = h % poolSize;
+  while (occupied.has(idx)) {
+    idx = (idx + 1) % poolSize;
+  }
+  return idx;
+}
+
 export function buildShaMap(shas: string[]): Map<string, string> {
   const map = new Map<string, string>();
-  for (const sha of shas) {
-    if (map.has(sha)) continue;
-    if (map.size >= SHA_POOL.length) {
-      throw new Error(
-        `SHA_POOL exhausted — ${map.size + 1} unique SHAs needed but pool only has ${SHA_POOL.length} entries.\n` +
-          `Add more 40-char entries to SHA_POOL in tests/lib/sha-scanner.ts.`,
-      );
-    }
-    map.set(sha, SHA_POOL[map.size] as string);
+  const occupied = new Set<number>();
+  const unique = [...new Set(shas)];
+  if (unique.length > SHA_POOL.length) {
+    throw new Error(
+      `SHA_POOL exhausted — ${unique.length} unique SHAs needed but pool only has ${SHA_POOL.length} entries.\n` +
+        `Add more 40-char entries to SHA_POOL in tests/lib/sha-scanner.ts.`,
+    );
+  }
+  for (const sha of unique) {
+    const idx = hashIndex(sha, SHA_POOL.length, occupied);
+    occupied.add(idx);
+    map.set(sha, SHA_POOL[idx] as string);
   }
   return map;
 }
 
 export function buildSpryMap(spryIds: string[]): Map<string, string> {
   const map = new Map<string, string>();
-  for (const id of spryIds) {
-    if (map.has(id)) continue;
-    if (map.size >= SPRY_ID_POOL.length) {
-      throw new Error(
-        `SPRY_ID_POOL exhausted — ${map.size + 1} unique Spry-Commit-Ids needed but pool only has ${SPRY_ID_POOL.length} entries.\n` +
-          `Add more 8-char entries to SPRY_ID_POOL in tests/lib/sha-scanner.ts.`,
-      );
-    }
-    map.set(id, SPRY_ID_POOL[map.size] as string);
+  const occupied = new Set<number>();
+  const unique = [...new Set(spryIds)];
+  if (unique.length > SPRY_ID_POOL.length) {
+    throw new Error(
+      `SPRY_ID_POOL exhausted — ${unique.length} unique Spry-Commit-Ids needed but pool only has ${SPRY_ID_POOL.length} entries.\n` +
+        `Add more 8-char entries to SPRY_ID_POOL in tests/lib/sha-scanner.ts.`,
+    );
+  }
+  for (const id of unique) {
+    const idx = hashIndex(id, SPRY_ID_POOL.length, occupied);
+    occupied.add(idx);
+    map.set(id, SPRY_ID_POOL[idx] as string);
   }
   return map;
 }
