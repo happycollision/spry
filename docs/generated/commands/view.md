@@ -12,9 +12,9 @@ Stack: feature (2 commits)
 
   → origin/main
 ────────────────────────────────────────────────────────────────────────
-  ○ Add login page (ddddaaaa)
+  ○ Add login page (bbbb2222)
 ────────────────────────────────────────────────────────────────────────
-  ○ Add signup form (eeeebbbb)
+  ○ Add signup form (aaaa1111)
 ────────────────────────────────────────────────────────────────────────
 
 ```
@@ -44,7 +44,7 @@ approval: ✓ approved  ✗ changes  ? required  — none
 
   → origin/main
 ────────────────────────────────────────────────────────────────────────
-  ◐ Add login page (ddddaaaa)
+  ◐ Add login page (aaaa1111)
     https://github.com/<owner>/<repo>/pull/42 - checks:✓ approval:— comments:0/2
 ────────────────────────────────────────────────────────────────────────
 

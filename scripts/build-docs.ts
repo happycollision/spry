@@ -131,29 +131,11 @@ export function assembleHtml(fragments: DocFragment[]): Map<string, string> {
   return result;
 }
 
-function scrubFragments(fragments: DocFragment[]): DocFragment[] {
-  const allShas: string[] = [];
-  const allSpryIds: string[] = [];
-
-  for (const frag of fragments) {
-    if (frag.shas) {
-      for (const sha of frag.shas) {
-        if (!allShas.includes(sha)) allShas.push(sha);
-      }
-    }
-    if (frag.spryIds) {
-      for (const id of frag.spryIds) {
-        if (!allSpryIds.includes(id)) allSpryIds.push(id);
-      }
-    }
-  }
-
-  if (allShas.length === 0 && allSpryIds.length === 0) return fragments;
-
-  const shaMap = buildShaMap(allShas);
-  const spryMap = buildSpryMap(allSpryIds);
-
-  return fragments.map((frag) => ({
+function scrubFragment(frag: DocFragment): DocFragment {
+  if (!frag.shas?.length && !frag.spryIds?.length) return frag;
+  const shaMap = buildShaMap(frag.shas ?? []);
+  const spryMap = buildSpryMap(frag.spryIds ?? []);
+  return {
     ...frag,
     entries: frag.entries.map((entry) => ({
       ...entry,
@@ -162,7 +144,7 @@ function scrubFragments(fragments: DocFragment[]): DocFragment[] {
         ansiContent: scanAndReplace(entry.ansiContent, shaMap, spryMap),
       }),
     })),
-  }));
+  };
 }
 
 export async function buildDocsFromDisk(fragmentsDir: string, outDir: string): Promise<number> {
@@ -182,7 +164,7 @@ export async function buildDocsFromDisk(fragmentsDir: string, outDir: string): P
   const fragments: DocFragment[] = await Promise.all(
     jsonFiles.map(async (f) => JSON.parse(await Bun.file(join(fragmentsDir, f)).text())),
   );
-  const scrubbedFragments = scrubFragments(fragments);
+  const scrubbedFragments = fragments.map(scrubFragment);
   const docs = assembleMarkdown(scrubbedFragments);
   for (const [section, content] of docs) {
     const filePath = join(outDir, `${section}.md`);
