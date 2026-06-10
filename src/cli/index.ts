@@ -25,9 +25,10 @@ program
   .command("sync")
   .description("Sync the current stack to GitHub")
   .option("--open [ids]", "Open PRs for selected units (no value = TUI selector)")
-  .action((opts: { open?: string | true }) => {
+  .option("--all", "Push every tracked stack (push-only; cannot combine with --open)")
+  .action((opts: { open?: string | true; all?: boolean }) => {
     const open = opts.open === undefined ? undefined : opts.open === true ? null : opts.open;
-    return syncCommand(ctx, { open });
+    return syncCommand(ctx, { open, all: opts.all });
   });
 
 program

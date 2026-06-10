@@ -133,6 +133,46 @@ function ghPRMap(
   };
 }
 
+function trapExit(): { exitCode: number | undefined; restore: () => void } {
+  const state: { exitCode: number | undefined } = { exitCode: undefined };
+  const origExit = process.exit;
+  // @ts-ignore
+  process.exit = (code: number) => {
+    state.exitCode = code;
+    throw new Error("process.exit");
+  };
+  return {
+    get exitCode() {
+      return state.exitCode;
+    },
+    restore: () => {
+      // @ts-ignore
+      process.exit = origExit;
+    },
+  };
+}
+
+describe("sp sync --all (guard rails)", () => {
+  test("--all with --open is rejected and exits 1", async () => {
+    const repo = await makeRepoWithConfig();
+    const { gh } = stubGh(() => ({ stdout: "", stderr: "", exitCode: 0 }));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await syncCommand(ctx, { cwd: repo.path, all: true, open: null });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+    expect(trap.exitCode).toBe(1);
+    expect(logs.err.join("\n")).toContain("--all");
+    expect(logs.err.join("\n")).toContain("--open");
+  });
+});
+
 describe("syncCommand bare", () => {
   test("empty stack: no commits in stack", async () => {
     const repo = await makeRepoWithConfig();

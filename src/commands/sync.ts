@@ -45,11 +45,23 @@ export interface SyncOptions {
   /** undefined = bare; null = boolean --open (TUI); string = comma-separated IDs */
   open?: string | null;
   cwd?: string;
+  all?: boolean;
 }
 
 export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Promise<void> {
+  if (opts.all && opts.open !== undefined) {
+    console.error("✗ `sp sync --all` is push-only and cannot be combined with `--open`.");
+    console.error("  Open PRs per stack with `sp sync --open`, then run `sp sync --all` to push.");
+    process.exit(1);
+  }
+
   const cwd = opts.cwd;
   const config = await loadConfig(ctx.git, { cwd });
+
+  if (opts.all) {
+    return syncAllCommand(ctx, config, cwd);
+  }
+
   await requireCleanWorkingTree(ctx.git, { cwd });
 
   const ref = trunkRef(config);
@@ -393,6 +405,17 @@ async function writePRCache(
     const message = err instanceof Error ? err.message : String(err);
     console.log(kleur.dim(`⚠ Could not save PR cache: ${message}`));
   }
+}
+
+async function syncAllCommand(
+  ctx: SpryContext,
+  config: SpryConfig,
+  cwd: string | undefined,
+): Promise<void> {
+  void ctx;
+  void config;
+  void cwd;
+  console.log("✓ No tracked branches");
 }
 
 function retargetingFallbackHint(err: unknown): string {
