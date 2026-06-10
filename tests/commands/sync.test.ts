@@ -1017,6 +1017,49 @@ describe("sp sync --all (loop)", () => {
     const status = (await git.run(["status", "--porcelain"], { cwd: repo.path })).stdout.trim();
     expect(status).toBe("");
   });
+
+  test("--all writes a combined PR cache without clobbering across stacks", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+
+    // Two published stacks: feature-a (aaa11111) and feature-b (bbb22222)
+    for (const [branch, id] of [
+      ["feature-a", "aaa11111"],
+      ["feature-b", "bbb22222"],
+    ] as const) {
+      await git.run(["checkout", "main"], { cwd: repo.path });
+      await git.run(["checkout", "-b", branch], { cwd: repo.path });
+      await git.run(["commit", "--allow-empty", "-m", `${branch} work\n\nSpry-Commit-Id: ${id}`], {
+        cwd: repo.path,
+      });
+      const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+      await git.run(["push", "origin", `${head}:refs/heads/spry/test/${id}`], { cwd: repo.path });
+      await registerBranch(git, branch, { cwd: repo.path });
+    }
+
+    // gh stub: report an OPEN PR for each spry branch.
+    const { gh } = stubGh(
+      ghPRMap({
+        "spry/test/aaa11111": { number: 1, baseRefName: "main" },
+        "spry/test/bbb22222": { number: 2, baseRefName: "main" },
+      }),
+    );
+
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await syncCommand(ctx, { cwd: repo.path, all: true });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    const cache = await loadPRCache(git, { cwd: repo.path });
+    expect(Object.keys(cache).sort()).toEqual(["aaa11111", "bbb22222"]);
+  });
 });
 
 describe("PR cache", () => {

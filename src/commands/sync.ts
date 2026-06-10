@@ -520,10 +520,33 @@ async function finishSyncAll(
   stacks: StackState[],
   cwd: string | undefined,
 ): Promise<void> {
-  void ctx;
-  void config;
-  void stacks;
-  void cwd;
+  if (stacks.length === 0) return;
+
+  // One batched PR lookup across every branch of every stack.
+  const allBranches = stacks.flatMap((s) => s.units.map((u) => branchForUnit(u, config)));
+  let prMap: Map<string, PRInfo | null> | undefined;
+  try {
+    prMap = await findPRsForBranches(ctx, allBranches, { cwd });
+  } catch (err) {
+    const hint = retargetingFallbackHint(err);
+    console.log(kleur.dim(`${hint} (branches still updated)`));
+    return;
+  }
+
+  // Retarget each stack independently against the shared map. Unlike
+  // single-branch sync, retarget failures are non-fatal here: each one
+  // self-logs in retargetMismatched, and one stack's failure shouldn't abort
+  // syncing the rest. (Push failures still flip hadFailure in syncAllCommand.)
+  for (const stack of stacks) {
+    await retargetMismatched(ctx, config, stack.units, stack.pushed, prMap, cwd);
+  }
+
+  // Write the PR cache ONCE with all units combined. `writePRCache` builds the
+  // cache from scratch and `savePRCache` replaces the whole tree, so a single
+  // call with the concatenated units is clobber-safe (unit IDs are globally
+  // unique).
+  const combinedUnits = stacks.flatMap((s) => s.units);
+  await writePRCache(ctx, config, combinedUnits, prMap, cwd);
 }
 
 function retargetingFallbackHint(err: unknown): string {
