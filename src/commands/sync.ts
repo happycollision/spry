@@ -473,6 +473,9 @@ async function syncAllCommand(
         ? await injectMissingIds(ctx.git, ref, { cwd })
         : await injectMissingIdsForBranch(ctx.git, branch, ref, { cwd });
     if (!inject.ok) {
+      // Only reachable for the current-branch path (injectMissingIdsForBranch
+      // never returns ok:false), and only on a detached HEAD — which here means
+      // currentBranch is null, so this is defensive rather than expected.
       console.error(`  ✗ Could not inject commit IDs for ${branch}.`);
       hadFailure = true;
       continue;

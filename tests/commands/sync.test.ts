@@ -1060,6 +1060,114 @@ describe("sp sync --all (loop)", () => {
     const cache = await loadPRCache(git, { cwd: repo.path });
     expect(Object.keys(cache).sort()).toEqual(["aaa11111", "bbb22222"]);
   });
+
+  test("retargets mismatched PRs across multiple stacks", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+
+    // Two independent two-unit stacks. In each, the second unit's PR points at
+    // main but should be retargeted onto the first unit's branch.
+    const stacks = [
+      { branch: "feature-a", lower: "aaa11111", upper: "bbb22222" },
+      { branch: "feature-b", lower: "ccc33333", upper: "ddd44444" },
+    ] as const;
+    for (const { branch, lower, upper } of stacks) {
+      await git.run(["checkout", "main"], { cwd: repo.path });
+      await git.run(["checkout", "-b", branch], { cwd: repo.path });
+      await git.run(["commit", "--allow-empty", "-m", `lower\n\nSpry-Commit-Id: ${lower}`], {
+        cwd: repo.path,
+      });
+      await git.run(["commit", "--allow-empty", "-m", `upper\n\nSpry-Commit-Id: ${upper}`], {
+        cwd: repo.path,
+      });
+      const lowerSha = (await git.run(["rev-parse", "HEAD~1"], { cwd: repo.path })).stdout.trim();
+      const upperSha = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+      await git.run(["push", "origin", `${lowerSha}:refs/heads/spry/test/${lower}`], {
+        cwd: repo.path,
+      });
+      await git.run(["push", "origin", `${upperSha}:refs/heads/spry/test/${upper}`], {
+        cwd: repo.path,
+      });
+      await registerBranch(git, branch, { cwd: repo.path });
+    }
+
+    // Lower units have the correct base (main); upper units have a stale base.
+    const { gh, calls } = stubGh(
+      ghPRMap({
+        "spry/test/aaa11111": { number: 10, baseRefName: "main" },
+        "spry/test/bbb22222": { number: 11, baseRefName: "main" },
+        "spry/test/ccc33333": { number: 12, baseRefName: "main" },
+        "spry/test/ddd44444": { number: 13, baseRefName: "main" },
+      }),
+    );
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await syncCommand(ctx, { cwd: repo.path, all: true });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
+    expect(edits).toHaveLength(2);
+    const editArgs = edits.map((e) => e.args);
+    expect(editArgs).toContainEqual(["pr", "edit", "11", "--base", "spry/test/aaa11111"]);
+    expect(editArgs).toContainEqual(["pr", "edit", "13", "--base", "spry/test/ccc33333"]);
+    expect(trap.exitCode).toBeUndefined();
+  });
+
+  test("push failure on one stack exits 1 but still saves the tracked list", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+
+    // feature-a is healthy; feature-b's remote ref will be diverged to trip the
+    // force-with-lease guard.
+    for (const [branch, id] of [
+      ["feature-a", "aaa11111"],
+      ["feature-b", "bbb22222"],
+    ] as const) {
+      await git.run(["checkout", "main"], { cwd: repo.path });
+      await git.run(["checkout", "-b", branch], { cwd: repo.path });
+      await git.run(["commit", "--allow-empty", "-m", `${branch}\n\nSpry-Commit-Id: ${id}`], {
+        cwd: repo.path,
+      });
+      const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+      await git.run(["push", "origin", `${head}:refs/heads/spry/test/${id}`], { cwd: repo.path });
+      await registerBranch(git, branch, { cwd: repo.path });
+    }
+
+    // Diverge feature-b's remote ref to a sha the local clone doesn't know.
+    const mainSha = (await git.run(["rev-parse", "main"], { cwd: repo.originPath })).stdout.trim();
+    await git.run(["update-ref", "refs/heads/spry/test/bbb22222", mainSha], {
+      cwd: repo.originPath,
+    });
+
+    const { gh } = stubGh(ghPRMap({}));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await syncCommand(ctx, { cwd: repo.path, all: true });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBe(1);
+    expect(logs.err.join("\n")).toMatch(/Skipped spry\/test\/bbb22222.*remote diverged/);
+    // The healthy stack still pushed.
+    expect(logs.out.join("\n")).toContain("pushed spry/test/aaa11111");
+    // Both branches remain tracked even though one failed.
+    const tracked = await loadTrackedBranches(git, { cwd: repo.path });
+    expect(tracked).toContain("feature-a");
+    expect(tracked).toContain("feature-b");
+  });
 });
 
 describe("PR cache", () => {
