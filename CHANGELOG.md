@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `sp sync --all` — pushes every tracked stack in one command. Push-only: it never rebases and never opens new PRs (use `sp rebase --all` to restack and `sp sync --open` to publish), and it cannot be combined with `--open`. Each stack's already-published branches are pushed, PRs are retargeted, and the `refs/spry/prs` cache is updated once across all stacks. Branches that no longer exist locally are pruned from the tracking list. Operates entirely via git plumbing, so the working tree and `HEAD` are never moved.
 - `sp rebase --all` — rebases all tracked branches onto trunk in one command. Branches are tracked automatically whenever `sp sync`, `sp group`, or `sp rebase` is run. Branches that no longer exist are removed from the tracking list. Tracking metadata is stored locally in `refs/spry/local/tracked-branches` and is never pushed to the remote.
 - `sp rebase` — fetches the remote, checks if the stack is behind trunk, predicts conflicts via dry-run, and rebases if clean. Prints conflicting files and exits 1 if a conflict is detected. Separate from `sp sync` — sync is push-only.
 - `src/git/behind.ts` — `fetchRemote` and `isStackBehindTrunk` primitives used by `sp rebase`
