@@ -10,6 +10,7 @@ import type {
   TestRepo,
 } from "../lib/index.ts";
 import { loadPRCache } from "../../src/gh/pr-cache.ts";
+import { registerBranch, loadTrackedBranches } from "../../src/git/tracked-branches.ts";
 
 const repos: TestRepo[] = [];
 
@@ -869,6 +870,152 @@ describe("buildOpenCandidates", () => {
     const out = buildOpenCandidates(units, new Set(), config);
     expect(out[1]?.disabled).toBeUndefined();
     expect(out[1]?.hint).toBeUndefined();
+  });
+});
+
+describe("sp sync --all (loop)", () => {
+  test("no tracked branches: reports and returns cleanly", async () => {
+    const repo = await makeRepoWithConfig();
+    // Detached HEAD so nothing gets registered.
+    const git = createRealGitRunner();
+    const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["checkout", head], { cwd: repo.path });
+
+    const { gh } = stubGh(() => ({ stdout: "", stderr: "", exitCode: 0 }));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await syncCommand(ctx, { cwd: repo.path, all: true });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+    expect(logs.out.join("\n")).toContain("No tracked branches");
+  });
+
+  test("pushes already-published branches across two stacks", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+
+    // Stack A: feature-a with one published unit
+    await git.run(["checkout", "-b", "feature-a"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A work\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    const aHead = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${aHead}:refs/heads/spry/test/aaa11111`], { cwd: repo.path });
+    await registerBranch(git, "feature-a", { cwd: repo.path });
+
+    // Stack B: feature-b with one published unit
+    await git.run(["checkout", "main"], { cwd: repo.path });
+    await git.run(["checkout", "-b", "feature-b"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "B work\n\nSpry-Commit-Id: bbb22222"], {
+      cwd: repo.path,
+    });
+    const bHead = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${bHead}:refs/heads/spry/test/bbb22222`], { cwd: repo.path });
+    await registerBranch(git, "feature-b", { cwd: repo.path });
+
+    // gh: no PRs found (empty), so retarget/cache do nothing.
+    const { gh } = stubGh(ghPRMap({}));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await syncCommand(ctx, { cwd: repo.path, all: true });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    const out = logs.out.join("\n");
+    expect(out).toContain("spry/test/aaa11111");
+    expect(out).toContain("spry/test/bbb22222");
+    expect(trap.exitCode).toBeUndefined();
+  });
+
+  test("prunes a tracked branch that no longer exists locally", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature-alive"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "alive\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    await registerBranch(git, "ghost-branch", { cwd: repo.path });
+    await registerBranch(git, "feature-alive", { cwd: repo.path });
+
+    const { gh } = stubGh(ghPRMap({}));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await syncCommand(ctx, { cwd: repo.path, all: true });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(logs.out.join("\n")).toContain("ghost-branch");
+    expect(logs.out.join("\n")).toContain("removed");
+    const tracked = await loadTrackedBranches(git, { cwd: repo.path });
+    expect(tracked).not.toContain("ghost-branch");
+    expect(tracked).toContain("feature-alive");
+  });
+
+  test("injects missing IDs into a non-current tracked branch via ref update, leaving HEAD untouched", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+
+    // feature-other has a commit with NO Spry-Commit-Id, and is NOT checked out.
+    await git.run(["checkout", "-b", "feature-other"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "needs an id"], { cwd: repo.path });
+    const otherTipBefore = (
+      await git.run(["rev-parse", "refs/heads/feature-other"], { cwd: repo.path })
+    ).stdout.trim();
+
+    // Move HEAD onto a clean branch off main so feature-other is not current.
+    await git.run(["checkout", "main"], { cwd: repo.path });
+    await git.run(["checkout", "-b", "feature-current"], { cwd: repo.path });
+    const headBefore = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await registerBranch(git, "feature-other", { cwd: repo.path });
+
+    const { gh } = stubGh(ghPRMap({}));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await syncCommand(ctx, { cwd: repo.path, all: true });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(logs.out.join("\n")).toContain("Injected");
+
+    // feature-other's ref moved and its commit now carries an injected ID.
+    const otherTipAfter = (
+      await git.run(["rev-parse", "refs/heads/feature-other"], { cwd: repo.path })
+    ).stdout.trim();
+    expect(otherTipAfter).not.toBe(otherTipBefore);
+    const msg = (
+      await git.run(["log", "-1", "--format=%B", "refs/heads/feature-other"], { cwd: repo.path })
+    ).stdout;
+    expect(msg).toContain("Spry-Commit-Id:");
+
+    // HEAD and the working tree are untouched.
+    const headAfter = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    expect(headAfter).toBe(headBefore);
+    const status = (await git.run(["status", "--porcelain"], { cwd: repo.path })).stdout.trim();
+    expect(status).toBe("");
   });
 });
 

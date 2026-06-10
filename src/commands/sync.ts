@@ -15,6 +15,9 @@ import {
   buildCommitGroupMap,
   extractGroupTitles,
 } from "../git/group-titles.ts";
+import { loadTrackedBranches, saveTrackedBranches } from "../git/tracked-branches.ts";
+import { injectMissingIdsForBranch } from "../git/rebase.ts";
+import { isDetachedHead, getStackCommitsForBranch } from "../git/queries.ts";
 import { requireCleanWorkingTree } from "../git/status.ts";
 import {
   parseCommitTrailers,
@@ -407,15 +410,120 @@ async function writePRCache(
   }
 }
 
+interface StackState {
+  branch: string;
+  units: PRUnit[];
+  pushed: string[];
+}
+
 async function syncAllCommand(
   ctx: SpryContext,
   config: SpryConfig,
   cwd: string | undefined,
 ): Promise<void> {
+  await requireCleanWorkingTree(ctx.git, { cwd });
+
+  const ref = trunkRef(config);
+
+  // Remote/global reads — done once, not per branch.
+  const fetchResult = await fetchGroupRecords(ctx.git, config.remote, { cwd });
+  if (!fetchResult.ok) {
+    console.log(kleur.dim(`⚠ Could not fetch group records: ${fetchResult.warning}`));
+  }
+  const prCacheFetch = await fetchPRCache(ctx.git, config.remote, { cwd });
+  if (!prCacheFetch.ok) {
+    console.log(kleur.dim(`⚠ Could not fetch PR cache: ${prCacheFetch.warning}`));
+  }
+  const groupRecords = await loadGroupRecords(ctx.git, { cwd });
+  const groupTitles = extractGroupTitles(groupRecords);
+  const commitGroups = buildCommitGroupMap(groupRecords);
+  const existing = await listRemoteBranches(ctx.git, config.remote, config.branchPrefix, { cwd });
+
+  // Register the current branch (unless detached), then load the full list.
+  const currentBranch = (await isDetachedHead(ctx.git, { cwd }))
+    ? null
+    : await getCurrentBranch(ctx.git, { cwd });
+  if (currentBranch) {
+    await registerBranch(ctx.git, currentBranch, { cwd });
+  }
+
+  const tracked = await loadTrackedBranches(ctx.git, { cwd });
+  if (tracked.length === 0) {
+    console.log("✓ No tracked branches");
+    return;
+  }
+
+  const stillTracked: string[] = [];
+  const stacks: StackState[] = [];
+  let hadFailure = false;
+
+  for (const branch of tracked) {
+    const exists = await ctx.git.run(["rev-parse", "--verify", `refs/heads/${branch}`], { cwd });
+    if (exists.exitCode !== 0) {
+      console.log(`${branch}: removed (branch no longer exists)`);
+      continue;
+    }
+    stillTracked.push(branch);
+    console.log(`${branch}:`);
+
+    // 1. Inject missing Spry-Commit-Ids. Current branch uses the worktree-safe
+    //    path; others rewrite the ref only.
+    const inject =
+      branch === currentBranch
+        ? await injectMissingIds(ctx.git, ref, { cwd })
+        : await injectMissingIdsForBranch(ctx.git, branch, ref, { cwd });
+    if (!inject.ok) {
+      console.error(`  ✗ Could not inject commit IDs for ${branch}.`);
+      hadFailure = true;
+      continue;
+    }
+    if (inject.modifiedCount > 0) {
+      console.log(`  ✓ Injected ${inject.modifiedCount} commit ID(s)`);
+    }
+
+    // 2. Parse this branch's stack into units.
+    const commits = await getStackCommitsForBranch(ctx.git, branch, ref, { cwd });
+    const withTrailers = await parseCommitTrailers(commits, ctx.git, { cwd });
+    const result = parseStack(withTrailers, groupTitles, commitGroups);
+    if (!result.ok) {
+      console.error(formatValidationError(result));
+      hadFailure = true;
+      continue;
+    }
+    if (result.units.length === 0) {
+      console.log(`  ✓ No commits in stack`);
+      continue;
+    }
+
+    // 3. Push the branches that already exist on the remote.
+    const pushResult = await pushExistingBranches(ctx, config, result.units, existing, cwd);
+    if (pushResult.hadFailure) hadFailure = true;
+
+    stacks.push({ branch, units: result.units, pushed: pushResult.pushed });
+  }
+
+  // PR retarget + cache happen once, after the loop (Task 4 fills this in).
+  await finishSyncAll(ctx, config, stacks, cwd);
+
+  await saveTrackedBranches(ctx.git, stillTracked, { cwd });
+
+  if (hadFailure) {
+    console.log("⚠ Sync completed with warnings");
+    process.exit(1);
+  }
+  console.log("✓ Sync complete");
+}
+
+async function finishSyncAll(
+  ctx: SpryContext,
+  config: SpryConfig,
+  stacks: StackState[],
+  cwd: string | undefined,
+): Promise<void> {
   void ctx;
   void config;
+  void stacks;
   void cwd;
-  console.log("✓ No tracked branches");
 }
 
 function retargetingFallbackHint(err: unknown): string {
