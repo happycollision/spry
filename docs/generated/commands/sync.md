@@ -85,3 +85,19 @@ sp sync
 ✓ Sync complete
 
 ```
+
+When you keep several independent stacks in flight, `sp sync --all` pushes every tracked stack's already-published branches in one run — no need to check each one out. It is push-only: it never rebases and never opens new PRs (use `sp rebase --all` to restack, and `sp sync --open` to publish).
+
+```
+sp sync --all
+```
+
+```
+feature/login:
+↑ pushed spry/dondenton/aaaa1111
+feature/search:
+↑ pushed spry/dondenton/bbbb2222
+PR retargeting unavailable: <hint>
+✓ Sync complete
+
+```

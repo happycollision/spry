@@ -320,6 +320,57 @@ describe("sp sync docs", () => {
     },
   );
 
+  docTest(
+    "Pushing every tracked stack with --all",
+    { section: "commands/sync", order: 60 },
+    async (doc) => {
+      const repo = await createRepo();
+      repos.push(repo);
+      doc.scrub(repo);
+      const git = createRealGitRunner();
+
+      await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
+      await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+      await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
+
+      const { registerBranch } = await import("../../src/git/tracked-branches.ts");
+
+      // Two independent stacks, each already published once.
+      for (const [branch, id] of [
+        ["feature/login", "aaa11111"],
+        ["feature/search", "bbb22222"],
+      ] as const) {
+        await git.run(["checkout", "main"], { cwd: repo.path });
+        await git.run(["checkout", "-b", branch], { cwd: repo.path });
+        await git.run(["commit", "--allow-empty", "-m", `Work\n\nSpry-Commit-Id: ${id}`], {
+          cwd: repo.path,
+        });
+        const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+        await git.run(["push", "origin", `${head}:refs/heads/spry/dondenton/${id}`], {
+          cwd: repo.path,
+        });
+        // Register both as tracked stacks.
+        await registerBranch(git, branch, { cwd: repo.path });
+      }
+
+      doc.prose(
+        "When you keep several independent stacks in flight, `sp sync --all` pushes every tracked stack's already-published branches in one run — no need to check each one out. It is push-only: it never rebases and never opens new PRs (use `sp rebase --all` to restack, and `sp sync --open` to publish).",
+      );
+
+      // Canonicalize the gh-unavailable hint so fragments stay deterministic
+      doc.scrub(/PR retargeting unavailable: [^\n]+/, "PR retargeting unavailable: <hint>");
+
+      const { command, result } = await runSp(repo.path, "sync", ["--all"]);
+      doc.command(command);
+      doc.output(result.stdout);
+
+      const { expect } = await import("bun:test");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("pushed spry/dondenton/aaa11111");
+      expect(result.stdout).toContain("pushed spry/dondenton/bbb22222");
+    },
+  );
+
   docTest("Empty stack", { section: "commands/sync", order: 30 }, async (doc) => {
     const repo = await createRepo();
     repos.push(repo);
