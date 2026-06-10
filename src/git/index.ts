@@ -53,6 +53,7 @@ export {
 export type { RebaseOptions, InjectIdsResult, RebaseResult, ConflictInfo } from "./rebase.ts";
 export {
   injectMissingIds,
+  injectMissingIdsForBranch,
   rebaseOntoTrunk,
   getConflictInfo,
   formatConflictError,

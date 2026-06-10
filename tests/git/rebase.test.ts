@@ -3,6 +3,7 @@ import { createRealGitRunner, createRepo } from "../../tests/lib/index.ts";
 import type { TestRepo } from "../../tests/lib/index.ts";
 import {
   injectMissingIds,
+  injectMissingIdsForBranch,
   rebaseOntoTrunk,
   getConflictInfo,
   formatConflictError,
@@ -108,6 +109,63 @@ describe("injectMissingIds", () => {
     if (!result.ok) return;
     expect(result.modifiedCount).toBe(0);
     expect(result.rebasePerformed).toBe(false);
+  });
+});
+
+describe("injectMissingIdsForBranch", () => {
+  test("injects IDs into a non-current branch via ref update, leaving HEAD untouched", async () => {
+    const repo = await createRepo();
+    const git = createRealGitRunner();
+    await repo.fetch();
+
+    // Build feature-other with a commit that has NO Spry-Commit-Id
+    const other = await repo.branch("feature-other");
+    await repo.commit("needs an id");
+    const otherTipBefore = (
+      await git.run(["rev-parse", `refs/heads/${other}`], { cwd: repo.path })
+    ).stdout.trim();
+
+    // Move HEAD onto a different branch so feature-other is NOT current
+    const current = await repo.branch("feature-current");
+    const headBefore = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+
+    const result = await injectMissingIdsForBranch(git, other, "origin/main", { cwd: repo.path });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.modifiedCount).toBe(1);
+
+    // feature-other ref moved (commit was rewritten)
+    const otherTipAfter = (
+      await git.run(["rev-parse", `refs/heads/${other}`], { cwd: repo.path })
+    ).stdout.trim();
+    expect(otherTipAfter).not.toBe(otherTipBefore);
+
+    // The rewritten commit now carries a Spry-Commit-Id
+    const msg = (
+      await git.run(["log", "-1", "--format=%B", `refs/heads/${other}`], { cwd: repo.path })
+    ).stdout;
+    expect(msg).toContain("Spry-Commit-Id:");
+
+    // HEAD and the working tree are untouched
+    const headAfter = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    expect(headAfter).toBe(headBefore);
+    const status = (await git.run(["status", "--porcelain"], { cwd: repo.path })).stdout.trim();
+    expect(status).toBe("");
+    await repo.cleanup();
+  });
+
+  test("returns modifiedCount=0 when the branch's commits all have IDs", async () => {
+    const repo = await createRepo();
+    const git = createRealGitRunner();
+    await repo.fetch();
+    const other = await repo.branch("feature-other");
+    await repo.commit("already has id\n\nSpry-Commit-Id: aaa11111");
+    await repo.branch("feature-current"); // move HEAD away
+
+    const result = await injectMissingIdsForBranch(git, other, "origin/main", { cwd: repo.path });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.modifiedCount).toBe(0);
+    await repo.cleanup();
   });
 });
 

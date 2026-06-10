@@ -5,10 +5,12 @@ import {
   getCurrentBranch,
   isDetachedHead,
   getStackCommits,
+  getStackCommitsForBranch,
   getCommitMessage,
   getFullSha,
 } from "./queries.ts";
-import { rewriteCommitChain, finalizeRewrite, rebasePlumbing } from "./plumbing.ts";
+import type { CommitInfo } from "../parse/types.ts";
+import { rewriteCommitChain, finalizeRewrite, rebasePlumbing, updateRef } from "./plumbing.ts";
 import { parseConflictOutput } from "./conflict.ts";
 import { parseTrailers, addTrailers } from "../parse/trailers.ts";
 import { generateCommitId } from "../parse/id.ts";
@@ -38,6 +40,31 @@ export interface ConflictInfo {
 
 // --- Task 16: injectMissingIds ---
 
+// Builds the message-rewrite map for commits missing a Spry-Commit-Id.
+// Returns the list of commit hashes that needed an id and the rewrite map.
+async function computeIdRewrites(
+  git: GitRunner,
+  commits: CommitInfo[],
+  cwd: string | undefined,
+): Promise<{ missingIds: string[]; rewrites: Map<string, string> }> {
+  const missingIds: string[] = [];
+  for (const commit of commits) {
+    // `commit.body` is body-only; interpret-trailers needs the full message.
+    const fullMessage = commit.body ? `${commit.subject}\n\n${commit.body}` : commit.subject;
+    const trailers = await parseTrailers(fullMessage, git);
+    if (!trailers["Spry-Commit-Id"]) missingIds.push(commit.hash);
+  }
+
+  const rewrites = new Map<string, string>();
+  for (const hash of missingIds) {
+    const id = generateCommitId();
+    const originalMessage = await getCommitMessage(git, hash, { cwd });
+    const newMessage = await addTrailers(originalMessage, { "Spry-Commit-Id": id }, git);
+    rewrites.set(hash, newMessage);
+  }
+  return { missingIds, rewrites };
+}
+
 export async function injectMissingIds(
   git: GitRunner,
   trunkRef: string,
@@ -61,30 +88,12 @@ export async function injectMissingIds(
     return { ok: true, modifiedCount: 0, rebasePerformed: false };
   }
 
-  // 5-6. Parse trailers and filter missing IDs
-  // `commit.body` is body-only (no subject); `interpret-trailers --parse`
-  // needs a full message to recognize trailers, so reconstitute it.
-  const missingIds: string[] = [];
-  for (const commit of commits) {
-    const fullMessage = commit.body ? `${commit.subject}\n\n${commit.body}` : commit.subject;
-    const trailers = await parseTrailers(fullMessage, git);
-    if (!trailers["Spry-Commit-Id"]) {
-      missingIds.push(commit.hash);
-    }
-  }
+  // 5-8. Detect missing IDs and build the rewrite map.
+  const { missingIds, rewrites } = await computeIdRewrites(git, commits, cwd);
 
   // 7. If none missing
   if (missingIds.length === 0) {
     return { ok: true, modifiedCount: 0, rebasePerformed: false };
-  }
-
-  // 8. Build rewrites map
-  const rewrites = new Map<string, string>();
-  for (const hash of missingIds) {
-    const id = generateCommitId();
-    const originalMessage = await getCommitMessage(git, hash, { cwd });
-    const newMessage = await addTrailers(originalMessage, { "Spry-Commit-Id": id }, git);
-    rewrites.set(hash, newMessage);
   }
 
   // 9. Rewrite commit chain (all commits, not just missing ones)
@@ -103,6 +112,36 @@ export async function injectMissingIds(
     modifiedCount: missingIds.length,
     rebasePerformed: true,
   };
+}
+
+// Off-HEAD variant of injectMissingIds: reads the branch's stack via
+// `trunkRef..branch` and applies the rewrite by moving the branch ref only.
+// The working tree and HEAD are never touched. Used by `sp sync --all`.
+export async function injectMissingIdsForBranch(
+  git: GitRunner,
+  branch: string,
+  trunkRef: string,
+  options?: { cwd?: string },
+): Promise<InjectIdsResult> {
+  const cwd = options?.cwd;
+
+  const commits = await getStackCommitsForBranch(git, branch, trunkRef, { cwd });
+  if (commits.length === 0) {
+    return { ok: true, modifiedCount: 0, rebasePerformed: false };
+  }
+
+  const { missingIds, rewrites } = await computeIdRewrites(git, commits, cwd);
+  if (missingIds.length === 0) {
+    return { ok: true, modifiedCount: 0, rebasePerformed: false };
+  }
+
+  const allHashes = commits.map((c) => c.hash);
+  const result = await rewriteCommitChain(git, allHashes, rewrites, { cwd });
+
+  const oldTip = allHashes.at(-1) ?? "";
+  await updateRef(git, `refs/heads/${branch}`, result.newTip, oldTip, { cwd });
+
+  return { ok: true, modifiedCount: missingIds.length, rebasePerformed: true };
 }
 
 // --- Task 17: rebaseOntoTrunk ---
