@@ -31,7 +31,7 @@ Press Space to grab a commit and ↑↓ to reorder it. Spry predicts rebase conf
 Stack: feature/auth (2 commits)
 
 ●  1  e5b0c3d  Add session handling
-   2  a7d3395  Add login form
+   2  66847db  Add login form
 
 MOVE MODE — ↑↓ reorder  Space/Enter drop  Esc cancel
 
