@@ -424,3 +424,70 @@ describe("sp land --through", () => {
     expect(after).toBe(advanced);
   });
 });
+
+describe("sp land readiness", () => {
+  const failingRollup = [{ __typename: "CheckRun", status: "COMPLETED", conclusion: "FAILURE" }];
+  const pendingRollup = [{ __typename: "CheckRun", status: "IN_PROGRESS" }];
+
+  const cases: Array<[string, PRStub, RegExp]> = [
+    ["failing checks", { number: 1, rollup: failingRollup }, /checks are failing/i],
+    ["pending checks", { number: 1, rollup: pendingRollup }, /checks are still running/i],
+    [
+      "changes requested",
+      { number: 1, reviewDecision: "CHANGES_REQUESTED" },
+      /changes have been requested/i,
+    ],
+    ["review required", { number: 1, reviewDecision: "REVIEW_REQUIRED" }, /review is required/i],
+  ];
+
+  for (const [name, prState, reasonText] of cases) {
+    test(`aborts on ${name} and lands nothing`, async () => {
+      const repo = await makeConfiguredRepo();
+      const git = createRealGitRunner();
+      await publishedStack(repo, git, [{ id: "aaa11111", subject: "first" }]);
+      const before = (
+        await git.run(["rev-parse", "origin/main"], { cwd: repo.path })
+      ).stdout.trim();
+
+      const { gh } = stubGh(ghPrStub({ "spry/test/aaa11111": prState }));
+      const ctx = makeCtx(repo, gh);
+      const logs = captureLogs();
+      const trap = trapExit();
+      try {
+        await runLand(ctx, { cwd: repo.path, through: "aaa11111" });
+      } finally {
+        trap.restore();
+        logs.restore();
+      }
+
+      expect(trap.exitCode).toBe(1);
+      expect(logs.err.join("\n")).toMatch(reasonText);
+      const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+      expect(after).toBe(before);
+    });
+  }
+
+  test("a scope unit with no open PR errors and points to sp sync --open", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedStack(repo, git, [{ id: "aaa11111", subject: "first" }]);
+    const before = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+
+    // gh returns no PR (nodes: []) for the unit's branch.
+    const { gh } = stubGh(ghPrStub({}));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, { cwd: repo.path, through: "aaa11111" });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBe(1);
+    expect(logs.err.join("\n")).toMatch(/sp sync --open/);
+    const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+    expect(after).toBe(before);
+  });
+});

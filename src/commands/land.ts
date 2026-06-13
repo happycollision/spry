@@ -17,6 +17,7 @@ import {
 import type { PRUnit } from "../parse/index.ts";
 import { formatValidationError } from "../ui/format.ts";
 import { findPRsForBranches, retargetPR, pushBranch } from "../gh/index.ts";
+import { evaluateReadiness } from "./land-readiness.ts";
 import { syncCommand } from "./sync.ts";
 
 export interface LandOptions {
@@ -83,6 +84,32 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
   // 4. Live PR status for the scope.
   const scopeBranches = scopeUnits.map((u) => branchForUnit(u, config));
   const prMap = await findPRsForBranches(ctx, scopeBranches, { cwd });
+
+  // 4a. Readiness gate. Every scope unit must have an open PR, and none may be
+  //     blocked by failing/pending checks or changes-requested/review-required.
+  const readinessScope = scopeUnits.map((u) => {
+    const branch = branchForUnit(u, config);
+    return { branch, pr: prMap.get(branch) ?? null };
+  });
+  const readiness = evaluateReadiness(readinessScope);
+  if (!readiness.ok) {
+    console.error("✗ Cannot land: the following units have no open PR:");
+    for (const branch of readiness.missing) {
+      console.error(`  ${branch}`);
+    }
+    console.error("  Publish them first with `sp sync --open`.");
+    process.exit(1);
+  }
+  if (readiness.verdict.blockers.length > 0) {
+    console.error("✗ Cannot land: one or more PRs are not ready:");
+    for (const blocker of readiness.verdict.blockers) {
+      console.error(`  PR #${blocker.prNumber} (${blocker.branch}):`);
+      for (const reason of blocker.reasons) {
+        console.error(`    - ${reason}`);
+      }
+    }
+    process.exit(1);
+  }
 
   // 5. Retarget every scope PR to trunk BEFORE the push (the secret sauce).
   for (const unit of scopeUnits) {
