@@ -491,3 +491,64 @@ describe("sp land readiness", () => {
     expect(after).toBe(before);
   });
 });
+
+describe("sp land unresolved review threads", () => {
+  const unresolved: PRStub = {
+    number: 1,
+    reviewThreads: { totalCount: 1, nodes: [{ isResolved: false }] },
+  };
+
+  test("decline → nothing landed", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedStack(repo, git, [{ id: "aaa11111", subject: "first" }]);
+    const before = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+
+    const { gh } = stubGh(ghPrStub({ "spry/test/aaa11111": unresolved }));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, { cwd: repo.path, through: "aaa11111", confirm: async () => false });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBeUndefined();
+    const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+    expect(after).toBe(before);
+    expect(logs.out.join("\n")).toMatch(/cancelled/i);
+  });
+
+  test("accept → lands", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedStack(repo, git, [{ id: "aaa11111", subject: "first" }]);
+    const tip = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+
+    const { gh } = stubGh(ghPrStub({ "spry/test/aaa11111": unresolved }));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    let prompted = false;
+    try {
+      await runLand(ctx, {
+        cwd: repo.path,
+        through: "aaa11111",
+        confirm: async () => {
+          prompted = true;
+          return true;
+        },
+      });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(prompted).toBe(true);
+    const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+    expect(after).toBe(tip);
+    expect(logs.out.join("\n")).toContain("Landed");
+  });
+});

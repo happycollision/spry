@@ -18,6 +18,7 @@ import type { PRUnit } from "../parse/index.ts";
 import { formatValidationError } from "../ui/format.ts";
 import { findPRsForBranches, retargetPR, pushBranch } from "../gh/index.ts";
 import { evaluateReadiness } from "./land-readiness.ts";
+import { confirm as defaultConfirm } from "../tui/index.ts";
 import { syncCommand } from "./sync.ts";
 
 export interface LandOptions {
@@ -109,6 +110,17 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
       }
     }
     process.exit(1);
+  }
+
+  // 4b. Unresolved review threads are advisory: prompt once for the whole scope.
+  if (readiness.verdict.unresolvedThreadPRs.length > 0) {
+    const confirmFn = opts.confirm ?? defaultConfirm;
+    const prs = readiness.verdict.unresolvedThreadPRs.map((n) => `#${n}`).join(", ");
+    const ok = await confirmFn(`PR(s) ${prs} have unresolved review threads. Land anyway?`);
+    if (!ok) {
+      console.log("Cancelled.");
+      return;
+    }
   }
 
   // 5. Retarget every scope PR to trunk BEFORE the push (the secret sauce).
