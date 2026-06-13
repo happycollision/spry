@@ -4,6 +4,7 @@ import { syncCommand } from "../commands/sync.ts";
 import { viewCommand } from "../commands/view.ts";
 import { groupCommand } from "../commands/group.ts";
 import { rebaseCommand } from "../commands/rebase.ts";
+import { landCommand } from "../commands/land.ts";
 import { createRealGitRunner, createRealGhClient } from "../lib/context.ts";
 import type { SpryContext } from "../lib/context.ts";
 
@@ -41,5 +42,11 @@ program
   .description("Fetch, check if behind trunk, and rebase the stack if clean")
   .option("--all", "Rebase all tracked branches")
   .action((opts: { all?: boolean }) => rebaseCommand(ctx, { all: opts.all }));
+
+program
+  .command("land")
+  .description("Land the stack into trunk by fast-forwarding through a chosen commit")
+  .option("--through <id>", "Land from the bottom through this group/commit id")
+  .action((opts: { through?: string }) => landCommand(ctx, { through: opts.through }));
 
 program.parse();
