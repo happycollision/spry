@@ -492,6 +492,67 @@ describe("sp land readiness", () => {
   });
 });
 
+describe("sp land no-arg picker", () => {
+  test("picker selection drives the same through-path", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedStack(repo, git, [
+      { id: "aaa11111", subject: "first" },
+      { id: "bbb22222", subject: "second" },
+    ]);
+    const tip = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+
+    const { gh } = stubGh(
+      ghPrStub({
+        "spry/test/aaa11111": { number: 1 },
+        "spry/test/bbb22222": { number: 2 },
+      }),
+    );
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, {
+        cwd: repo.path,
+        pickThrough: async (units) => units.at(-1)?.id ?? null,
+      });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    const originMain = (
+      await git.run(["rev-parse", "origin/main"], { cwd: repo.path })
+    ).stdout.trim();
+    expect(originMain).toBe(tip);
+    expect(logs.out.join("\n")).toContain("Landed");
+    expect(trap.exitCode).toBeUndefined();
+  });
+
+  test("cancel (picker returns null) lands nothing", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedStack(repo, git, [{ id: "aaa11111", subject: "first" }]);
+    const before = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+
+    const { gh } = stubGh(ghPrStub({ "spry/test/aaa11111": { number: 1 } }));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, { cwd: repo.path, pickThrough: async () => null });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBeUndefined();
+    const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+    expect(after).toBe(before);
+    expect(logs.out.join("\n")).toMatch(/cancelled/i);
+  });
+});
+
 describe("sp land unresolved review threads", () => {
   const unresolved: PRStub = {
     number: 1,

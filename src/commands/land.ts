@@ -18,7 +18,8 @@ import type { PRUnit } from "../parse/index.ts";
 import { formatValidationError } from "../ui/format.ts";
 import { findPRsForBranches, retargetPR, pushBranch } from "../gh/index.ts";
 import { evaluateReadiness } from "./land-readiness.ts";
-import { confirm as defaultConfirm } from "../tui/index.ts";
+import { confirm as defaultConfirm, selectOne } from "../tui/index.ts";
+import { resolveUnitTitle } from "../parse/index.ts";
 import { syncCommand } from "./sync.ts";
 
 export interface LandOptions {
@@ -163,7 +164,14 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
   }
 }
 
-// Placeholder until the no-arg picker task wires up a real TUI.
-async function defaultPickThrough(_units: PRUnit[]): Promise<string | null> {
-  throw new Error("interactive picker not yet implemented");
+// Bare `sp land`: single-select TUI over the stack units (bottom→top). The
+// chosen unit's id becomes the `--through` target.
+async function defaultPickThrough(units: PRUnit[]): Promise<string | null> {
+  const options = units.map((unit) => ({
+    id: unit.id,
+    label: `${unit.id}  ${resolveUnitTitle(unit)}`,
+  }));
+  const result = await selectOne(options);
+  if (result.cancelled) return null;
+  return result.selectedId;
 }
