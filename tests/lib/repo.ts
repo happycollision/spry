@@ -2,12 +2,15 @@ import { $ } from "bun";
 import { join } from "node:path";
 import { rm, mkdir } from "node:fs/promises";
 import { generateUniqueId } from "./unique-id.ts";
+import { createRealGitRunner } from "../../src/lib/context.ts";
+import type { GitRunner } from "./context.ts";
 
 export interface TestRepo {
   path: string;
   originPath: string;
   uniqueId: string;
   defaultBranch: string;
+  git: GitRunner;
 
   commit(message?: string): Promise<string>;
   commitFiles(files: Record<string, string>, message?: string): Promise<string>;
@@ -111,6 +114,21 @@ export async function createRepo(options?: CreateRepoOptions): Promise<TestRepo>
     return (await $`git -C ${workPath} rev-parse --abbrev-ref HEAD`.quiet().text()).trim();
   }
 
+  // Deterministic git runner bound to this repo. Defaults cwd to the working
+  // tree and injects the pinned identity/date env so test-authored commits
+  // (created via raw git, not repo.commit) are also byte-stable. Callers can
+  // still override cwd or individual env vars explicitly.
+  const realGit = createRealGitRunner();
+  const git: GitRunner = {
+    run(args, options) {
+      return realGit.run(args, {
+        ...options,
+        cwd: options?.cwd ?? workPath,
+        env: { ...process.env, ...DETERMINISTIC_GIT_ENV, ...options?.env },
+      });
+    },
+  };
+
   async function cleanup(): Promise<void> {
     await rm(workPath, { recursive: true, force: true });
     await rm(originPath, { recursive: true, force: true });
@@ -121,6 +139,7 @@ export async function createRepo(options?: CreateRepoOptions): Promise<TestRepo>
     originPath,
     uniqueId,
     defaultBranch,
+    git,
     commit,
     commitFiles,
     branch,
