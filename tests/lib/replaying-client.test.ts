@@ -35,9 +35,7 @@ test("replays recorded responses in order", async () => {
 test("throws if more calls than recorded entries", async () => {
   const cassettePath = join(tmpDir, "short.json");
   await writeCassette(cassettePath, {
-    entries: [
-      { args: ["status"], result: { stdout: "clean", stderr: "", exitCode: 0 } },
-    ],
+    entries: [{ args: ["status"], result: { stdout: "clean", stderr: "", exitCode: 0 } }],
   });
 
   const client = await createReplayingClient(cassettePath);
@@ -53,11 +51,41 @@ test("throws if cassette file does not exist", async () => {
 test("throws if args don't match recorded entry", async () => {
   const cassettePath = join(tmpDir, "mismatch.json");
   await writeCassette(cassettePath, {
-    entries: [
-      { args: ["status"], result: { stdout: "clean", stderr: "", exitCode: 0 } },
-    ],
+    entries: [{ args: ["status"], result: { stdout: "clean", stderr: "", exitCode: 0 } }],
   });
 
   const client = await createReplayingClient(cassettePath);
   expect(client.run(["log"])).rejects.toThrow(/mismatch/i);
+});
+
+test("match:args consumes the entry whose args+stdin match, order-independent", async () => {
+  const cassettePath = join(tmpDir, "args.json");
+  await writeCassette(cassettePath, {
+    entries: [
+      { args: ["pr", "list"], result: { stdout: "L", stderr: "", exitCode: 0 } },
+      {
+        args: ["pr", "create"],
+        options: { stdin: "body-A" },
+        result: { stdout: "A", stderr: "", exitCode: 0 },
+      },
+      {
+        args: ["pr", "create"],
+        options: { stdin: "body-B" },
+        result: { stdout: "B", stderr: "", exitCode: 0 },
+      },
+    ],
+  });
+  const client = await createReplayingClient(cassettePath, { match: "args" });
+  expect((await client.run(["pr", "create"], { stdin: "body-B" })).stdout).toBe("B");
+  expect((await client.run(["pr", "create"], { stdin: "body-A" })).stdout).toBe("A");
+  expect((await client.run(["pr", "list"])).stdout).toBe("L");
+});
+
+test("match:args throws when no unconsumed entry matches", async () => {
+  const cassettePath = join(tmpDir, "nomatch.json");
+  await writeCassette(cassettePath, {
+    entries: [{ args: ["pr", "list"], result: { stdout: "", stderr: "", exitCode: 0 } }],
+  });
+  const client = await createReplayingClient(cassettePath, { match: "args" });
+  expect(client.run(["pr", "view"])).rejects.toThrow(/no matching/i);
 });
