@@ -6,15 +6,27 @@ import { groupCommand } from "../commands/group.ts";
 import { rebaseCommand } from "../commands/rebase.ts";
 import { landCommand } from "../commands/land.ts";
 import { createRealGitRunner, createRealGhClient } from "../lib/context.ts";
-import type { SpryContext } from "../lib/context.ts";
+import type { GhClient, SpryContext } from "../lib/context.ts";
+import { createReplayingClient } from "../lib/replaying-client.ts";
+import { createRecordingClient } from "../lib/recording-client.ts";
+import type { RecordingClient } from "../lib/recording-client.ts";
 
 const program = new Command();
 
 program.name("sp").description("Spry: Stacked PRs. Develop with alacrity.");
 
+let recorder: RecordingClient | undefined;
+let gh: GhClient = createRealGhClient();
+if (process.env.SPRY_GH_CASSETTE_RECORD) {
+  recorder = createRecordingClient(gh, process.env.SPRY_GH_CASSETTE_RECORD);
+  gh = recorder;
+} else if (process.env.SPRY_GH_CASSETTE) {
+  gh = await createReplayingClient(process.env.SPRY_GH_CASSETTE, { match: "args" });
+}
+
 const ctx: SpryContext = {
   git: createRealGitRunner(),
-  gh: createRealGhClient(),
+  gh,
 };
 
 program
@@ -49,4 +61,8 @@ program
   .option("--through <id>", "Land from the bottom through this group/commit id")
   .action((opts: { through?: string }) => landCommand(ctx, { through: opts.through }));
 
-program.parse();
+try {
+  await program.parseAsync();
+} finally {
+  if (recorder) await recorder.flush();
+}
