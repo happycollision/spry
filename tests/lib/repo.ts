@@ -22,13 +22,37 @@ export interface CreateRepoOptions {
   defaultBranch?: string;
 }
 
-let counter = 0;
+// Pinned author/committer identity + dates so that, given the same tree,
+// parents, and message, git produces a byte-stable commit SHA. Without this,
+// floating commit timestamps make every recorded SHA non-reproducible.
+export const DETERMINISTIC_GIT_ENV = {
+  GIT_AUTHOR_DATE: "2020-01-01T00:00:00Z",
+  GIT_COMMITTER_DATE: "2020-01-01T00:00:00Z",
+  GIT_AUTHOR_NAME: "Test User",
+  GIT_AUTHOR_EMAIL: "test@example.com",
+  GIT_COMMITTER_NAME: "Test User",
+  GIT_COMMITTER_EMAIL: "test@example.com",
+} as const;
+
+const commitEnv = { ...process.env, ...DETERMINISTIC_GIT_ENV };
+
+// Disk-path uniqueness counter. The on-disk temp paths must always be unique
+// (even when two repos share a seeded, deterministic uniqueId), but this
+// counter never leaks into commit identity, so it does not affect SHAs.
+let pathCounter = 0;
 
 export async function createRepo(options?: CreateRepoOptions): Promise<TestRepo> {
   const uniqueId = generateUniqueId();
   const defaultBranch = options?.defaultBranch ?? "main";
-  const originPath = `/tmp/spry-test-origin-${uniqueId}`;
-  const workPath = `/tmp/spry-test-${uniqueId}`;
+  // Path suffix is independent of uniqueId so seeded (identical-uniqueId)
+  // repos still land in distinct temp directories.
+  const pathSuffix = `${process.pid}-${pathCounter++}`;
+  const originPath = `/tmp/spry-test-origin-${pathSuffix}`;
+  const workPath = `/tmp/spry-test-${pathSuffix}`;
+
+  // Per-repo commit counter so a fresh repo always starts at the same
+  // sequence (first commit -> file-1.txt, second -> file-2.txt, ...).
+  let counter = 0;
 
   // Create bare origin
   await $`git init --bare ${originPath} --initial-branch=${defaultBranch}`.quiet();
@@ -42,16 +66,16 @@ export async function createRepo(options?: CreateRepoOptions): Promise<TestRepo>
   const initFile = join(workPath, "README.md");
   await Bun.write(initFile, "# Test repo\n");
   await $`git -C ${workPath} add .`.quiet();
-  await $`git -C ${workPath} commit -m "Initial commit"`.quiet();
+  await $`git -C ${workPath} commit -m "Initial commit"`.env(commitEnv).quiet();
   await $`git -C ${workPath} push origin ${defaultBranch}`.quiet();
 
   async function commit(message?: string): Promise<string> {
     counter++;
-    const filename = `file-${uniqueId}-${counter}.txt`;
+    const filename = `file-${counter}.txt`;
     const msg = message ?? `Commit ${counter}`;
     await Bun.write(join(workPath, filename), `Content: ${msg}\n`);
     await $`git -C ${workPath} add .`.quiet();
-    await $`git -C ${workPath} commit -m ${`${msg} [${uniqueId}]`}`.quiet();
+    await $`git -C ${workPath} commit -m ${msg}`.env(commitEnv).quiet();
     return (await $`git -C ${workPath} rev-parse HEAD`.quiet().text()).trim();
   }
 
@@ -65,7 +89,7 @@ export async function createRepo(options?: CreateRepoOptions): Promise<TestRepo>
       await Bun.write(filePath, content);
     }
     await $`git -C ${workPath} add .`.quiet();
-    await $`git -C ${workPath} commit -m ${`${msg} [${uniqueId}]`}`.quiet();
+    await $`git -C ${workPath} commit -m ${msg}`.env(commitEnv).quiet();
     return (await $`git -C ${workPath} rev-parse HEAD`.quiet().text()).trim();
   }
 
