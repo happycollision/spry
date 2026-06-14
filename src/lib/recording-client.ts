@@ -13,6 +13,9 @@ export function createRecordingClient(inner: GitRunner, cassettePath: string): R
     async run(args: string[], options?: CommandOptions): Promise<CommandResult> {
       const result = await inner.run(args, options);
       entries.push({ args, options, result });
+      // Persist after every call so a recording survives a command that
+      // process.exit()s before the seam's flush() in finally can run.
+      await writeCassette(cassettePath, { entries });
       return result;
     },
     async flush(): Promise<void> {
