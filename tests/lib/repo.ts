@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { rm, mkdir } from "node:fs/promises";
 import { generateUniqueId } from "./unique-id.ts";
 import { createRealGitRunner } from "../../src/lib/context.ts";
+import { createGitHubFixture } from "./github-fixture.ts";
 import type { GitRunner } from "./context.ts";
 
 export interface TestRepo {
@@ -23,6 +24,12 @@ export interface TestRepo {
 
 export interface CreateRepoOptions {
   defaultBranch?: string;
+  /**
+   * Where `git push` targets. "local" (default) creates a bare origin on disk
+   * — fully offline, today's behavior. "github" clones the verified spry-check
+   * repo so pushes hit real GitHub (record mode; needs auth).
+   */
+  origin?: "local" | "github";
 }
 
 // Pinned author/committer identity + dates so that, given the same tree,
@@ -47,21 +54,30 @@ let pathCounter = 0;
 export async function createRepo(options?: CreateRepoOptions): Promise<TestRepo> {
   const uniqueId = generateUniqueId();
   const defaultBranch = options?.defaultBranch ?? "main";
+  const origin = options?.origin ?? "local";
   // Path suffix is independent of uniqueId so seeded (identical-uniqueId)
   // repos still land in distinct temp directories.
   const pathSuffix = `${process.pid}-${pathCounter++}`;
-  const originPath = `/tmp/spry-test-origin-${pathSuffix}`;
   const workPath = `/tmp/spry-test-${pathSuffix}`;
 
   // Per-repo commit counter so a fresh repo always starts at the same
   // sequence (first commit -> file-1.txt, second -> file-2.txt, ...).
   let counter = 0;
 
-  // Create bare origin
-  await $`git init --bare ${originPath} --initial-branch=${defaultBranch}`.quiet();
-
-  // Create working clone
-  await $`git clone ${originPath} ${workPath}`.quiet();
+  let originPath: string;
+  if (origin === "github") {
+    // Push targets real GitHub: clone the verified spry-check repo (the fixture
+    // resolves + safety-checks the URL). originPath records the remote URL.
+    const fixture = await createGitHubFixture();
+    originPath = fixture.repoUrl;
+    await $`git clone ${fixture.repoUrl} ${workPath}`.quiet();
+  } else {
+    originPath = `/tmp/spry-test-origin-${pathSuffix}`;
+    // Create bare origin
+    await $`git init --bare ${originPath} --initial-branch=${defaultBranch}`.quiet();
+    // Create working clone
+    await $`git clone ${originPath} ${workPath}`.quiet();
+  }
   await $`git -C ${workPath} config user.email "test@example.com"`.quiet();
   await $`git -C ${workPath} config user.name "Test User"`.quiet();
 
@@ -131,7 +147,11 @@ export async function createRepo(options?: CreateRepoOptions): Promise<TestRepo>
 
   async function cleanup(): Promise<void> {
     await rm(workPath, { recursive: true, force: true });
-    await rm(originPath, { recursive: true, force: true });
+    // For a "github" origin, originPath is a remote URL, not a local path —
+    // nothing on disk to remove.
+    if (origin === "local") {
+      await rm(originPath, { recursive: true, force: true });
+    }
   }
 
   return {
