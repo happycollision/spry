@@ -6,9 +6,12 @@ import {
   createRepo,
   createRealGitRunner,
   createTerminalDriver,
+  cassetteEnv,
+  isRecording,
 } from "../lib/index.ts";
 import type { GhClient, CommandResult, CommandOptions, SpryContext } from "../lib/index.ts";
 import { syncCommand } from "../../src/commands/sync.ts";
+import { createGitHubFixture } from "../lib/github-fixture.ts";
 
 const cliPath = join(import.meta.dir, "../../src/cli/index.ts");
 const harnessPath = join(import.meta.dir, "../fixtures/sync-tui-harness.ts");
@@ -60,60 +63,61 @@ describe("sp sync docs", () => {
     expect(result.stdout).toContain("pushed spry/dondenton/aaa11111");
   });
 
-  docTest("Opening a new PR", { section: "commands/sync", order: 20 }, async (doc) => {
-    const repo = await createRepo();
-    repos.push(repo);
-    doc.scrub(repo);
-    const git = createRealGitRunner();
+  docTest(
+    "Opening a new PR",
+    { section: "commands/sync", order: 20, timeout: 60000 },
+    async (doc) => {
+      // Record mode drives the real spry-check repo and captures genuine gh
+      // responses into the committed cassette; replay (default) serves them
+      // offline. The same body runs both ways — only the git origin and the
+      // gh seam env differ. See docs/plans/2026-06-13-gh-cassettes-real-recording.md.
+      const recording = isRecording();
+      const fixture = recording ? await createGitHubFixture() : undefined;
+      if (fixture) await fixture.reset();
 
-    await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
-    await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
-    await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
+      const repo = await createRepo({ origin: recording ? "github" : "local" });
+      repos.push(repo);
+      doc.scrub(repo);
+      // Neutralize the real test-repo slug in generated docs.
+      doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
 
-    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
-    await git.run(["commit", "--allow-empty", "-m", "Add login\n\nSpry-Commit-Id: aaa11111"], {
-      cwd: repo.path,
-    });
+      // Deterministic commits (repo.git pins identity/date) so the branch SHA is
+      // byte-identical between the recording run and every offline replay.
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
+      // gh needs explicit owner/repo for its GraphQL query. In replay the origin
+      // is a local bare repo, so pin the slug to whatever the committed cassette
+      // was recorded against (defaults to the maintainer's spry-check).
+      const repoSlug = `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`;
+      await repo.git.run(["config", "spry.repo", repoSlug]);
+      await repo.git.run(["checkout", "-b", "feature/x"]);
+      await repo.git.run([
+        "commit",
+        "--allow-empty",
+        "-m",
+        "Add login\n\nSpry-Commit-Id: aaa11111",
+      ]);
 
-    doc.prose(
-      "Use `sp sync --open <id>` to publish a commit for the first time — Spry pushes the branch and opens a PR on GitHub targeting trunk (or the previous unit's branch for a stacked PR):",
-    );
+      doc.prose(
+        "Use `sp sync --open <id>` to publish a commit for the first time — Spry pushes the branch and opens a PR on GitHub targeting trunk (or the previous unit's branch for a stacked PR):",
+      );
 
-    const gh: GhClient = {
-      async run(args: string[], _opts?: CommandOptions): Promise<CommandResult> {
-        if (args[0] === "pr" && args[1] === "create") {
-          return { stdout: "https://github.com/owner/repo/pull/42\n", stderr: "", exitCode: 0 };
-        }
-        return {
-          stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: [] } } } }),
-          stderr: "",
-          exitCode: 0,
-        };
-      },
-    };
+      const { command, result } = await runSp(repo.path, "sync", ["--open", "aaa11111"], {
+        env: cassetteEnv({ section: "commands/sync", order: 20 }),
+      });
+      doc.command(command);
+      doc.output(result.stdout);
 
-    const realGit = createRealGitRunner();
-    const ctx: SpryContext = {
-      git: { run: (args, opts) => realGit.run(args, { ...opts, cwd: opts?.cwd ?? repo.path }) },
-      gh,
-    };
+      // Tidy up the real PR/branch we just created on spry-check.
+      if (fixture) await fixture.reset();
 
-    const lines: string[] = [];
-    const origLog = console.log;
-    console.log = (...args: unknown[]) => lines.push(args.map(String).join(" "));
-    try {
-      await syncCommand(ctx, { cwd: repo.path, open: "aaa11111" });
-    } finally {
-      console.log = origLog;
-    }
-
-    doc.command("sp sync --open aaa11111");
-    doc.output(lines.join("\n") + "\n");
-
-    const { expect } = await import("bun:test");
-    expect(lines.join("\n")).toContain("Created PR #42");
-    expect(lines.join("\n")).toContain("Sync complete");
-  });
+      const { expect } = await import("bun:test");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Created PR #");
+      expect(result.stdout).toContain("Sync complete");
+    },
+  );
 
   docTest("Auto-injecting commit IDs", { section: "commands/sync", order: 40 }, async (doc) => {
     const repo = await createRepo();
