@@ -148,7 +148,11 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   const allBranches = units.map((u) => branchForUnit(u, config));
   let prMap: Map<string, PRInfo | null> | undefined;
   try {
-    prMap = await findPRsForBranches(ctx, allBranches, { cwd });
+    prMap = await findPRsForBranches(ctx, allBranches, {
+      cwd,
+      owner: config.owner,
+      repo: config.repo,
+    });
   } catch (err) {
     const hint = retargetingFallbackHint(err);
     console.log(kleur.dim(`${hint} (branches still updated)`));
@@ -529,7 +533,11 @@ async function finishSyncAll(
   const allBranches = stacks.flatMap((s) => s.units.map((u) => branchForUnit(u, config)));
   let prMap: Map<string, PRInfo | null> | undefined;
   try {
-    prMap = await findPRsForBranches(ctx, allBranches, { cwd });
+    prMap = await findPRsForBranches(ctx, allBranches, {
+      cwd,
+      owner: config.owner,
+      repo: config.repo,
+    });
   } catch (err) {
     const hint = retargetingFallbackHint(err);
     console.log(kleur.dim(`${hint} (branches still updated)`));

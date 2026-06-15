@@ -152,8 +152,8 @@ export function parsePRResponse(json: string): PRInfo | null {
 }
 
 const PR_QUERY = `
-query($branch: String!) {
-  repository(owner: $REPOSITORY_OWNER, name: $REPOSITORY_NAME) {
+query($owner: String!, $repo: String!, $branch: String!) {
+  repository(owner: $owner, name: $repo) {
     pullRequests(headRefName: $branch, first: 1, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes {
         number
@@ -188,6 +188,10 @@ query($branch: String!) {
 
 export interface FindPRsOptions {
   cwd?: string;
+  /** GitHub repo owner/name for the GraphQL query. gh does not auto-populate
+   *  these for `api graphql`, so callers must supply them (from SpryConfig). */
+  owner?: string;
+  repo?: string;
 }
 
 const NOT_INSTALLED_PATTERNS = [
@@ -227,7 +231,18 @@ async function lookupOne(
   branch: string,
   options?: FindPRsOptions,
 ): Promise<PRInfo | null> {
-  const args = ["api", "graphql", "-F", `branch=${branch}`, "-f", `query=${PR_QUERY}`];
+  const args = [
+    "api",
+    "graphql",
+    "-F",
+    `owner=${options?.owner ?? ""}`,
+    "-F",
+    `repo=${options?.repo ?? ""}`,
+    "-F",
+    `branch=${branch}`,
+    "-f",
+    `query=${PR_QUERY}`,
+  ];
   const result = await withRetry(() => ctx.gh.run(args, { cwd: options?.cwd }), ghRetryPredicate);
 
   if (result.exitCode !== 0) throwForFailure(result);

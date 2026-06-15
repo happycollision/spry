@@ -67,6 +67,45 @@ describe("readConfig", () => {
     expect(config.branchPrefix).toBe("spry/test");
   });
 
+  test("resolves owner/repo from the spry.repo override", async () => {
+    repo = await createRepo();
+    const { $ } = await import("bun");
+    await $`git config spry.trunk main`.cwd(repo.path).quiet();
+    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
+    await $`git config spry.repo acme/widgets`.cwd(repo.path).quiet();
+
+    const config = await readConfig(git, { cwd: repo.path });
+    expect(config.owner).toBe("acme");
+    expect(config.repo).toBe("widgets");
+  });
+
+  test("parses owner/repo from a GitHub remote URL when no override", async () => {
+    repo = await createRepo();
+    const { $ } = await import("bun");
+    await $`git config spry.trunk main`.cwd(repo.path).quiet();
+    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
+    await $`git remote set-url origin https://github.com/acme/widgets.git`.cwd(repo.path).quiet();
+
+    const config = await readConfig(git, { cwd: repo.path });
+    expect(config.owner).toBe("acme");
+    expect(config.repo).toBe("widgets");
+  });
+
+  test("leaves owner/repo undefined for a non-GitHub remote with no override", async () => {
+    repo = await createRepo();
+    const { $ } = await import("bun");
+    await $`git config spry.trunk main`.cwd(repo.path).quiet();
+    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
+    // origin is a local /tmp bare path — not parseable as owner/repo.
+
+    const config = await readConfig(git, { cwd: repo.path });
+    expect(config.owner).toBeUndefined();
+    expect(config.repo).toBeUndefined();
+  });
+
   test("reads branchPrefix when set", async () => {
     repo = await createRepo();
     const { $ } = await import("bun");

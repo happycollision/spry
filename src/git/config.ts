@@ -4,6 +4,11 @@ export interface SpryConfig {
   trunk: string;
   remote: string;
   branchPrefix: string;
+  /** GitHub repo owner for PR API queries. Resolved best-effort; undefined on
+   *  non-GitHub remotes with no `spry.repo` override. */
+  owner?: string;
+  /** GitHub repo name for PR API queries. See {@link SpryConfig.owner}. */
+  repo?: string;
 }
 
 export function trunkRef(config: SpryConfig): string {
@@ -92,7 +97,38 @@ export async function readConfig(git: GitRunner, options?: ConfigOptions): Promi
   }
   const branchPrefix = prefixResult.stdout.trim();
 
-  return { trunk, remote, branchPrefix };
+  const { owner, repo } = await resolveRepoSlug(git, remote, cwd);
+
+  return { trunk, remote, branchPrefix, owner, repo };
+}
+
+/**
+ * Resolve the GitHub owner/repo used for PR API queries (`gh api graphql` needs
+ * them as explicit variables — gh does not auto-populate them). Prefers an
+ * explicit `spry.repo` override (format `owner/repo`); otherwise parses the
+ * remote URL. Best-effort: returns undefined fields when neither is available
+ * (e.g. a local-path remote in tests), since commands that never touch PRs
+ * don't need them.
+ */
+async function resolveRepoSlug(
+  git: GitRunner,
+  remote: string,
+  cwd?: string,
+): Promise<{ owner?: string; repo?: string }> {
+  const overrideResult = await git.run(["config", "--get", "spry.repo"], { cwd });
+  const override = overrideResult.exitCode === 0 ? overrideResult.stdout.trim() : "";
+  if (override) {
+    const [owner, repo] = override.split("/");
+    if (owner && repo) return { owner, repo };
+  }
+
+  const urlResult = await git.run(["remote", "get-url", remote], { cwd });
+  if (urlResult.exitCode === 0) {
+    const match = urlResult.stdout.trim().match(/github\.com[:/]([^/]+)\/([^/.]+)/);
+    if (match) return { owner: match[1], repo: match[2] };
+  }
+
+  return {};
 }
 
 export async function loadConfig(git: GitRunner, options?: ConfigOptions): Promise<SpryConfig> {

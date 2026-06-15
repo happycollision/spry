@@ -74,7 +74,10 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
   if (units.length > 0) {
     try {
       const branches = units.map((u) => branchForUnit(u, config));
-      prsByBranch = await findPRsForBranches(ctx, branches);
+      prsByBranch = await findPRsForBranches(ctx, branches, {
+        owner: config.owner,
+        repo: config.repo,
+      });
     } catch (err) {
       const kind = classifyGhInfraError(err);
       if (kind === "no-gh") {
