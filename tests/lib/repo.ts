@@ -81,12 +81,17 @@ export async function createRepo(options?: CreateRepoOptions): Promise<TestRepo>
   await $`git -C ${workPath} config user.email "test@example.com"`.quiet();
   await $`git -C ${workPath} config user.name "Test User"`.quiet();
 
-  // Initial commit
-  const initFile = join(workPath, "README.md");
-  await Bun.write(initFile, "# Test repo\n");
-  await $`git -C ${workPath} add .`.quiet();
-  await $`git -C ${workPath} commit -m "Initial commit"`.env(commitEnv).quiet();
-  await $`git -C ${workPath} push origin ${defaultBranch}`.quiet();
+  // A "github" clone already has the real repo's history (its default branch),
+  // so we must NOT fabricate an initial commit or push to the remote's main —
+  // that would mutate the real test repo. Only a fresh local bare origin needs
+  // seeding with an initial commit.
+  if (origin === "local") {
+    const initFile = join(workPath, "README.md");
+    await Bun.write(initFile, "# Test repo\n");
+    await $`git -C ${workPath} add .`.quiet();
+    await $`git -C ${workPath} commit -m "Initial commit"`.env(commitEnv).quiet();
+    await $`git -C ${workPath} push origin ${defaultBranch}`.quiet();
+  }
 
   async function commit(message?: string): Promise<string> {
     counter++;
