@@ -287,52 +287,65 @@ describe("sp sync docs", () => {
 
   docTest(
     "Pushing every tracked stack with --all",
-    { section: "commands/sync", order: 60 },
+    { section: "commands/sync", order: 60, timeout: 60000 },
     async (doc) => {
-      const repo = await createRepo();
+      // Record mode publishes two independent single-commit stacks on
+      // spry-check, each with its own PR, and captures --all's PR-cache
+      // refresh; replay serves it offline.
+      const recording = isRecording();
+      const fixture = recording ? await createGitHubFixture() : undefined;
+      if (fixture) await fixture.reset();
+
+      const repo = await createRepo({ origin: recording ? "github" : "local" });
       repos.push(repo);
       doc.scrub(repo);
-      const git = createRealGitRunner();
+      doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
 
-      await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
-      await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
-      await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
+      const repoSlug = `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`;
+      await repo.git.run(["config", "spry.repo", repoSlug]);
 
       const { registerBranch } = await import("../../src/git/tracked-branches.ts");
+      const { $ } = await import("bun");
 
-      // Two independent stacks, each already published once.
+      // Two independent stacks, each already published once (and, in record
+      // mode, each with its own PR targeting trunk).
       for (const [branch, id] of [
         ["feature/login", "aaa11111"],
         ["feature/search", "bbb22222"],
       ] as const) {
-        await git.run(["checkout", "main"], { cwd: repo.path });
-        await git.run(["checkout", "-b", branch], { cwd: repo.path });
-        await git.run(["commit", "--allow-empty", "-m", `Work\n\nSpry-Commit-Id: ${id}`], {
-          cwd: repo.path,
-        });
-        const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
-        await git.run(["push", "origin", `${head}:refs/heads/spry/dondenton/${id}`], {
-          cwd: repo.path,
-        });
-        // Register both as tracked stacks.
-        await registerBranch(git, branch, { cwd: repo.path });
+        await repo.git.run(["checkout", "main"]);
+        await repo.git.run(["checkout", "-b", branch]);
+        await repo.git.run(["commit", "--allow-empty", "-m", `Work\n\nSpry-Commit-Id: ${id}`]);
+        const head = (await repo.git.run(["rev-parse", "HEAD"])).stdout.trim();
+        await repo.git.run(["push", "origin", `${head}:refs/heads/spry/dondenton/${id}`]);
+        await registerBranch(repo.git, branch);
+        if (recording) {
+          await $`gh pr create --title ${branch} --head spry/dondenton/${id} --base main --body ${"Stack"}`
+            .cwd(repo.path)
+            .quiet();
+        }
       }
 
       doc.prose(
         "When you keep several independent stacks in flight, `sp sync --all` pushes every tracked stack's already-published branches in one run — no need to check each one out. It is push-only: it never rebases and never opens new PRs (use `sp rebase --all` to restack, and `sp sync --open` to publish).",
       );
 
-      // Canonicalize the gh-unavailable hint so fragments stay deterministic
-      doc.scrub(/PR retargeting unavailable: [^\n]+/, "PR retargeting unavailable: <hint>");
-
-      const { command, result } = await runSp(repo.path, "sync", ["--all"]);
+      const { command, result } = await runSp(repo.path, "sync", ["--all"], {
+        env: cassetteEnv({ section: "commands/sync", order: 60 }),
+      });
       doc.command(command);
       doc.output(result.stdout);
+
+      if (fixture) await fixture.reset();
 
       const { expect } = await import("bun:test");
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("pushed spry/dondenton/aaa11111");
       expect(result.stdout).toContain("pushed spry/dondenton/bbb22222");
+      expect(result.stdout).toContain("Updated PR cache");
     },
   );
 

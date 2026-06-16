@@ -98,7 +98,7 @@ feature/login:
 ↑ pushed spry/dondenton/aaaa1111
 feature/search:
 ↑ pushed spry/dondenton/bbbb2222
-PR retargeting unavailable: <hint>
+✓ Updated PR cache (2 PRs)
 ✓ Sync complete
 
 ```
