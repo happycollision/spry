@@ -9,8 +9,6 @@ import {
   cassetteEnv,
   isRecording,
 } from "../lib/index.ts";
-import type { GhClient, CommandResult, CommandOptions, SpryContext } from "../lib/index.ts";
-import { syncCommand } from "../../src/commands/sync.ts";
 import { createGitHubFixture } from "../lib/github-fixture.ts";
 
 const cliPath = join(import.meta.dir, "../../src/cli/index.ts");
@@ -148,113 +146,76 @@ describe("sp sync docs", () => {
     expect(result.stdout).toContain("Sync complete");
   });
 
-  docTest("Retargeting stacked PRs", { section: "commands/sync", order: 50 }, async (doc) => {
-    const repo = await createRepo();
-    repos.push(repo);
-    doc.scrub(repo);
-    const git = createRealGitRunner();
+  docTest(
+    "Retargeting stacked PRs",
+    { section: "commands/sync", order: 50, timeout: 60000 },
+    async (doc) => {
+      // Record mode publishes two real stacked PRs on spry-check (with bbb22222
+      // deliberately mis-based on main) and captures sync's retarget traffic;
+      // replay serves it offline. Same body both ways.
+      const recording = isRecording();
+      const fixture = recording ? await createGitHubFixture() : undefined;
+      if (fixture) await fixture.reset();
 
-    await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
-    await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
-    await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
+      const repo = await createRepo({ origin: recording ? "github" : "local" });
+      repos.push(repo);
+      doc.scrub(repo);
+      doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
 
-    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
-    await git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"], {
-      cwd: repo.path,
-    });
-    await git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: bbb22222"], {
-      cwd: repo.path,
-    });
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
+      const repoSlug = `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`;
+      await repo.git.run(["config", "spry.repo", repoSlug]);
 
-    // Pre-publish both branches
-    const aSha = (await git.run(["rev-parse", "HEAD~1"], { cwd: repo.path })).stdout.trim();
-    const bSha = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
-    await git.run(["push", "origin", `${aSha}:refs/heads/spry/dondenton/aaa11111`], {
-      cwd: repo.path,
-    });
-    await git.run(["push", "origin", `${bSha}:refs/heads/spry/dondenton/bbb22222`], {
-      cwd: repo.path,
-    });
+      await repo.git.run(["checkout", "-b", "feature/x"]);
+      await repo.git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"]);
+      await repo.git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: bbb22222"]);
 
-    doc.prose(
-      "After pushing, `sp sync` checks each open PR's base, retargets any that are wrong, and refreshes the local PR status cache read by `sp view`. No network call is needed at view time — sync is the mechanism that fetches fresh status from GitHub:",
-    );
+      // Pre-publish both branches (sync only pushes branches that already exist
+      // on the remote).
+      const aSha = (await repo.git.run(["rev-parse", "HEAD~1"])).stdout.trim();
+      const bSha = (await repo.git.run(["rev-parse", "HEAD"])).stdout.trim();
+      await repo.git.run(["push", "origin", `${aSha}:refs/heads/spry/dondenton/aaa11111`]);
+      await repo.git.run(["push", "origin", `${bSha}:refs/heads/spry/dondenton/bbb22222`]);
 
-    // PR for bbb22222 has wrong base (main instead of spry/dondenton/aaa11111)
-    const gh: GhClient = {
-      async run(args: string[], _opts?: CommandOptions): Promise<CommandResult> {
-        if (args[0] === "api" && args[1] === "graphql") {
-          const branchArg = args.find((a) => a.startsWith("branch="));
-          const branch = branchArg?.slice("branch=".length) ?? "";
-          const prByBranch: Record<string, { number: number; baseRefName: string }> = {
-            "spry/dondenton/aaa11111": { number: 10, baseRefName: "main" },
-            "spry/dondenton/bbb22222": { number: 11, baseRefName: "main" },
-          };
-          const pr = prByBranch[branch];
-          if (!pr) {
-            return {
-              stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: [] } } } }),
-              stderr: "",
-              exitCode: 0,
-            };
-          }
-          return {
-            stdout: JSON.stringify({
-              data: {
-                repository: {
-                  pullRequests: {
-                    nodes: [
-                      {
-                        number: pr.number,
-                        url: `https://github.com/owner/repo/pull/${pr.number}`,
-                        state: "OPEN",
-                        title: "T",
-                        baseRefName: pr.baseRefName,
-                        reviewDecision: null,
-                        reviewThreads: { totalCount: 0, nodes: [] },
-                        commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
-                      },
-                    ],
-                  },
-                },
-              },
-            }),
-            stderr: "",
-            exitCode: 0,
-          };
-        }
-        if (args[0] === "pr" && args[1] === "edit") {
-          return { stdout: "", stderr: "", exitCode: 0 };
-        }
-        return { stdout: "", stderr: `unexpected: ${args.join(" ")}`, exitCode: 1 };
-      },
-    };
+      // In record mode, open the two real PRs. bbb22222 gets the WRONG base
+      // (main) so sync has a PR to retarget onto aaa11111's branch.
+      if (recording) {
+        const { $ } = await import("bun");
+        await $`gh pr create --title A --head spry/dondenton/aaa11111 --base main --body ${"Stacked PR A"}`
+          .cwd(repo.path)
+          .quiet();
+        await $`gh pr create --title B --head spry/dondenton/bbb22222 --base main --body ${"Stacked PR B"}`
+          .cwd(repo.path)
+          .quiet();
+      }
 
-    const realGit = createRealGitRunner();
-    const ctx: SpryContext = {
-      git: { run: (a, opts) => realGit.run(a, { ...opts, cwd: opts?.cwd ?? repo.path }) },
-      gh,
-    };
+      doc.prose(
+        "After pushing, `sp sync` checks each open PR's base, retargets any that are wrong, and refreshes the local PR status cache read by `sp view`. No network call is needed at view time — sync is the mechanism that fetches fresh status from GitHub:",
+      );
 
-    const lines: string[] = [];
-    const origLog = console.log;
-    console.log = (...args: unknown[]) => lines.push(args.map(String).join(" "));
-    try {
-      await syncCommand(ctx, { cwd: repo.path });
-    } finally {
-      console.log = origLog;
-    }
+      // PR numbers are GitHub-minted (non-deterministic); canonicalize the one
+      // shown so the generated doc stays stable across re-recordings.
+      doc.scrub(/retargeted PR #\d+/g, "retargeted PR #11");
 
-    doc.command("sp sync");
-    doc.output(lines.join("\n") + "\n");
+      const { command, result } = await runSp(repo.path, "sync", [], {
+        env: cassetteEnv({ section: "commands/sync", order: 50 }),
+      });
+      doc.command(command);
+      doc.output(result.stdout);
 
-    const { expect } = await import("bun:test");
-    expect(lines.join("\n")).toContain("pushed spry/dondenton/aaa11111");
-    expect(lines.join("\n")).toContain("pushed spry/dondenton/bbb22222");
-    expect(lines.join("\n")).toMatch(/retargeted PR #11/);
-    expect(lines.join("\n")).toContain("Updated PR cache");
-    expect(lines.join("\n")).toContain("Sync complete");
-  });
+      if (fixture) await fixture.reset();
+
+      const { expect } = await import("bun:test");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("pushed spry/dondenton/aaa11111");
+      expect(result.stdout).toContain("pushed spry/dondenton/bbb22222");
+      expect(result.stdout).toMatch(/retargeted PR #\d+/);
+      expect(result.stdout).toContain("Updated PR cache");
+      expect(result.stdout).toContain("Sync complete");
+    },
+  );
 
   docTest(
     "Selecting which branches to open as PRs",
