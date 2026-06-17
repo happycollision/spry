@@ -3,6 +3,7 @@ import { $ } from "bun";
 import { stat } from "node:fs/promises";
 import { createRepo } from "./repo.ts";
 import type { TestRepo } from "./repo.ts";
+import { seedUniqueId, resetUniqueIdSeed } from "./unique-id.ts";
 
 const repos: TestRepo[] = [];
 
@@ -60,6 +61,36 @@ test("branch creates and checks out new branch", async () => {
   expect(current).toBe(branchName);
   expect(branchName).toContain("feature");
   expect(branchName).toContain(repo.uniqueId);
+});
+
+test("deterministic commits produce identical SHAs across repos", async () => {
+  seedUniqueId("sha-stability");
+  const r1 = await createRepo();
+  const s1 = await r1.commit("Add login");
+  seedUniqueId("sha-stability");
+  const r2 = await createRepo();
+  const s2 = await r2.commit("Add login");
+  expect(s1).toBe(s2);
+  await r1.cleanup();
+  await r2.cleanup();
+  resetUniqueIdSeed();
+});
+
+test("repo.git produces identical SHAs across seeded repos", async () => {
+  seedUniqueId("git-runner-stability");
+  const r1 = await createRepo();
+  await r1.git.run(["commit", "--allow-empty", "-m", "Pinned commit"]);
+  const s1 = (await r1.git.run(["rev-parse", "HEAD"])).stdout.trim();
+
+  seedUniqueId("git-runner-stability");
+  const r2 = await createRepo();
+  await r2.git.run(["commit", "--allow-empty", "-m", "Pinned commit"]);
+  const s2 = (await r2.git.run(["rev-parse", "HEAD"])).stdout.trim();
+
+  expect(s1).toBe(s2);
+  await r1.cleanup();
+  await r2.cleanup();
+  resetUniqueIdSeed();
 });
 
 test("cleanup removes temp directories", async () => {

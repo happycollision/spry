@@ -36,6 +36,24 @@ test("records calls and writes cassette file", async () => {
   expect(cassette.entries[1]!.args).toEqual(["log", "--oneline"]);
 });
 
+test("persists after each call (survives missing flush / process.exit)", async () => {
+  const inner: GitRunner = {
+    async run(args) {
+      return { stdout: `ran: ${args.join(" ")}`, stderr: "", exitCode: 0 };
+    },
+  };
+
+  const cassettePath = join(tmpDir, "incremental.json");
+  const recording = createRecordingClient(inner, cassettePath);
+
+  // Deliberately do NOT call flush() — simulate a command that process.exit()s.
+  await recording.run(["status"]);
+
+  const cassette = await readCassette(cassettePath);
+  expect(cassette.entries).toHaveLength(1);
+  expect(cassette.entries[0]!.args).toEqual(["status"]);
+});
+
 test("passes through results from inner client", async () => {
   const inner: GitRunner = {
     async run() {

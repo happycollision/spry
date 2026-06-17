@@ -128,7 +128,6 @@ describe("getCommitMessage", () => {
     repo = await createRepo();
     const sha = await repo.commit("test message");
     const msg = await getCommitMessage(git, sha, { cwd: repo.path });
-    // repo.commit appends [uniqueId]
     expect(msg).toContain("test message");
   });
 

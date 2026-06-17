@@ -85,7 +85,11 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
 
   // 4. Live PR status for the scope.
   const scopeBranches = scopeUnits.map((u) => branchForUnit(u, config));
-  const prMap = await findPRsForBranches(ctx, scopeBranches, { cwd });
+  const prMap = await findPRsForBranches(ctx, scopeBranches, {
+    cwd,
+    owner: config.owner,
+    repo: config.repo,
+  });
 
   // 4a. Readiness gate. Every scope unit must have an open PR, and none may be
   //     blocked by failing/pending checks or changes-requested/review-required.

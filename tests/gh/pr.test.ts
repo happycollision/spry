@@ -95,6 +95,17 @@ describe("findPRsForBranches", () => {
     expect(calls[0]!.options?.cwd).toBe("/tmp/repo");
   });
 
+  test("passes owner/repo into the GraphQL query args", async () => {
+    const { ctx, calls } = stubGh([ghOk(null)]);
+    await findPRsForBranches(ctx, ["feature/x"], { owner: "acme", repo: "widgets" });
+    // gh does not auto-populate these for `api graphql`; they must be sent as
+    // explicit -F variables matching the declared $owner/$repo.
+    expect(calls[0]!.args).toContain("owner=acme");
+    expect(calls[0]!.args).toContain("repo=widgets");
+    expect(calls[0]!.args).toContain("branch=feature/x");
+    expect(calls[0]!.args.join(" ")).toContain("query($owner: String!, $repo: String!");
+  });
+
   test("throws GhNotInstalledError when stderr matches", async () => {
     const { ctx } = stubGh([
       { stdout: "", stderr: "/bin/sh: gh: command not found", exitCode: 127 },

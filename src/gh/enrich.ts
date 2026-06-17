@@ -33,7 +33,10 @@ export async function enrichUnits(
   const branches = units.map((u) => branchForUnit(u, config));
 
   try {
-    const map = await findPRsForBranches(ctx, branches);
+    const map = await findPRsForBranches(ctx, branches, {
+      owner: config.owner,
+      repo: config.repo,
+    });
     return units.map((unit, i) => {
       const branch = branches[i];
       return {

@@ -21,8 +21,9 @@ sp sync --open aaaa1111
 
 ```
 ↑ pushed spry/dondenton/aaaa1111
-✓ Created PR #42: Add login
-  https://github.com/owner/repo/pull/42
+✓ Created PR #1001: Add login
+  https://github.com/owner/repo/pull/1001
+✓ Updated PR cache (1 PR)
 ✓ Sync complete
 
 ```
@@ -97,7 +98,7 @@ feature/login:
 ↑ pushed spry/dondenton/aaaa1111
 feature/search:
 ↑ pushed spry/dondenton/bbbb2222
-PR retargeting unavailable: <hint>
+✓ Updated PR cache (2 PRs)
 ✓ Sync complete
 
 ```
