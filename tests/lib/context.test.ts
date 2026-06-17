@@ -44,6 +44,7 @@ test("empty stdin is fed as EOF, not inherited from a non-EOF parent", async () 
     Bun.sleep(10000).then(() => "TIMEOUT"),
   ]);
   child.kill();
+  await child.exited;
 
   expect(out).toBe(`OUT:${EMPTY_BLOB_SHA}`);
 });
