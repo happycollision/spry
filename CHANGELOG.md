@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Internal: extracted the gh cassette seam into a shared `createSeamedGhClient` helper (`src/lib/gh-seam.ts`) so the CLI and test harnesses select record/replay/real consistently.
 - Group membership now stored in `refs/spry/groups` alongside titles instead of `Spry-Group` commit trailers. Each group record is a JSON blob `{"title":"...","members":["commitId1",...]}`. `parseStack` now accepts an explicit `CommitGroupMap` (Spry-Commit-Id → groupId) instead of reading `Spry-Group` from commit messages, so grouping never requires a commit rewrite.
 - `loadGroupTitles`/`saveGroupTitle`/`fetchGroupTitles` replaced by `loadGroupRecords`/`saveGroupRecord`/`fetchGroupRecords` plus `buildCommitGroupMap` and `extractGroupTitles` helpers.
 - `sp view` now fetches and loads group records so groups appear correctly (previously group titles were not loaded in view).
