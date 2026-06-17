@@ -262,12 +262,16 @@ describe("sp sync docs", () => {
       });
       repos.push({ cleanup: () => driver.close() });
 
+      // Wait for the TUI to render (label is "<id>  <subject>", substring is enough).
+      // 15 s, not the default 5 s: Bun cold-start + git ops can exceed 5 s in Docker.
       await driver.waitForText("Add login", { timeout: 15000 });
       doc.screen(driver.capture());
 
       driver.press("Space");
       driver.press("Enter");
 
+      // If this times out, the harness likely hit an error path — print
+      // driver.capture().text to diagnose.
       await driver.waitForText("Sync complete", { timeout: 15000 });
 
       const snap = driver.capture();
