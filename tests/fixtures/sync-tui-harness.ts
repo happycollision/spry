@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { syncCommand } from "../../src/commands/sync.ts";
-import { createRealGitRunner } from "../lib/index.ts";
-import type { GhClient, CommandOptions, CommandResult, SpryContext } from "../lib/index.ts";
+import { createRealGitRunner, createSeamedGhClient } from "../lib/index.ts";
+import type { SpryContext } from "../lib/index.ts";
 
 const cwd = process.argv[2];
 if (!cwd) {
@@ -9,18 +9,7 @@ if (!cwd) {
   process.exit(1);
 }
 
-const gh: GhClient = {
-  async run(args: string[], _opts?: CommandOptions): Promise<CommandResult> {
-    if (args[0] === "pr" && args[1] === "create") {
-      return { stdout: "https://github.com/owner/repo/pull/42\n", stderr: "", exitCode: 0 };
-    }
-    return {
-      stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: [] } } } }),
-      stderr: "",
-      exitCode: 0,
-    };
-  },
-};
+const { gh, flush } = await createSeamedGhClient();
 
 const runner = createRealGitRunner();
 const ctx: SpryContext = {
@@ -31,4 +20,8 @@ const ctx: SpryContext = {
   gh,
 };
 
-await syncCommand(ctx, { cwd, open: null });
+try {
+  await syncCommand(ctx, { cwd, open: null });
+} finally {
+  await flush();
+}
