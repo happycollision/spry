@@ -25,10 +25,21 @@ export interface SpryContext {
   gh: GhClient;
 }
 
+/**
+ * Build the stdin buffer for a subprocess. Returns a buffer whenever stdin is
+ * provided — including the empty string — so the child's stdin is redirected to
+ * empty input rather than inherited from the parent. (An inherited terminal
+ * stdin never reaches EOF, which hangs commands that read stdin, e.g.
+ * `gh ... --body-file -` with an empty body.)
+ */
+export function toStdinBuffer(stdin: string | undefined): Buffer | undefined {
+  return stdin !== undefined ? Buffer.from(stdin) : undefined;
+}
+
 export function createRealGitRunner(): GitRunner {
   return {
     async run(args: string[], options?: CommandOptions): Promise<CommandResult> {
-      const input = options?.stdin !== undefined ? Buffer.from(options.stdin) : undefined;
+      const input = toStdinBuffer(options?.stdin);
       let proc = input
         ? $`git ${args} < ${input}`.nothrow().quiet()
         : $`git ${args}`.nothrow().quiet();
@@ -47,7 +58,7 @@ export function createRealGitRunner(): GitRunner {
 export function createRealGhClient(): GhClient {
   return {
     async run(args: string[], options?: CommandOptions): Promise<CommandResult> {
-      const input = options?.stdin ? Buffer.from(options.stdin) : undefined;
+      const input = toStdinBuffer(options?.stdin);
       let proc = input
         ? $`gh ${args} < ${input}`.nothrow().quiet()
         : $`gh ${args}`.nothrow().quiet();
