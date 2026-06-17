@@ -219,7 +219,7 @@ describe("sp sync docs", () => {
 
   docTest(
     "Selecting which branches to open as PRs",
-    { section: "commands/sync", order: 25, timeout: 40000 },
+    { section: "commands/sync", order: 25, timeout: 60000 },
     async (doc) => {
       const recording = isRecording();
       const fixture = recording ? await createGitHubFixture() : undefined;
@@ -270,9 +270,12 @@ describe("sp sync docs", () => {
       driver.press("Space");
       driver.press("Enter");
 
-      // If this times out, the harness likely hit an error path — print
-      // driver.capture().text to diagnose.
-      await driver.waitForText("Sync complete", { timeout: 15000 });
+      // 20 s, not the default 5 s: in record mode everything after the push
+      // (gh pr create + the PR-status graphql query + the PR-cache push) is real
+      // network. On replay the cassette makes it instant, so the larger cap is
+      // never approached. If this times out, the harness likely hit an error
+      // path — print driver.capture().text to diagnose.
+      await driver.waitForText("Sync complete", { timeout: 20000 });
 
       const snap = driver.capture();
       const syncLines = snap.lines
@@ -292,7 +295,11 @@ describe("sp sync docs", () => {
 
       const { expect } = await import("bun:test");
       expect(snap.text).toContain("Sync complete");
-      expect(syncLines.join("\n")).toContain("pull/42");
+      // The captured terminal text is the real (unscrubbed) output: a created PR
+      // with a GitHub-minted number. (The scrubs above only canonicalize the
+      // rendered doc to pull/42 for stability; they don't touch syncLines.)
+      expect(syncLines.join("\n")).toMatch(/Created PR #\d+/);
+      expect(syncLines.join("\n")).toMatch(/pull\/\d+/);
     },
   );
 

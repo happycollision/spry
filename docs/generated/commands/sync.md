@@ -44,6 +44,7 @@ Select units to open (space toggle, a all, enter confirm, esc cancel):
 ↑ pushed spry/dondenton/aaaa1111
 ✓ Created PR #42: Add login
   https://github.com/owner/repo/pull/42
+✓ Updated PR cache (1 PR)
 ✓ Sync complete
 
 ```
