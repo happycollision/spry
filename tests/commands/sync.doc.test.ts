@@ -219,52 +219,64 @@ describe("sp sync docs", () => {
 
   docTest(
     "Selecting which branches to open as PRs",
-    { section: "commands/sync", order: 25, timeout: 40000 },
+    { section: "commands/sync", order: 25, timeout: 60000 },
     async (doc) => {
-      const repo = await createRepo();
+      const recording = isRecording();
+      const fixture = recording ? await createGitHubFixture() : undefined;
+      if (fixture) await fixture.reset();
+
+      const repo = await createRepo({ origin: recording ? "github" : "local" });
       repos.push(repo);
       doc.scrub(repo);
-      const git = createRealGitRunner();
+      doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
 
-      await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
-      await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
-      await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
+      const repoSlug = `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`;
+      await repo.git.run(["config", "spry.repo", repoSlug]);
 
-      await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
-      await git.run(["commit", "--allow-empty", "-m", "Add login\n\nSpry-Commit-Id: aaa11111"], {
-        cwd: repo.path,
-      });
+      await repo.git.run(["checkout", "-b", "feature/x"]);
+      await repo.git.run([
+        "commit",
+        "--allow-empty",
+        "-m",
+        "Add login\n\nSpry-Commit-Id: aaa11111",
+      ]);
 
       doc.prose(
         "Run `sp sync --open` (no arguments) to choose which unpublished branches to open as PRs. Spry shows an interactive menu — use Space to toggle, Enter to confirm:",
       );
       doc.command("sp sync --open");
 
-      // Spawn the harness in a real PTY — TUI runs for real, gh is stubbed in-process
+      // Canonicalize the GitHub-minted PR number for stable docs.
+      doc.scrub(/pull\/\d+/g, "pull/42");
+      doc.scrub(/Created PR #\d+/g, "Created PR #42");
+
+      // Spawn the harness in a real PTY. The gh seam (cassetteEnv) records/replays
+      // gh pr create + the PR-status graphql query; the TUI runs for real.
       const driver = await createTerminalDriver("bun", [harnessPath, repo.path], {
         cols: 80,
         rows: 24,
+        env: cassetteEnv({ section: "commands/sync", order: 25 }),
       });
-      // Register cleanup via the repos array so afterAll handles it
       repos.push({ cleanup: () => driver.close() });
 
-      // Wait for TUI to render (label is "<id>  <subject>", substring match is sufficient)
-      // 15 s matches the later waitForText — Bun cold-start + git ops can exceed 5 s in Docker
+      // Wait for the TUI to render (label is "<id>  <subject>", substring is enough).
+      // 15 s, not the default 5 s: Bun cold-start + git ops can exceed 5 s in Docker.
       await driver.waitForText("Add login", { timeout: 15000 });
-
-      // Capture the menu before any selection
       doc.screen(driver.capture());
 
-      // Select the candidate and confirm
       driver.press("Space");
       driver.press("Enter");
 
-      // Wait for sync to complete
-      // Note: if this times out, the harness likely hit an error path — print driver.capture().text to diagnose
-      await driver.waitForText("Sync complete", { timeout: 15000 });
+      // 20 s, not the default 5 s: in record mode everything after the push
+      // (gh pr create + the PR-status graphql query + the PR-cache push) is real
+      // network. On replay the cassette makes it instant, so the larger cap is
+      // never approached. If this times out, the harness likely hit an error
+      // path — print driver.capture().text to diagnose.
+      await driver.waitForText("Sync complete", { timeout: 20000 });
 
-      // After the TUI exits, sync logs are appended to the 24-row buffer. The upper rows
-      // still contain TUI rendering artifacts. Extract only the sync output lines for docs.
       const snap = driver.capture();
       const syncLines = snap.lines
         .map((l) => l.trimEnd())
@@ -279,9 +291,15 @@ describe("sp sync docs", () => {
         );
       doc.output(syncLines.join("\n") + "\n");
 
+      if (fixture) await fixture.reset();
+
       const { expect } = await import("bun:test");
       expect(snap.text).toContain("Sync complete");
-      expect(syncLines.join("\n")).toContain("pull/42");
+      // The captured terminal text is the real (unscrubbed) output: a created PR
+      // with a GitHub-minted number. (The scrubs above only canonicalize the
+      // rendered doc to pull/42 for stability; they don't touch syncLines.)
+      expect(syncLines.join("\n")).toMatch(/Created PR #\d+/);
+      expect(syncLines.join("\n")).toMatch(/pull\/\d+/);
     },
   );
 
