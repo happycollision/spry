@@ -1,10 +1,19 @@
 import { describe, afterAll } from "bun:test";
 import { join } from "node:path";
-import { docTest, createRepo, createRealGitRunner, createTerminalDriver } from "../lib/index.ts";
-import type { GhClient, CommandResult, CommandOptions, SpryContext } from "../lib/index.ts";
-import { landCommand } from "../../src/commands/land.ts";
+import {
+  docTest,
+  createRunner,
+  createRepo,
+  createTerminalDriver,
+  cassetteEnv,
+  isRecording,
+} from "../lib/index.ts";
+import type { TestRepo } from "../lib/index.ts";
+import { createGitHubFixture } from "../lib/github-fixture.ts";
 
+const cliPath = join(import.meta.dir, "../../src/cli/index.ts");
 const harnessPath = join(import.meta.dir, "../fixtures/land-tui-harness.ts");
+const runSp = createRunner(cliPath);
 
 const repos: Array<{ cleanup(): Promise<void> }> = [];
 
@@ -14,141 +23,136 @@ afterAll(async () => {
   }
 });
 
-/**
- * Build a 2-unit stack on `feature/x`, publishing each unit's spry branch to the
- * origin so the land flow sees them as existing.
- */
-async function publish2UnitStack(repo: { path: string }): Promise<void> {
-  const git = createRealGitRunner();
-  await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
-  await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
-  await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
+function repoSlug(): string {
+  return `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`;
+}
 
-  await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+/**
+ * Build a 2-unit stack on `feature/x` and publish both spry branches to the
+ * origin. In record mode, open a PR for each unit (bbb deliberately mis-based on
+ * `main`, like sync order 50, so land's internal sync has a PR to retarget onto
+ * the stacked base) and wait for CI to pass — land's readiness gate refuses PRs
+ * with pending checks. The same deterministic commits run both ways.
+ */
+async function setupLandStack(repo: TestRepo, recording: boolean): Promise<void> {
+  await repo.git.run(["config", "spry.trunk", "main"]);
+  await repo.git.run(["config", "spry.remote", "origin"]);
+  await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
+  // gh needs explicit owner/repo for its GraphQL query; in replay the origin is
+  // a local bare repo, so pin the slug to whatever the cassette was recorded
+  // against (defaults to the maintainer's spry-check).
+  await repo.git.run(["config", "spry.repo", repoSlug()]);
+
+  await repo.git.run(["checkout", "-b", "feature/x"]);
   for (const [subject, id] of [
     ["Add login", "aaa11111"],
     ["Add logout", "bbb22222"],
   ] as const) {
-    await git.run(["commit", "--allow-empty", "-m", `${subject}\n\nSpry-Commit-Id: ${id}`], {
-      cwd: repo.path,
-    });
-    const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
-    await git.run(["push", "origin", `${head}:refs/heads/spry/dondenton/${id}`], {
-      cwd: repo.path,
-    });
+    await repo.git.run(["commit", "--allow-empty", "-m", `${subject}\n\nSpry-Commit-Id: ${id}`]);
+    const head = (await repo.git.run(["rev-parse", "HEAD"])).stdout.trim();
+    await repo.git.run(["push", "origin", `${head}:refs/heads/spry/dondenton/${id}`]);
+  }
+
+  if (recording) {
+    const { $ } = await import("bun");
+    await $`gh pr create --title ${"Add login"} --head spry/dondenton/aaa11111 --base main --body ${"Login"}`
+      .cwd(repo.path)
+      .quiet();
+    await $`gh pr create --title ${"Add logout"} --head spry/dondenton/bbb22222 --base main --body ${"Logout"}`
+      .cwd(repo.path)
+      .quiet();
+    await waitForChecks(repo.path, "spry/dondenton/aaa11111");
+    await waitForChecks(repo.path, "spry/dondenton/bbb22222");
   }
 }
 
-/** gh stub: each branch has an OPEN PR based on main, no checks/threads; `pr edit` succeeds. */
-function landGhStub(prByBranch: Record<string, number>): GhClient {
-  return {
-    async run(args: string[], _opts?: CommandOptions): Promise<CommandResult> {
-      if (args[0] === "pr" && args[1] === "edit") {
-        return { stdout: "", stderr: "", exitCode: 0 };
-      }
-      if (args[0] === "api" && args[1] === "graphql") {
-        const branchArg = args.find((a) => a.startsWith("branch="));
-        const branch = branchArg?.slice("branch=".length) ?? "";
-        const number = prByBranch[branch];
-        if (number === undefined) {
-          return {
-            stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: [] } } } }),
-            stderr: "",
-            exitCode: 0,
-          };
-        }
-        return {
-          stdout: JSON.stringify({
-            data: {
-              repository: {
-                pullRequests: {
-                  nodes: [
-                    {
-                      number,
-                      url: `https://github.com/owner/repo/pull/${number}`,
-                      state: "OPEN",
-                      title: branch,
-                      baseRefName: "main",
-                      reviewDecision: null,
-                      reviewThreads: { totalCount: 0, nodes: [] },
-                      commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
-                    },
-                  ],
-                },
-              },
-            },
-          }),
-          stderr: "",
-          exitCode: 0,
-        };
-      }
-      return { stdout: "", stderr: `unexpected: ${args.join(" ")}`, exitCode: 1 };
-    },
-  };
+/**
+ * Record-mode only: poll until every check on the PR for `branch` has completed
+ * successfully. `gh pr checks` exits 0 once all pass, non-zero while pending (or
+ * before the workflow registers), so we loop until success or timeout.
+ */
+async function waitForChecks(cwd: string, branch: string, timeoutMs = 240000): Promise<void> {
+  const { $ } = await import("bun");
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const res = await $`gh pr checks ${branch}`.cwd(cwd).nothrow().quiet();
+    if (res.exitCode === 0) return;
+    await Bun.sleep(5000);
+  }
+  throw new Error(`CI checks did not pass for ${branch} within ${timeoutMs}ms`);
 }
 
 describe("sp land docs", () => {
-  docTest("Landing through a commit", { section: "commands/land", order: 10 }, async (doc) => {
-    const repo = await createRepo();
-    repos.push(repo);
-    doc.scrub(repo);
-    const git = createRealGitRunner();
-    await publish2UnitStack(repo);
+  docTest(
+    "Landing through a commit",
+    { section: "commands/land", order: 10, timeout: 300000 },
+    async (doc) => {
+      // Record mode publishes two real stacked PRs on spry-check and captures
+      // land's full gh traffic (the embedded sync's retarget + land's own
+      // retarget-to-trunk); replay serves it offline. Same body both ways — only
+      // the git origin and the gh seam env differ.
+      const recording = isRecording();
+      const fixture = recording ? await createGitHubFixture() : undefined;
+      if (fixture) await fixture.reset();
 
-    const tip = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+      const repo = await createRepo({ origin: recording ? "github" : "local" });
+      repos.push(repo);
+      doc.scrub(repo);
+      doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
 
-    doc.prose(
-      "`sp land --through <id>` lands the stack from the bottom **through** the unit identified by `<id>` (a group ID, unit-ID prefix, or commit-hash prefix). Spry retargets every in-scope PR onto trunk and then fast-forwards trunk to that unit's tip — it never uses the GitHub merge API. Retargeting first is what makes GitHub mark each PR `MERGED` rather than `CLOSED`. `sp land` never deletes branches (that is `sp clean`'s job):",
-    );
+      await setupLandStack(repo, recording);
+      const tip = (await repo.git.run(["rev-parse", "HEAD"])).stdout.trim();
 
-    const gh = landGhStub({
-      "spry/dondenton/aaa11111": 1,
-      "spry/dondenton/bbb22222": 2,
-    });
-    const ctx: SpryContext = {
-      git: { run: (a, opts) => git.run(a, { ...opts, cwd: opts?.cwd ?? repo.path }) },
-      gh,
-    };
+      doc.prose(
+        "`sp land --through <id>` lands the stack from the bottom **through** the unit identified by `<id>` (a group ID, unit-ID prefix, or commit-hash prefix). Spry retargets every in-scope PR onto trunk and then fast-forwards trunk to that unit's tip — it never uses the GitHub merge API. Retargeting first is what makes GitHub mark each PR `MERGED` rather than `CLOSED`. `sp land` never deletes branches (that is `sp clean`'s job):",
+      );
 
-    const lines: string[] = [];
-    const origLog = console.log;
-    console.log = (...args: unknown[]) => lines.push(args.map(String).join(" "));
-    try {
-      await landCommand(ctx, { cwd: repo.path, through: "bbb22222" });
-    } finally {
-      console.log = origLog;
-    }
+      // PR numbers are GitHub-minted (non-deterministic); canonicalize the one
+      // shown so the generated doc stays stable across re-recordings.
+      doc.scrub(/retargeted PR #\d+/g, "retargeted PR #11");
 
-    doc.command("sp land --through bbb22222");
-    doc.output(lines.join("\n") + "\n");
+      const { command, result } = await runSp(repo.path, "land", ["--through", "bbb22222"], {
+        env: cassetteEnv({ section: "commands/land", order: 10 }),
+      });
+      doc.command(command);
+      doc.output(result.stdout);
 
-    const { expect } = await import("bun:test");
-    expect(lines.join("\n")).toContain("Landed");
-    const originMain = (
-      await git.run(["rev-parse", "origin/main"], { cwd: repo.path })
-    ).stdout.trim();
-    expect(originMain).toBe(tip);
-  });
+      if (fixture) await fixture.reset();
+
+      const { expect } = await import("bun:test");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Landed");
+      const originMain = (await repo.git.run(["rev-parse", "origin/main"])).stdout.trim();
+      expect(originMain).toBe(tip);
+    },
+  );
 
   docTest(
     "Picking the land point interactively",
-    { section: "commands/land", order: 20, timeout: 40000 },
+    { section: "commands/land", order: 20, timeout: 300000 },
     async (doc) => {
-      const repo = await createRepo();
+      const recording = isRecording();
+      const fixture = recording ? await createGitHubFixture() : undefined;
+      if (fixture) await fixture.reset();
+
+      const repo = await createRepo({ origin: recording ? "github" : "local" });
       repos.push(repo);
       doc.scrub(repo);
-      const git = createRealGitRunner();
-      await publish2UnitStack(repo);
+      doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
+
+      await setupLandStack(repo, recording);
 
       doc.prose(
         "Run `sp land` with no arguments to choose the land point interactively. Spry shows a single-select menu of the stack's units (bottom→top) — use ↑/↓ to move, Enter to select. The chosen unit becomes the `--through` target:",
       );
       doc.command("sp land");
 
-      // Spawn the harness in a real PTY — the TUI runs for real, gh is stubbed in-process.
+      // Spawn the harness in a real PTY. The gh seam (cassetteEnv) records/replays
+      // the land traffic; the TUI picker runs for real.
       const driver = await createTerminalDriver("bun", [harnessPath, repo.path], {
         cols: 80,
         rows: 24,
+        env: cassetteEnv({ section: "commands/land", order: 20 }),
       });
       repos.push({ cleanup: () => driver.close() });
 
@@ -162,7 +166,9 @@ describe("sp land docs", () => {
       driver.press("Enter");
 
       // Wait for the land to complete.
-      await driver.waitForText("Landed", { timeout: 15000 });
+      await driver.waitForText("Landed", { timeout: 20000 });
+
+      if (fixture) await fixture.reset();
 
       const { expect } = await import("bun:test");
       const snap = driver.capture();
