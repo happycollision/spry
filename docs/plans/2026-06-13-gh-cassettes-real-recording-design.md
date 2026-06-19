@@ -110,11 +110,19 @@ Result: a given doc-test scenario produces byte-identical SHAs and branch names 
 The identifiers embedded in a recorded gh response still match what live local git produces during
 replay — zero scrubbing of git-side identifiers.
 
-**Known wrinkle (flagged, not solved here):** GitHub-minted, non-identity values — PR numbers, PR
-URLs, and especially _merge commit SHAs_ from `sp land` — are captured raw. For `land`, the
-post-merge local state on the bare origin will not automatically mirror GitHub's merge; that is a
-per-command setup detail handled when `land` is migrated (`land` is migrated last). Sync/view/open
-flows have no such wrinkle.
+**Known wrinkle (flagged, not solved here):** GitHub-minted, non-identity values — PR numbers and PR
+URLs — are captured raw and canonicalized in doc output via `doc.scrub`. All flows (sync/view/open
+and `land`) need this for PR numbers/URLs.
+
+> **Correction (2026-06-18):** an earlier version of this note also warned about "merge commit SHAs
+> from `sp land`" and "post-merge local state that won't mirror GitHub's merge." That was based on
+> `main`'s old `land`, which merged through the GitHub API. **The implemented `land` on this branch
+> does not merge via GitHub** — it fast-forward-pushes the stack's own local tip to trunk
+> (`src/commands/land.ts:147-154`; `src/gh/index.ts` exports no merge function). The landed SHA is
+> therefore deterministic (identity-pinned), there is no GitHub-minted merge commit, and nothing
+> needs to reconcile a "post-merge" local ref. `land` has **no** merge-SHA wrinkle. See todo #20 for
+> the actual (mild) migration concern: repeated same-branch PR queries with a changing
+> `baseRefName`, served in order by the args-keyed replayer.
 
 ### The seam (`src/cli/index.ts`)
 
@@ -227,7 +235,9 @@ real-CLI coverage _and_ real (recorded) gh output. In record mode the same body 
 4. **Migrate one fragment end-to-end** — `sp sync --open` "Opening a new PR": record against
    `spry-check`, commit the tape, confirm the docker suite replays it offline and generated docs are
    correct.
-5. **Migrate the rest** — remaining sync fragments, then `land` last (merge-SHA wrinkle).
+5. **Migrate the rest** — remaining sync fragments, then `land` last. (`land` has no merge-SHA
+   wrinkle — it ff-pushes the local tip, see the Correction above; its only concern is repeated
+   same-branch queries with a changing `baseRefName`.)
 6. **Mark todo #18 done** when real recordings replay in the offline suite.
 
 Gating: record-mode tests sit behind `SPRY_RECORD` + the existing `GITHUB_INTEGRATION_TESTS`-style
@@ -237,8 +247,9 @@ gate, so default/CI runs never need auth or network.
 
 ## Risks & open questions
 
-- **Merge-commit SHA non-determinism in `sp land`.** Handled per-command at migration time; `land`
-  is migrated last.
+- ~~**Merge-commit SHA non-determinism in `sp land`.**~~ Not a risk: `land` does not merge via
+  GitHub, it ff-pushes the stack's own (deterministic) local tip to trunk. See the Correction note
+  above and todo #20.
 - **PR-number churn on re-record.** Accepted under option 2; revisit with normalize-on-record if
   snapshot churn becomes painful.
 - **gh JSON shape drift.** Because cassettes are recorded from real gh, a GitHub API shape change
