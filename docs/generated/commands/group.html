@@ -30,8 +30,8 @@
     </p>
     <pre class="screen">Stack: feature/auth (3 commits)
 
-   1  2d7f4a1  Add login form                           [A: Auth Flow]
-<span style="color:#0AA">&#x25B6;</span>  2  e5b0c3d  Add session handling                     [A]
+   1  e5b0c3d  Add login form                           [A: Auth Flow]
+<span style="color:#0AA">&#x25B6;</span>  2  a1f4b8e  Add session handling                     [A]
    3  b47e1d0  Fix typo in README
 
 &#x2191;&#x2193; cursor  &#x2190;&#x2192; group  Space grab  r rename  Enter save  q quit</pre>
@@ -41,7 +41,7 @@
     </p>
     <pre class="screen">Stack: feature/auth (2 commits)
 
-   1  e5b0c3d  Add login form                           [A: Auth&#x258C;]
+   1  a1f4b8e  Add login form                           [A: Auth&#x258C;]
 <span style="color:#0AA">&#x25B6;</span>  2  b47e1d0  Add session handling                     [A]
 
 <span style="color:#0AA">RENAME MODE</span> &#x2014; Type title  Enter confirm  Esc cancel</pre>
@@ -51,10 +51,19 @@
     </p>
     <pre class="screen">Stack: feature/auth (2 commits)
 
-<span style="color:#A50">&#x25CF;  1  e5b0c3d</span><span style="color:#A50">  Add session handling                    </span>
-   2  66847db  Add login form
+<span style="color:#A50">&#x25CF;  1  2d7f4a1</span><span style="color:#A50">  Add session handling                    </span>
+   2  6f22be6  Add login form
 
 <span style="color:#0AA">MOVE MODE</span> &#x2014; &#x2191;&#x2193; reorder  Space/Enter drop  Esc cancel</pre>
+    <p>
+      When you group commits and one of them already has an open PR, `sp group` adopts that PR for
+      the new group instead of stranding it. Spry looks up each commit's branch on GitHub before the
+      editor opens, then re-keys the new group's record to the PR's commit on save:
+    </p>
+    <pre class="output">
+↻ adopted PR for group (unit bbbb2222)
+✓ Groups updated (1 group)</pre
+    >
     <p>
       While reordering, Spry predicts rebase conflicts in the background. Rows marked with ⚠ are
       likely to conflict if dropped in their current position.
@@ -62,7 +71,7 @@
     <pre class="screen">Stack: feature/config (2 commits)
 
 <span style="color:#A50">&#x25CF;  1  3f8a2c9</span><span style="color:#A50">  Set version to 2                         <span style="color:#A00">&#x26A0;</span></span>
-   2  a1f4b8e  Set version to 1                         <span style="color:#A00">&#x26A0;</span>
+   2  7c3d9e2  Set version to 1                         <span style="color:#A00">&#x26A0;</span>
 
 <span style="color:#0AA">MOVE MODE</span> &#x2014; &#x2191;&#x2193; reorder  Space/Enter drop  Esc cancel
 <span style="color:#A00">&#x26A0; Moving this commit may cause a conflict</span></pre>
