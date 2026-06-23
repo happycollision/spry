@@ -110,27 +110,34 @@ export function docTest(
         const allSpryIds = new Set<string>();
 
         for (const repo of scrubRepos) {
+          // `--all --reflog` walks every ref AND every reflog entry, following
+          // each back through its ancestors. This matters when a doc test
+          // captures a screen showing pre-rewrite hashes (e.g. the MOVE-MODE
+          // preview in `sp group`) and then saves, which rewrites the stack with
+          // fresh commits and orphans the displayed ones. Such a commit is gone
+          // from `log --all` (no ref reaches it) and is not itself a `git reflog`
+          // entry (it was an interior commit, never a ref tip) — but it is still
+          // an ancestor of the old ref tip, which the reflog kept. Walking the
+          // reflog's history therefore recovers it, so its hash gets scrubbed
+          // instead of leaking raw into the docs.
           const results = await Promise.allSettled([
-            $`git -C ${repo.path} log --all --format=%H`.quiet().text(),
-            $`git -C ${repo.path} reflog --format=%H`.quiet().nothrow().text(),
-            $`git -C ${repo.path} log --all --format=%B`.quiet().text(),
-            $`git -C ${repo.path} reflog --format=%B`.quiet().nothrow().text(),
-            $`git --git-dir=${repo.originPath} log --all --format=%H`.quiet().nothrow().text(),
-            $`git --git-dir=${repo.originPath} log --all --format=%B`.quiet().nothrow().text(),
-            $`git --git-dir=${repo.originPath} reflog --format=%H`.quiet().nothrow().text(),
-            $`git --git-dir=${repo.originPath} reflog --format=%B`.quiet().nothrow().text(),
+            $`git -C ${repo.path} log --all --reflog --format=%H`.quiet().nothrow().text(),
+            $`git -C ${repo.path} log --all --reflog --format=%B`.quiet().nothrow().text(),
+            $`git --git-dir=${repo.originPath} log --all --reflog --format=%H`
+              .quiet()
+              .nothrow()
+              .text(),
+            $`git --git-dir=${repo.originPath} log --all --reflog --format=%B`
+              .quiet()
+              .nothrow()
+              .text(),
           ]);
 
           const texts = results.map((r) => (r.status === "fulfilled" ? r.value : ""));
-          const logShas = texts[0] ?? "";
-          const reflogShas = texts[1] ?? "";
-          const originLogShas = texts[4] ?? "";
-          const originReflogShas = texts[6] ?? "";
-          const bodies = [texts[2], texts[3], texts[5], texts[7]].join("\n");
+          const shaText = [texts[0], texts[2]].join("\n");
+          const bodies = [texts[1], texts[3]].join("\n");
 
-          for (const line of [logShas, reflogShas, originLogShas, originReflogShas]
-            .join("\n")
-            .split("\n")) {
+          for (const line of shaText.split("\n")) {
             const sha = line.trim();
             if (/^[0-9a-f]{40}$/.test(sha)) allShas.add(sha);
           }
