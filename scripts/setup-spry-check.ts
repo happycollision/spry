@@ -208,8 +208,9 @@ async function main() {
 
   console.log(`\nSetup complete!`);
   console.log(`Repository: https://github.com/${fullRepoName}`);
-  console.log(`\nYou can now run GitHub integration tests with:`);
-  console.log(`  GITHUB_INTEGRATION_TESTS=1 bun test tests/integration/`);
+  console.log(`\nYou can now re-record gh cassettes against this repo with:`);
+  console.log(`  SPRY_RECORD=1 bun test tests/commands/<cmd>.doc.test.ts -t "<fragment>"`);
+  console.log(`  (see tests/fixtures/cassettes/README.md for the HTTPS git-config note)`);
   console.log(`\nEnvironment variables:`);
   console.log(`  SPRY_TEST_REPO_NAME   - Repository name (default: spry-check)`);
   console.log(`  SPRY_TEST_REPO_OWNER  - Repository owner (default: authenticated user)`);

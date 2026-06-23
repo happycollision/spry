@@ -47,8 +47,8 @@ cd spry
 # Install dependencies
 bun install
 
-# Build the CLI
-bun run build
+# Compile the CLI to a standalone binary
+bun build src/cli/index.ts --compile --outfile dist/sp
 ```
 
 This creates `./dist/sp` as a compiled executable. Move it where you like and add it to your PATH or create an alias.
@@ -57,8 +57,11 @@ On Linux or macOS, it would be something like this:
 
 ```bash
 # Add to your ~/.bashrc, ~/.zshrc, or similar
-alias sp='/path/to/spry/dir'
+alias sp='/path/to/spry/dist/sp'
 ```
+
+(For development you can skip compiling and run from source via the `scripts/sp`
+wrapper, which execs `bun src/cli/index.ts`.)
 
 If you are developing, perhaps you want to point to this dist folder in your current terminal session. Copy/pasting the line below should do it.
 
@@ -488,57 +491,46 @@ cp docker/.env.example docker/.env
 
 ```bash
 # Dev shells
-bun run docker:shell           # Shell with git 2.40
-bun run docker:shell:2.38      # Shell with git 2.38
+bun run docker:shell           # Shell with git 2.40 (min supported)
+bun run docker:shell:2.38      # Shell with git 2.38 (unsupported, for manual repro)
 
-# Run tests in Docker
-bun run test:local:docker      # Integration tests (local only)
-bun run test:github:docker     # Integration tests + GitHub API
-bun run test:ci:docker         # Integration tests + GitHub API + CI
-bun run test:unsupported:docker # Version tests with git 2.38
-bun run test:docker            # All tests (unit + unsupported version check)
+# Run the test suite in Docker
+bun run test:docker                              # full suite
+bun run test:docker -- tests/commands/sync.doc.test.ts   # a subset
 ```
 
-The container automatically installs dependencies on first run.
-
-### Scenario Runner
-
-The scenario runner spins up temporary git repos with pre-configured states for manual testing. It spawns a shell with `sp` already in your PATH, then cleans up on exit.
-
-```bash
-# Interactive menu to select a scenario
-bun run scenario
-
-# Run a specific scenario by name
-bun run scenario multi-commit-stack
-```
-
-This works both locally and inside the Docker shell, making it easy to test `sp` commands against various repo states with any Git version.
+The container automatically installs dependencies on first run. The suite is
+offline: doc tests replay committed gh cassettes (`tests/fixtures/cassettes/`),
+so no GitHub auth is needed for a normal run.
 
 ### Project Structure
 
 ```
 src/
-├── cli/           # Command-line interface
-│   ├── index.ts   # CLI entry point
-│   └── commands/  # Command implementations
-├── core/          # Core logic (stack parsing, ID generation)
-├── git/           # Git operations (commands, trailers, rebase)
-├── github/        # GitHub integration (API, branches, PRs)
-├── tui/           # Terminal UI components
-├── types.ts       # TypeScript types
-└── utils/         # Utilities
+├── cli/      # CLI entry point (index.ts) — wires up commands
+├── commands/ # Command implementations (sync, land, view, group, rebase)
+├── parse/    # Stack parsing — commit ids, trailers, titles
+├── git/      # Git operations (branch, config, rebase, conflict, behind)
+├── gh/       # GitHub integration (PRs, PR cache, enrich, errors)
+├── tui/      # Terminal UI components (group editor, select, confirm)
+├── ui/       # Output formatting
+└── lib/      # Shared runtime — context, subprocess runner, gh cassette seam
 ```
 
-### Running GitHub Integration Tests
+### Re-recording gh cassettes
+
+GitHub behavior is tested by replaying committed recordings, so most work needs
+no GitHub at all. To re-record a cassette against the live `spry-check` repo:
 
 ```bash
-# Setup test repository (one-time)
-bun run test:github:setup
+# Set up the test repository (one-time; needs gh auth)
+bun run scripts/setup-spry-check.ts
 
-# Run integration tests
-GITHUB_INTEGRATION_TESTS=1 bun test tests/integration/
+# Re-record one fragment (mutates spry-check, then cleans up after itself)
+SPRY_RECORD=1 bun test tests/commands/sync.doc.test.ts -t "Opening a new PR"
 ```
+
+See `tests/fixtures/cassettes/README.md` for the HTTPS git-config requirement.
 
 ## License
 

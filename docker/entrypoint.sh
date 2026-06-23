@@ -15,11 +15,8 @@ if [ ! -d "node_modules" ]; then
     bun install
 fi
 
-# Build sp if not present
-if [ ! -f "dist/sp" ]; then
-    echo "Building sp..."
-    bun run build
-fi
+# Note: tests and the `sp` wrapper (scripts/sp) run straight from src/cli/index.ts
+# via `bun run`, so there is no compiled binary to build here.
 
 # Run the command (default: bash)
 exec "$@"

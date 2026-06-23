@@ -32,7 +32,13 @@ Default to using Bun instead of Node.js.
 
 Use `bun test` to run tests ONLY after you have checked the version of Git that is installed. If it is less than 2.40, use the `<command>:docker` alias for all `bun run` commands that have a docker alias. (See package.json).
 
-If you change code that needs github integration, run the integration tests via either `test:github` (skips CI dependent tests for speed) or `test:ci` (runs all github tests).
+GitHub integration is tested via **gh cassettes**: doc tests run the real `sp`
+binary while replaying committed recordings in `tests/fixtures/cassettes/`, so the
+default suite is offline and needs no auth. If you change code on the real-`gh`
+path and need to re-validate it against GitHub, re-record the relevant cassette
+with `SPRY_RECORD=1` (real-record mode is the validation — see
+`tests/fixtures/cassettes/README.md`). Recording needs `gh` auth and an HTTPS git
+config. (The lone live-network unit test is gated behind `GITHUB_INTEGRATION_TESTS=1`.)
 
 Every user-facing command or UI output must have doc-producing tests in a `tests/commands/<command>.doc.test.ts` file using the `docTest` helper from `tests/lib/index.ts`. Doc tests are the source of truth for generated documentation in `docs/generated/`. See `tests/commands/sync.doc.test.ts` or `tests/commands/view.doc.test.ts` for the pattern.
 

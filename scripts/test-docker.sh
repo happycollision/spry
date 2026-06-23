@@ -4,7 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
-# Source docker/.env if it exists (for GH_TOKEN)
+# Source docker/.env if it exists (for GH_TOKEN, used when recording cassettes)
 if [ -f "$PROJECT_DIR/docker/.env" ]; then
     set -a
     source "$PROJECT_DIR/docker/.env"
@@ -14,26 +14,23 @@ fi
 usage() {
     echo "Usage: $0 <command> [options]"
     echo ""
-    echo "Run tests or develop in Docker with specific git versions."
+    echo "Run the test suite in Docker against a supported git version."
+    echo "The local git here is too old to run tests directly, so this is the"
+    echo "canonical way to run them."
+    echo ""
+    echo "The suite is offline by default: doc tests replay committed gh cassettes"
+    echo "(tests/fixtures/cassettes). To RE-RECORD a cassette against real GitHub,"
+    echo "run bun directly with SPRY_RECORD=1 — see tests/fixtures/cassettes/README.md."
     echo ""
     echo "Commands:"
-    echo "  shell [2.40|2.38]    Start interactive shell (default: 2.40)"
-    echo "  test [2.40|2.38] [files...]  Run all unit tests (default: 2.40), or specific files/globs"
-    echo "  test-all             Run both test suites (2.40 full, 2.38 version only)"
-    echo "  test-local           Run integration tests (local only, no GitHub)"
-    echo "  test-github          Run integration tests with GitHub API"
-    echo "  test-ci              Run integration tests with GitHub API + CI"
-    echo "  test-unsupported     Run version tests with git 2.38 (unsupported)"
+    echo "  shell [2.40|2.38]    Start an interactive shell (default git 2.40)"
+    echo "  test [files...]      Run the full suite (git 2.40), or specific files/globs"
     echo ""
     echo "Examples:"
-    echo "  $0 shell             # Dev shell with git 2.40"
-    echo "  $0 shell 2.38        # Dev shell with git 2.38"
-    echo "  $0 test              # Run all unit tests with git 2.40"
-    echo "  $0 test-local        # Run local integration tests"
-    echo "  $0 test-github       # Run GitHub integration tests"
-    echo "  $0 test-ci           # Run full integration tests (GitHub + CI)"
-    echo "  $0 test-unsupported  # Run version tests with git 2.38"
-    echo "  $0 test-all          # Run both CI test suites"
+    echo "  $0 test                              # full suite"
+    echo "  $0 test tests/commands/sync.doc.test.ts   # one file"
+    echo "  $0 shell                             # dev shell, git 2.40"
+    echo "  $0 shell 2.38                        # dev shell, git 2.38 (unsupported, for manual repro)"
 }
 
 get_service() {
@@ -58,65 +55,12 @@ run_docker_test() {
 }
 
 test_cmd() {
-    local version="2.40"
-    local extra_args=""
-
-    # If first arg looks like a version number, consume it; otherwise treat all args as bun test args
-    if [ "${1:-}" = "2.40" ] || [ "${1:-}" = "2.38" ]; then
-        version="$1"
-        shift
-    fi
-    extra_args="$*"
-
-    local service=$(get_service "$version")
+    local extra_args="$*"
     local test_cmd="bun test"
-
-    # Only run version tests for old git
-    if [ "$version" = "2.38" ]; then
-        test_cmd="bun test tests/git-version.test.ts"
-    elif [ -n "$extra_args" ]; then
+    if [ -n "$extra_args" ]; then
         test_cmd="bun test $extra_args"
     fi
-
-    run_docker_test "$service" "$test_cmd"
-}
-
-test_local_cmd() {
-    run_docker_test "dev" "bun test tests/integration/"
-}
-
-test_github_cmd() {
-    # Use --max-concurrency=1 to prevent test files from running in parallel
-    # since they all share the same GitHub test repo (happycollision/spry-check)
-    run_docker_test "dev" "GITHUB_INTEGRATION_TESTS=1 bun test tests/integration/ --max-concurrency=1"
-}
-
-test_ci_cmd() {
-    # Use --max-concurrency=1 to prevent test files from running in parallel
-    # since they all share the same GitHub test repo (happycollision/spry-check)
-    run_docker_test "dev" "GITHUB_INTEGRATION_TESTS=1 GITHUB_CI_TESTS=1 bun test tests/integration/ --max-concurrency=1"
-}
-
-test_unsupported_cmd() {
-    run_docker_test "dev-old-git" "bun test tests/git-version.test.ts"
-}
-
-test_all_cmd() {
-    echo "=========================================="
-    echo "Running all tests with git 2.40.0"
-    echo "=========================================="
-    test_cmd 2.40
-
-    echo ""
-    echo "=========================================="
-    echo "Running version tests with git 2.38.5"
-    echo "=========================================="
-    test_unsupported_cmd
-
-    echo ""
-    echo "=========================================="
-    echo "All tests passed!"
-    echo "=========================================="
+    run_docker_test "dev" "$test_cmd"
 }
 
 case "${1:-help}" in
@@ -126,21 +70,6 @@ case "${1:-help}" in
     test)
         shift
         test_cmd "$@"
-        ;;
-    test-local)
-        test_local_cmd
-        ;;
-    test-github)
-        test_github_cmd
-        ;;
-    test-ci)
-        test_ci_cmd
-        ;;
-    test-unsupported)
-        test_unsupported_cmd
-        ;;
-    test-all)
-        test_all_cmd
         ;;
     -h|--help|help)
         usage
