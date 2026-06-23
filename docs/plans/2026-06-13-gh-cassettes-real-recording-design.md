@@ -240,8 +240,9 @@ real-CLI coverage _and_ real (recorded) gh output. In record mode the same body 
    same-branch queries with a changing `baseRefName`.)
 6. **Mark todo #18 done** when real recordings replay in the offline suite.
 
-Gating: record-mode tests sit behind `SPRY_RECORD` + the existing `GITHUB_INTEGRATION_TESTS`-style
-gate, so default/CI runs never need auth or network.
+Gating: record-mode tests sit behind `SPRY_RECORD`, so default/CI runs never need auth
+or network. (As of 2026-06-22 the live fixture test shares this same `SPRY_RECORD` gate
+rather than a separate `GITHUB_INTEGRATION_TESTS` knob.)
 
 ---
 

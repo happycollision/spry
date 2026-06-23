@@ -325,11 +325,13 @@ git commit -m "feat(cli): env-guarded gh cassette record/replay seam"
 **Files:**
 
 - Create: `tests/lib/github-fixture.ts`
-- Test: `tests/lib/github-fixture.test.ts` (gated; skips unless `GITHUB_INTEGRATION_TESTS`)
+- Test: `tests/lib/github-fixture.test.ts` (gated; skips unless `SPRY_RECORD` — see note below)
 
 Port from `main`'s `tests/helpers/github-fixture.ts`, restyled to this branch: `createGitHubFixture()` resolving `SPRY_TEST_REPO_OWNER`/`SPRY_TEST_REPO_NAME` (default `spry-check`), `verifyTestRepo()` (README must contain `<!-- spry-test-repo:v1 -->` — reuse the marker from `scripts/setup-spry-check.ts`), `reset()` (closeAllPRs + deleteAllBranches), and `mergePR()`. Use `$` from bun (matches `setup-spry-check.ts` style). **Every destructive method calls `verifyTestRepo()` first and hard-fails if the marker is absent.**
 
-Gate the test: `const SKIP = !process.env.GITHUB_INTEGRATION_TESTS; test.skipIf(SKIP)(...)`. Assert `verifyTestRepo` passes against the real `spry-check` and that `reset()` leaves zero open PRs / only `main`.
+Gate the test: `const SKIP = !process.env.SPRY_RECORD; test.skipIf(SKIP)(...)`. Assert `verifyTestRepo` passes against the real `spry-check` and that `reset()` leaves zero open PRs / only `main`.
+
+> **Update (2026-06-22):** the gate was consolidated from `GITHUB_INTEGRATION_TESTS` onto `SPRY_RECORD`, so this fixture test runs alongside cassette recording (the one moment we're already online with gh auth) and verifies the reset machinery recording depends on.
 
 **Commit:**
 

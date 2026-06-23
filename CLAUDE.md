@@ -38,7 +38,9 @@ default suite is offline and needs no auth. If you change code on the real-`gh`
 path and need to re-validate it against GitHub, re-record the relevant cassette
 with `SPRY_RECORD=1` (real-record mode is the validation — see
 `tests/fixtures/cassettes/README.md`). Recording needs `gh` auth and an HTTPS git
-config. (The lone live-network unit test is gated behind `GITHUB_INTEGRATION_TESTS=1`.)
+config. (The lone live-network unit test shares the `SPRY_RECORD` gate, so it
+runs alongside cassette recording and verifies the fixture reset machinery that
+recording depends on.)
 
 Every user-facing command or UI output must have doc-producing tests in a `tests/commands/<command>.doc.test.ts` file using the `docTest` helper from `tests/lib/index.ts`. Doc tests are the source of truth for generated documentation in `docs/generated/`. See `tests/commands/sync.doc.test.ts` or `tests/commands/view.doc.test.ts` for the pattern.
 

@@ -38,7 +38,9 @@ export interface GitHubFixture {
  * that is not a dedicated spry test repo.
  */
 async function verifyTestRepo(owner: string, repo: string): Promise<boolean> {
-  const result = await $`gh api repos/${owner}/${repo}/contents/README.md --jq .content`.nothrow();
+  const result = await $`gh api repos/${owner}/${repo}/contents/README.md --jq .content`
+    .quiet()
+    .nothrow();
 
   if (result.exitCode !== 0) {
     return false;
@@ -69,7 +71,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
   if (process.env.SPRY_TEST_REPO_OWNER) {
     owner = process.env.SPRY_TEST_REPO_OWNER;
   } else {
-    const ownerResult = await $`gh api user --jq .login`.nothrow();
+    const ownerResult = await $`gh api user --jq .login`.quiet().nothrow();
     if (ownerResult.exitCode !== 0) {
       throw new Error(
         "Failed to get GitHub username. Ensure gh CLI is authenticated.\nRun: gh auth login",
@@ -83,7 +85,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
   const repoUrl = `https://github.com/${fullRepoName}`;
 
   // Verify the repo exists.
-  const repoCheck = await $`gh repo view ${fullRepoName} --json name`.nothrow();
+  const repoCheck = await $`gh repo view ${fullRepoName} --json name`.quiet().nothrow();
   if (repoCheck.exitCode !== 0) {
     throw new Error(`Test repository ${fullRepoName} not found.\n${SETUP_HINT}`);
   }
@@ -102,7 +104,9 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     await assertSafeToMutate(owner, repo);
 
     const listResult =
-      await $`gh pr list --repo ${owner}/${repo} --state open --json number --jq '.[].number'`.nothrow();
+      await $`gh pr list --repo ${owner}/${repo} --state open --json number --jq '.[].number'`
+        .quiet()
+        .nothrow();
 
     if (listResult.exitCode !== 0 || !listResult.stdout.toString().trim()) {
       return 0;
@@ -116,8 +120,9 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     let closed = 0;
 
     for (const prNumber of prNumbers) {
-      const closeResult =
-        await $`gh pr close ${prNumber} --repo ${owner}/${repo} --delete-branch`.nothrow();
+      const closeResult = await $`gh pr close ${prNumber} --repo ${owner}/${repo} --delete-branch`
+        .quiet()
+        .nothrow();
       if (closeResult.exitCode === 0) {
         closed++;
       }
@@ -131,11 +136,15 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
 
     // Determine the default branch so we never delete it.
     const defaultResult =
-      await $`gh repo view ${owner}/${repo} --json defaultBranchRef --jq .defaultBranchRef.name`.nothrow();
+      await $`gh repo view ${owner}/${repo} --json defaultBranchRef --jq .defaultBranchRef.name`
+        .quiet()
+        .nothrow();
     const defaultBranch =
       defaultResult.exitCode === 0 ? defaultResult.stdout.toString().trim() || "main" : "main";
 
-    const listResult = await $`gh api repos/${owner}/${repo}/branches --jq '.[].name'`.nothrow();
+    const listResult = await $`gh api repos/${owner}/${repo}/branches --jq '.[].name'`
+      .quiet()
+      .nothrow();
 
     if (listResult.exitCode !== 0 || !listResult.stdout.toString().trim()) {
       return 0;
@@ -150,8 +159,9 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     let deleted = 0;
 
     for (const branch of branches) {
-      const deleteResult =
-        await $`gh api -X DELETE repos/${owner}/${repo}/git/refs/heads/${branch}`.nothrow();
+      const deleteResult = await $`gh api -X DELETE repos/${owner}/${repo}/git/refs/heads/${branch}`
+        .quiet()
+        .nothrow();
       if (deleteResult.exitCode === 0) {
         deleted++;
       }
@@ -198,8 +208,9 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
 
     // Merge the PR via gh CLI (simulates merging via the GitHub UI).
     const mergeMethod = opts?.squash ? "--squash" : "--merge";
-    const result =
-      await $`gh pr merge ${prNumber} --repo ${owner}/${repo} ${mergeMethod}`.nothrow();
+    const result = await $`gh pr merge ${prNumber} --repo ${owner}/${repo} ${mergeMethod}`
+      .quiet()
+      .nothrow();
 
     if (result.exitCode !== 0) {
       throw new Error(`Failed to merge PR #${prNumber}: ${result.stderr.toString()}`);
@@ -208,11 +219,14 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     // Optionally delete the branch (the GitHub UI offers this as an option).
     // By default we do NOT delete, to simulate the case where a branch remains.
     if (opts?.deleteBranch) {
-      const prInfo =
-        await $`gh pr view ${prNumber} --repo ${owner}/${repo} --json headRefName`.nothrow();
+      const prInfo = await $`gh pr view ${prNumber} --repo ${owner}/${repo} --json headRefName`
+        .quiet()
+        .nothrow();
       if (prInfo.exitCode === 0) {
         const { headRefName } = JSON.parse(prInfo.stdout.toString()) as { headRefName: string };
-        await $`gh api -X DELETE repos/${owner}/${repo}/git/refs/heads/${headRefName}`.nothrow();
+        await $`gh api -X DELETE repos/${owner}/${repo}/git/refs/heads/${headRefName}`
+          .quiet()
+          .nothrow();
       }
     }
   }
