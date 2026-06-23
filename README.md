@@ -520,17 +520,21 @@ src/
 ### Re-recording gh cassettes
 
 GitHub behavior is tested by replaying committed recordings, so most work needs
-no GitHub at all. To re-record a cassette against the live `spry-check` repo:
+no GitHub at all. To re-record a cassette against the live `spry-check` repo,
+put a token in `docker/.env` (see the Docker setup above) and run it in the
+container — auth is wired through automatically:
 
 ```bash
 # Set up the test repository (one-time; needs gh auth)
 bun run scripts/setup-spry-check.ts
 
 # Re-record one fragment (mutates spry-check, then cleans up after itself)
-SPRY_RECORD=1 bun test tests/commands/sync.doc.test.ts -t "Opening a new PR"
+bun run record:docker tests/commands/sync.doc.test.ts -t "Opening a new PR"
 ```
 
-See `tests/fixtures/cassettes/README.md` for the HTTPS git-config requirement.
+Recording in the container avoids the host-side HTTPS git-config wrinkle noted in
+`tests/fixtures/cassettes/README.md` (the container's git has no `https→ssh`
+rewrite). To record on the host instead, run `SPRY_RECORD=1 bun test …` directly.
 
 ## License
 
