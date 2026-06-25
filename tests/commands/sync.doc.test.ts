@@ -117,6 +117,91 @@ describe("sp sync docs", () => {
     },
   );
 
+  docTest(
+    "Opening a group as a single PR",
+    { section: "commands/sync", order: 22, timeout: 60000 },
+    async (doc) => {
+      // Record mode publishes one real PR on spry-check for the grouped unit and
+      // captures gh's create + PR-status traffic; replay serves it offline. Same
+      // body both ways — only the git origin and the gh seam env differ.
+      const recording = isRecording();
+      const fixture = recording ? await createGitHubFixture() : undefined;
+      if (fixture) await fixture.reset();
+
+      const repo = await createRepo({ origin: recording ? "github" : "local" });
+      repos.push(repo);
+      doc.scrub(repo);
+      doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
+
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
+      const repoSlug = `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`;
+      await repo.git.run(["config", "spry.repo", repoSlug]);
+
+      await repo.git.run(["checkout", "-b", "feature/auth"]);
+      await repo.git.run([
+        "commit",
+        "--allow-empty",
+        "-m",
+        "Add login form\n\nSpry-Commit-Id: aaa11111",
+      ]);
+      await repo.git.run([
+        "commit",
+        "--allow-empty",
+        "-m",
+        "Add session handling\n\nSpry-Commit-Id: bbb22222",
+      ]);
+
+      // Group both commits under one record so they ship as a single PR. The
+      // group id becomes the unit id (and the branch suffix); pin it so the gh
+      // arguments — and therefore the cassette key — are deterministic.
+      const { saveGroupRecord } = await import("../../src/git/group-titles.ts");
+      await saveGroupRecord(repo.git, "grp00001", {
+        title: "Auth flow",
+        members: ["aaa11111", "bbb22222"],
+      });
+
+      doc.prose(
+        "When you group commits with `sp group`, `sp sync --open <group-id>` publishes the whole group as a single PR. The PR title is the group's title and its body is left empty by design — the individual commit messages carry the detail:",
+      );
+
+      // PR numbers are GitHub-minted (non-deterministic); canonicalize the ones
+      // shown so the generated doc stays stable across re-recordings.
+      doc.scrub(/Created PR #\d+/g, "Created PR #42");
+      doc.scrub(/pull\/\d+/g, "pull/42");
+
+      const { command, result } = await runSp(repo.path, "sync", ["--open", "grp00001"], {
+        env: cassetteEnv({ section: "commands/sync", order: 22 }),
+      });
+      doc.command(command);
+      doc.output(result.stdout);
+
+      // Recording is the real-gh validation: confirm the live PR was opened with
+      // the group title and an empty body before the fixture tears it down.
+      if (recording) {
+        const { $ } = await import("bun");
+        const view =
+          await $`gh pr view spry/dondenton/grp00001 --repo ${repoSlug} --json title,body`
+            .cwd(repo.path)
+            .quiet();
+        const pr = JSON.parse(view.stdout.toString()) as { title: string; body: string };
+        const { expect } = await import("bun:test");
+        expect(pr.title).toBe("Auth flow");
+        expect(pr.body).toBe("");
+      }
+
+      if (fixture) await fixture.reset();
+
+      const { expect } = await import("bun:test");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("↑ pushed spry/dondenton/grp00001");
+      expect(result.stdout).toContain("Created PR #");
+      expect(result.stdout).toContain("Auth flow");
+      expect(result.stdout).toContain("Sync complete");
+    },
+  );
+
   docTest("Auto-injecting commit IDs", { section: "commands/sync", order: 40 }, async (doc) => {
     const repo = await createRepo();
     repos.push(repo);

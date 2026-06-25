@@ -28,6 +28,21 @@ sp sync --open aaaa1111
 
 ```
 
+When you group commits with `sp group`, `sp sync --open <group-id>` publishes the whole group as a single PR. The PR title is the group's title and its body is left empty by design — the individual commit messages carry the detail:
+
+```
+sp sync --open grp00001
+```
+
+```
+↑ pushed spry/dondenton/grp00001
+✓ Created PR #42: Auth flow
+  https://github.com/owner/repo/pull/42
+✓ Updated PR cache (1 PR)
+✓ Sync complete
+
+```
+
 Run `sp sync --open` (no arguments) to choose which unpublished branches to open as PRs. Spry shows an interactive menu — use Space to toggle, Enter to confirm:
 
 ```
