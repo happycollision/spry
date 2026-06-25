@@ -4,7 +4,6 @@ import { writeFileSync } from "node:fs";
 import {
   docTest,
   createRepo,
-  createRealGitRunner,
   createTerminalDriver,
   cassetteEnv,
   isRecording,
@@ -24,7 +23,7 @@ describe("sp group docs", () => {
     const repo = await createRepo();
     repos.push(repo);
     doc.scrub(repo);
-    const git = createRealGitRunner();
+    const git = repo.git;
 
     await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
     await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
@@ -80,7 +79,7 @@ describe("sp group docs", () => {
     const repo = await createRepo();
     repos.push(repo);
     doc.scrub(repo);
-    const git = createRealGitRunner();
+    const git = repo.git;
 
     await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
     await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
@@ -125,7 +124,7 @@ describe("sp group docs", () => {
     const repo = await createRepo();
     repos.push(repo);
     doc.scrub(repo);
-    const git = createRealGitRunner();
+    const git = repo.git;
 
     await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
     await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
@@ -180,7 +179,7 @@ describe("sp group docs", () => {
     const repo = await createRepo();
     repos.push(repo);
     doc.scrub(repo);
-    const git = createRealGitRunner();
+    const git = repo.git;
 
     await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
     await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
