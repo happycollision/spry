@@ -8,7 +8,12 @@ const git = createRealGitRunner();
 
 describe("trunkRef", () => {
   test("combines remote and trunk into ref", () => {
-    const config: SpryConfig = { trunk: "main", remote: "origin", branchPrefix: "spry/test" };
+    const config: SpryConfig = {
+      trunk: "main",
+      remote: "origin",
+      branchPrefix: "spry/test",
+      autoDeleteOnLand: false,
+    };
     expect(trunkRef(config)).toBe("origin/main");
   });
 
@@ -17,6 +22,7 @@ describe("trunkRef", () => {
       trunk: "develop",
       remote: "upstream",
       branchPrefix: "spry/test",
+      autoDeleteOnLand: false,
     };
     expect(trunkRef(config)).toBe("upstream/develop");
   });
@@ -65,6 +71,53 @@ describe("readConfig", () => {
     expect(config.trunk).toBe("main");
     expect(config.remote).toBe("origin");
     expect(config.branchPrefix).toBe("spry/test");
+  });
+
+  test("autoDeleteOnLand defaults to false when unset", async () => {
+    repo = await createRepo();
+    const { $ } = await import("bun");
+    await $`git config spry.trunk main`.cwd(repo.path).quiet();
+    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
+
+    const config = await readConfig(git, { cwd: repo.path });
+    expect(config.autoDeleteOnLand).toBe(false);
+  });
+
+  test("autoDeleteOnLand is true when set to true", async () => {
+    repo = await createRepo();
+    const { $ } = await import("bun");
+    await $`git config spry.trunk main`.cwd(repo.path).quiet();
+    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
+    await $`git config spry.autoDeleteOnLand true`.cwd(repo.path).quiet();
+
+    const config = await readConfig(git, { cwd: repo.path });
+    expect(config.autoDeleteOnLand).toBe(true);
+  });
+
+  test("autoDeleteOnLand is false when set to false", async () => {
+    repo = await createRepo();
+    const { $ } = await import("bun");
+    await $`git config spry.trunk main`.cwd(repo.path).quiet();
+    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
+    await $`git config spry.autoDeleteOnLand false`.cwd(repo.path).quiet();
+
+    const config = await readConfig(git, { cwd: repo.path });
+    expect(config.autoDeleteOnLand).toBe(false);
+  });
+
+  test("autoDeleteOnLand is false (not throwing) for a garbage value", async () => {
+    repo = await createRepo();
+    const { $ } = await import("bun");
+    await $`git config spry.trunk main`.cwd(repo.path).quiet();
+    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
+    await $`git config spry.autoDeleteOnLand notabool`.cwd(repo.path).quiet();
+
+    const config = await readConfig(git, { cwd: repo.path });
+    expect(config.autoDeleteOnLand).toBe(false);
   });
 
   test("resolves owner/repo from the spry.repo override", async () => {

@@ -9,6 +9,10 @@ export interface SpryConfig {
   owner?: string;
   /** GitHub repo name for PR API queries. See {@link SpryConfig.owner}. */
   repo?: string;
+  /** When true, `sp land` deletes the remote branches of units it just landed.
+   *  Default false. Some repos have GitHub auto-delete head branches on merge,
+   *  so this is opt-in. */
+  autoDeleteOnLand: boolean;
 }
 
 export function trunkRef(config: SpryConfig): string {
@@ -97,9 +101,19 @@ export async function readConfig(git: GitRunner, options?: ConfigOptions): Promi
   }
   const branchPrefix = prefixResult.stdout.trim();
 
+  // Read autoDeleteOnLand (opt-in boolean; default false). `--type=bool` makes
+  // git normalize truthy/falsy values (true/1/yes/on → "true") and exit
+  // non-zero for unset or invalid values, both of which we treat as false.
+  const autoDeleteResult = await git.run(
+    ["config", "--get", "--type=bool", "spry.autoDeleteOnLand"],
+    { cwd },
+  );
+  const autoDeleteOnLand =
+    autoDeleteResult.exitCode === 0 && autoDeleteResult.stdout.trim() === "true";
+
   const { owner, repo } = await resolveRepoSlug(git, remote, cwd);
 
-  return { trunk, remote, branchPrefix, owner, repo };
+  return { trunk, remote, branchPrefix, owner, repo, autoDeleteOnLand };
 }
 
 /**

@@ -7,6 +7,7 @@ const config: SpryConfig = {
   trunk: "main",
   remote: "origin",
   branchPrefix: "spry/test",
+  autoDeleteOnLand: false,
 };
 
 function singleUnit(id: string): PRUnit {

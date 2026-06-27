@@ -832,7 +832,12 @@ describe("syncCommand --open <ids>", () => {
 });
 
 describe("buildOpenCandidates", () => {
-  const config = { trunk: "main", remote: "origin", branchPrefix: "spry/test" };
+  const config = {
+    trunk: "main",
+    remote: "origin",
+    branchPrefix: "spry/test",
+    autoDeleteOnLand: false,
+  };
 
   function single(id: string, title: string): PRUnit {
     return {

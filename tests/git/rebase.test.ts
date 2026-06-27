@@ -180,7 +180,12 @@ describe("rebaseOntoTrunk", () => {
 
   test("rebases stack onto updated trunk", async () => {
     repo = await createRepo();
-    const config: SpryConfig = { trunk: "main", remote: "origin", branchPrefix: "spry/test" };
+    const config: SpryConfig = {
+      trunk: "main",
+      remote: "origin",
+      branchPrefix: "spry/test",
+      autoDeleteOnLand: false,
+    };
 
     // Create a feature branch
     const branchName = await repo.branch("rebase-trunk");
@@ -205,7 +210,12 @@ describe("rebaseOntoTrunk", () => {
 
   test("returns ok with commitCount 0 for empty stack", async () => {
     repo = await createRepo();
-    const config: SpryConfig = { trunk: "main", remote: "origin", branchPrefix: "spry/test" };
+    const config: SpryConfig = {
+      trunk: "main",
+      remote: "origin",
+      branchPrefix: "spry/test",
+      autoDeleteOnLand: false,
+    };
     await repo.fetch();
 
     const result = await rebaseOntoTrunk(git, config, { cwd: repo.path });
@@ -218,7 +228,12 @@ describe("rebaseOntoTrunk", () => {
 
   test("returns error for detached HEAD", async () => {
     repo = await createRepo();
-    const config: SpryConfig = { trunk: "main", remote: "origin", branchPrefix: "spry/test" };
+    const config: SpryConfig = {
+      trunk: "main",
+      remote: "origin",
+      branchPrefix: "spry/test",
+      autoDeleteOnLand: false,
+    };
     const sha = await getFullSha(git, "HEAD", { cwd: repo.path });
     await repo.checkout(sha);
 
@@ -231,7 +246,12 @@ describe("rebaseOntoTrunk", () => {
 
   test("detects conflict", async () => {
     repo = await createRepo();
-    const config: SpryConfig = { trunk: "main", remote: "origin", branchPrefix: "spry/test" };
+    const config: SpryConfig = {
+      trunk: "main",
+      remote: "origin",
+      branchPrefix: "spry/test",
+      autoDeleteOnLand: false,
+    };
 
     // Create shared file on main
     await repo.commitFiles({ "shared.txt": "base content" }, "add shared");
