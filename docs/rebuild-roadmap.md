@@ -4,7 +4,12 @@ This document tracks the feature gap between `main` and the `rebuild-spry` branc
 
 The rebuild started fresh with better test infrastructure and a cleaner architecture. Not everything from `main` needs a direct port — some things should be redesigned, some merged, some dropped.
 
-**Status as of 2026-06-27:** The rebuild gap is closed. `sp clean` is built (as a deliberately simpler "delete branches that are in remote trunk" reaper — see below), and the cleanup capabilities that `main` bundled into `clean` are instead handled deterministically by `sp land`'s post-land scrub. Everything from the original gap is either shipped or resolved by a recorded design decision below.
+**Status as of 2026-06-27:** The rebuild now covers the core workflow with deliberate redesigns rather than one-for-one parity with `main`. Most observed differences are accepted product decisions (documented below). The main remaining parity area is `sp group`: the interactive editor exists, but we still need to consider the capabilities that `main`'s helper commands covered and decide whether they need new rebuild-native workflows.
+
+**Main comparison point:** local `main` tip at audit time is
+`466674e30a8342895ea009903a0df2e0de45222f` (commit date
+2026-02-03 00:04:37 -0500). Use this as the feature-diff anchor before merging
+`rebuild-spry` back to `main`.
 
 ---
 
@@ -21,7 +26,11 @@ Branch tracking (`refs/spry/local/tracked-branches`) is written automatically by
 
 ## Remaining work
 
-None — the rebuild gap is closed. `sp clean` was the last unbuilt command; it shipped on 2026-06-27, redesigned rather than ported (see Decisions). The cleanup capabilities `main` bundled into `clean` are resolved as follows:
+The rebuild is no longer trying to match `main` flag-for-flag. These are the remaining follow-up areas after the feature audit:
+
+- **Revisit legacy `sp group` helper capabilities.** `main` had `sp group --apply`, `sp group --fix`, and `sp group dissolve`. This branch currently ships the interactive editor only. We are not assuming those exact commands should return, but we need to consider the jobs they did before deciding whether to drop them or design rebuild-native replacements.
+
+The cleanup capabilities `main` bundled into `clean` are resolved as follows:
 
 | `main` capability                               | Resolution on this branch                                                                                                                                                                                                                           |
 | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -37,6 +46,69 @@ were pushed but skipped for PR creation during `sp sync --open`, unless grouped.
 This branch never had it — no `spry.tempCommitPrefixes` config, no skip logic.
 It was still documented in the README until 2026-06-26; that section has been
 removed. **Decided (2026-06-26): dropped for good.** Not porting it.
+
+### `sp view --all` — dropped
+
+`main` had `sp view --all` to list all PRs authored by the current GitHub user.
+This branch's `sp view` is intentionally local and offline: it displays the
+current stack and reads PR status from the `refs/spry/prs` cache written by
+`sp sync`. **Decided (2026-06-27): dropped for now.** Not needed for the rebuild.
+
+### PR body management — deferred
+
+`main` generated richer PR bodies: optional PR templates, stack links, marker
+sections that preserved user edits, a beta footer, and content-hash tracking to
+avoid unnecessary body updates. This branch currently keeps PR creation simple:
+single-commit PRs use the commit body with trailers stripped, grouped PRs use an
+empty body, and existing PR title/body updates are not part of `sp sync` yet.
+**Decided (2026-06-27): acceptable for now.** We expect to revisit PR body
+management later, but it is not a current rebuild blocker.
+
+### Config model — accepted
+
+`main` auto-detected some configuration, including remote and default branch.
+This branch requires explicit `spry.remote`, `spry.trunk`, and
+`spry.branchPrefix`, with `spry.repo` as an optional GitHub slug override and
+`spry.autoDeleteOnLand` as an opt-in cleanup setting. **Decided (2026-06-27):
+accepted.** The explicit config model is the intended rebuild behavior.
+
+### `sp sync` behind-trunk guard — deferred
+
+The roadmap previously said `sp sync` should fail early when the current stack is
+behind trunk. The current implementation does not enforce that: `sp sync` is a
+push/open/retarget command and trusts the user to run `sp rebase` when needed.
+This is unlikely to cause data loss because sync mutates spry unit branches, not
+trunk, and pushes use force-with-lease. The main downside is stale PR churn in
+multi-machine or multi-user workflows: PRs can be pushed, opened, or retargeted
+before the stack has been rebased onto a newer trunk. **Decided (2026-06-27):
+deferred.** Keep the current behavior for now; revisit if multi-machine or
+multi-author workflows become painful.
+
+### `sp group` helper capabilities — needs follow-up
+
+`main` had helper surfaces around the interactive editor that covered capabilities
+this branch does not currently expose:
+
+- `sp group --apply <json>` — non-interactive grouping/reordering for scripts,
+  tests, and repeatable recipes.
+- `sp group --fix[=dissolve|merge]` — repair flow for invalid or split group
+  state.
+- `sp group dissolve [group-id]` with `--inherit <commit>` / `--no-inherit` —
+  explicit group dissolution, including deterministic PR inheritance when a
+  group already has an open PR.
+
+The current branch stores grouping in `refs/spry/groups`, so these should not be
+ported blindly from `main`'s trailer-rewrite model. The capabilities to preserve
+for a future design discussion are:
+
+- automation: there is no non-interactive way to apply a grouping spec;
+- recovery: there is no dedicated repair command if group state gets awkward;
+- dissolution: removing a group through the editor lacks the explicit PR
+  inheritance controls that `main` exposed.
+
+**Open follow-up:** decide whether these capabilities are still needed, and if
+so, whether they should be served by restored commands, new rebuild-native flows,
+or improvements to the interactive editor.
 
 ---
 
@@ -57,8 +129,9 @@ removed. **Decided (2026-06-26): dropped for good.** Not porting it.
 
 - **`sp rebase` is the home for fetch + rebase.** `sp sync` never rebases (see below). Fetch-before-anything moved from `main`'s sync into `sp rebase`.
 - **`sp sync` never rebases.** Push-only. This applies to `sp sync`, `sp sync --open`, and `sp sync --all` — none of them rebase, ever.
-- **`sp sync` fails when the stack is behind.** Exits with an error telling the user to run `sp rebase`. No partial work, no continue-anyway flag. We can do something smarter in the future.
+- **`sp sync` does not guard against being behind trunk.** This is acceptable for now. The likely downside is stale PR churn in multi-machine or multi-user workflows, not data loss. Revisit only if that workflow becomes important.
 - **`sp sync --all` is push-only.** Same rule: no rebase step per branch. Cannot be combined with `--open`.
+- **`sp view --all` is not part of the rebuild.** The rebuild's `sp view` is a current-stack, cache-backed offline view. Cross-branch/user-wide PR browsing is not needed right now.
 - **`sp land` was redesigned, not ported.** `main`'s land merged PRs via the GitHub merge API (`--all` merged the stack bottom-up, waiting on each merge). This branch instead retargets every in-scope PR to trunk and does a single fast-forward push of trunk to the target tip. It never uses the merge API. `--all` is replaced by `--through <id>` (whole stack = through the top unit). "Behind trunk" surfaces as a fast-forward rejection pointing at `sp rebase`.
 - **`sp land` cleans up after itself; `sp clean` is the recovery tool.** Because land ff-pushes the exact commits it landed, it knows its scope deterministically — so it scrubs the landed units' PR-cache entries and group records on every land, with no detection needed. Remote-branch deletion is opt-in via `spry.autoDeleteOnLand` (default off), because some repos already auto-delete head branches on merge. `sp clean` is the manual reaper for branches land left behind (flag off) or branches merged through the GitHub UI.
 - **`sp clean` detects "landed" as ancestor-of-trunk only.** `git merge-base --is-ancestor <branchTip> <remote>/<trunk>`. No `Spry-Commit-Id` trailer matching, no squash/rebase-merge heuristics, no `--unsafe`/`--force` modes from `main`. A GitHub merge-commit or `sp land`'s ff-push both leave the branch reachable from trunk and so are reaped; a GitHub squash- or rebase-merge (new SHAs) is intentionally **not** reaped by this simple version. clean fetches with `--prune` and treats an already-gone branch as benign, so it's idempotent.
