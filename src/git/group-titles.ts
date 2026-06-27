@@ -141,3 +141,14 @@ export async function fetchGroupRecords(
   if (result.stderr.includes("couldn't find remote ref")) return { ok: true };
   return { ok: false, warning: result.stderr.trim() };
 }
+
+export async function pushGroupRecords(
+  git: GitRunner,
+  remote: string,
+  opts?: GitOpts,
+): Promise<{ ok: true } | { ok: false; warning: string }> {
+  const refspec = `${GROUPS_REF}:${GROUPS_REF}`;
+  const result = await git.run(["push", remote, refspec], opts);
+  if (result.exitCode === 0) return { ok: true };
+  return { ok: false, warning: result.stderr.trim() };
+}

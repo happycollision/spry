@@ -67,6 +67,7 @@ export {
   saveGroupRecord,
   saveAllGroupRecords,
   fetchGroupRecords,
+  pushGroupRecords,
   buildCommitGroupMap,
   extractGroupTitles,
 } from "./group-titles.ts";

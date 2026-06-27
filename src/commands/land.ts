@@ -7,6 +7,7 @@ import {
   fetchGroupRecords,
   loadGroupRecords,
   saveAllGroupRecords,
+  pushGroupRecords,
   buildCommitGroupMap,
   extractGroupTitles,
 } from "../git/group-titles.ts";
@@ -265,11 +266,9 @@ async function scrubLandedGroupRecords(
   // has a source to push. `savePRCache`, by contrast, deletes its ref when empty.
   try {
     await saveAllGroupRecords(ctx.git, remaining, { cwd });
-    const push = await ctx.git.run(["push", config.remote, "refs/spry/groups:refs/spry/groups"], {
-      cwd,
-    });
-    if (push.exitCode !== 0) {
-      console.log(kleur.dim(`⚠ Could not push group records: ${push.stderr.trim()}`));
+    const push = await pushGroupRecords(ctx.git, config.remote, { cwd });
+    if (!push.ok) {
+      console.log(kleur.dim(`⚠ Could not push group records: ${push.warning}`));
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -8,6 +8,7 @@ import {
   injectMissingIds,
   requireCleanWorkingTree,
   saveAllGroupRecords,
+  pushGroupRecords,
   fetchGroupRecords,
   loadGroupRecords,
   buildCommitGroupMap,
@@ -127,11 +128,8 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
   await saveAllGroupRecords(ctx.git, resolvedRecords, { cwd });
 
   // Push refs/spry/groups best-effort
-  const pushResult = await ctx.git.run(
-    ["push", config.remote, "refs/spry/groups:refs/spry/groups"],
-    { cwd },
-  );
-  if (pushResult.exitCode !== 0) {
+  const pushResult = await pushGroupRecords(ctx.git, config.remote, { cwd });
+  if (!pushResult.ok) {
     console.log(kleur.dim("⚠ Could not push group records to remote (local changes saved)"));
   }
 
