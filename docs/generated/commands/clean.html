@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sp clean</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: system-ui, sans-serif; line-height: 1.6; padding: 2rem; max-width: 860px; color: #e8e8e8; background: #1a1a1a; }
+        h1 { font-size: 1.4rem; margin-bottom: 1.5rem; color: #fff; }
+        p { margin-bottom: 1rem; }
+        pre { font-family: ui-monospace, 'Cascadia Code', monospace; font-size: 0.85rem; padding: 1rem; border-radius: 6px; overflow-x: auto; margin-bottom: 1rem; white-space: pre; }
+        pre.command { background: #0d1117; color: #c9d1d9; border-left: 3px solid #58a6ff; }
+        pre.output { background: #0d1117; color: #c9d1d9; }
+        pre.screen { background: #0d1117; color: #c9d1d9; }
+        .ansi-black { color: #000; } .ansi-red { color: #c0392b; } .ansi-green { color: #27ae60; }
+        .ansi-yellow { color: #f39c12; } .ansi-blue { color: #2980b9; } .ansi-magenta { color: #8e44ad; }
+        .ansi-cyan { color: #16a085; } .ansi-white { color: #bdc3c7; }
+        .ansi-bright-black { color: #7f8c8d; } .ansi-bright-red { color: #e74c3c; } .ansi-bright-green { color: #2ecc71; }
+        .ansi-bright-yellow { color: #f1c40f; } .ansi-bright-blue { color: #3498db; } .ansi-bright-magenta { color: #9b59b6; }
+        .ansi-bright-cyan { color: #1abc9c; } .ansi-bright-white { color: #ecf0f1; }
+        .ansi-bold { font-weight: bold; }
+    </style>
+  </head>
+  <body>
+    <h1>sp clean</h1>
+    <p>
+      Once a stack has landed on trunk, `sp clean` fetches the remote and deletes the spry branches
+      whose tip commits are now ancestors of trunk:
+    </p>
+    <pre class="command">sp clean</pre>
+    <pre class="output">&#x2713; Deleted spry/dondenton/login
+Cleaned 1 landed branch.<span style="font-weight:normal;text-decoration:none;font-style:normal"></span></pre>
+    <p>Pass `--dry-run` to see which branches would be removed without deleting anything:</p>
+    <pre class="command">sp clean --dry-run</pre>
+    <pre class="output">Would delete 1 landed branch:
+  spry/dondenton/login<span style="font-weight:normal;text-decoration:none;font-style:normal">
+Run `sp clean` to delete them.<span style="font-weight:normal;text-decoration:none;font-style:normal"></span></span></pre>
+    <p>When no tracked branch has landed yet, `sp clean` leaves every branch in place:</p>
+    <pre class="command">sp clean</pre>
+    <pre class="output">✓ No landed branches to clean</pre>
+  </body>
+</html>

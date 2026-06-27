@@ -5,6 +5,7 @@ import { viewCommand } from "../commands/view.ts";
 import { groupCommand } from "../commands/group.ts";
 import { rebaseCommand } from "../commands/rebase.ts";
 import { landCommand } from "../commands/land.ts";
+import { cleanCommand } from "../commands/clean.ts";
 import { createRealGitRunner } from "../lib/context.ts";
 import type { SpryContext } from "../lib/context.ts";
 import { createSeamedGhClient } from "../lib/gh-seam.ts";
@@ -51,6 +52,12 @@ program
   .description("Land the stack into trunk by fast-forwarding through a chosen commit")
   .option("--through <id>", "Land from the bottom through this group/commit id")
   .action((opts: { through?: string }) => landCommand(ctx, { through: opts.through }));
+
+program
+  .command("clean")
+  .description("Delete remote spry branches whose commits have landed on trunk")
+  .option("--dry-run", "List what would be deleted without deleting anything")
+  .action((opts: { dryRun?: boolean }) => cleanCommand(ctx, { dryRun: opts.dryRun }));
 
 try {
   await program.parseAsync();

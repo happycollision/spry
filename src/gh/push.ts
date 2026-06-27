@@ -27,6 +27,23 @@ export async function pushBranch(git: GitRunner, opts: PushOptions): Promise<Pus
   return { ok: false, reason: "rejected", stderr };
 }
 
+export interface DeleteRemoteBranchOptions {
+  cwd?: string;
+  remote: string;
+  branch: string;
+}
+
+export type DeleteRemoteBranchResult = { ok: true } | { ok: false; stderr: string };
+
+export async function deleteRemoteBranch(
+  git: GitRunner,
+  opts: DeleteRemoteBranchOptions,
+): Promise<DeleteRemoteBranchResult> {
+  const result = await git.run(["push", opts.remote, "--delete", opts.branch], { cwd: opts.cwd });
+  if (result.exitCode === 0) return { ok: true };
+  return { ok: false, stderr: result.stderr };
+}
+
 export async function listRemoteBranches(
   git: GitRunner,
   remote: string,
