@@ -13,7 +13,7 @@ Spry automates the stacked PR workflow:
 
 - Each commit (or group of commits) becomes its own PR
 - PRs are automatically chained with proper base branches
-- Rebasing and syncing is handled for you
+- Rebasing onto trunk is a single command (`sp rebase`)
 - Land PRs when ready and automatically retarget dependents
 
 ## Installation
@@ -76,6 +76,31 @@ export PATH="$PATH:$(pwd)/dist"
 - [GitHub CLI](https://cli.github.com/) (`gh`) - authenticated via `gh auth login`
 - Git 2.40+
 
+## Configuration
+
+Spry reads its settings from git config. Three keys are **required** — `sp`
+will refuse to run until they are set:
+
+```bash
+# The trunk branch your stack is based on (e.g. main, master)
+git config spry.trunk main
+
+# The remote to push branches and PRs to
+git config spry.remote origin
+
+# Prefix for the per-commit branches spry creates (one branch per unit)
+git config spry.branchPrefix spry/<your-username>
+```
+
+Optional:
+
+```bash
+# Override the GitHub repo slug used for PR queries (format: owner/repo).
+# Falls back to parsing the remote URL when unset; set this for non-GitHub
+# remotes or unusual URL formats.
+git config spry.repo owner/repo
+```
+
 ## Quick Start
 
 ```bash
@@ -90,140 +115,22 @@ sp view
 # 3. Sync with GitHub and create PRs
 sp sync --open
 
-# 4. When the first PR is approved, land it
+# 4. When a PR is approved, land it
 sp land
 ```
 
 ## Commands
 
-### `sp view`
+Each command's full behavior, flags, and example output live in the generated
+docs (produced from the doc tests, so they never drift from the code):
 
-Display the current stack of commits and their PR status.
+- [`sp view`](docs/generated/commands/view.md) — display the current stack and PR status
+- [`sp sync`](docs/generated/commands/sync.md) — push branches, open PRs (`--open`), push every tracked stack (`--all`)
+- [`sp rebase`](docs/generated/commands/rebase.md) — fetch, check if behind trunk, and rebase the stack (`--all` for every tracked branch)
+- [`sp land`](docs/generated/commands/land.md) — retarget in-scope PRs to trunk and fast-forward trunk to the target tip (`--through <id>`)
+- [`sp group`](docs/generated/commands/group.md) — interactive TUI for grouping and reordering commits
 
-```bash
-sp view          # View stack for current branch
-sp view --all    # View all your open PRs across branches
-```
-
-Output shows:
-
-- Commit messages and their Spry IDs
-- PR numbers and status (open, merged, closed)
-- PR health: CI checks, review status, comments
-- Grouped commits displayed together
-
-### `sp sync`
-
-Synchronize your local stack with GitHub.
-
-```bash
-# Push branches only
-sp sync
-
-# Push branches and create/update PRs
-sp sync --open
-```
-
-This command:
-
-1. Validates your working tree is clean
-2. Adds `Spry-Commit-Id` trailers to commits (via interactive rebase)
-3. Pushes each branch to the remote
-4. Creates or updates PRs (with `--open` flag)
-5. Automatically retargets open PRs when earlier branches are merged
-6. Cleans up merged PRs and orphaned branches
-
-### `sp land`
-
-Merge ready PRs from your stack into main.
-
-```bash
-# Merge the bottom-most ready PR
-sp land
-
-# Merge all consecutive ready PRs from the bottom
-sp land --all
-```
-
-Before merging, `sp land` validates:
-
-- CI checks are passing
-- Required reviews are approved
-- No merge conflicts
-
-After merging:
-
-- Dependent PRs are automatically retargeted to the new base
-- Remote branches are cleaned up
-
-### `sp group`
-
-Interactive TUI for grouping multiple commits into a single PR.
-
-```bash
-sp group
-```
-
-**Keyboard controls:**
-
-| Key         | Action                                 |
-| ----------- | -------------------------------------- |
-| `↑/↓`       | Navigate between commits               |
-| `←/→`       | Assign/remove commit from a group      |
-| `Space`     | Enter move mode to reorder commits     |
-| `Shift+↑/↓` | Quick swap (reorder without move mode) |
-| `Enter`     | Confirm and apply changes              |
-| `Esc`       | Cancel                                 |
-
-**Non-interactive mode:**
-
-```bash
-# Apply grouping via JSON specification
-sp group --apply '{"order": ["abc123", "def456"], "groups": [{"commits": ["abc123", "def456"], "name": "Feature X"}]}'
-```
-
-**Repair invalid groups:**
-
-```bash
-# Interactive repair
-sp group --fix
-
-# Non-interactive: dissolve problematic groups
-sp group --fix dissolve
-```
-
-### `sp group dissolve`
-
-Remove grouping from commits, turning them back into individual PRs.
-
-```bash
-# Interactive: select groups to dissolve
-sp group dissolve
-
-# Dissolve a specific group
-sp group dissolve <group-id>
-
-# Specify which commit inherits the existing PR
-sp group dissolve <group-id> --inherit <commit>
-
-# Don't inherit the PR to any commit
-sp group dissolve <group-id> --no-inherit
-```
-
-### `sp clean`
-
-Find and remove orphaned branches that have been merged.
-
-```bash
-# Preview what would be cleaned
-sp clean --dry-run
-
-# Delete orphaned branches
-sp clean
-
-# Force delete branches detected by commit-id (may lose original content)
-sp clean --force
-```
+Browse them all in [`docs/generated/commands/`](docs/generated/commands/).
 
 ## Core Concepts
 
@@ -239,202 +146,25 @@ Implements JWT-based auth with refresh tokens.
 Spry-Commit-Id: a1b2c3d4
 ```
 
-Trailers are added automatically by `sp sync`.
+`Spry-Commit-Id` trailers are added automatically by `sp rebase`/`sp sync`.
 
 ### Grouping Commits
 
-You can group multiple commits into a single PR using `sp group` (recommended) or manually via trailers:
-
-All grouped commits become one PR when you `sp sync --open`.
-
-## Configuration
-
-Configure via git config:
-
-```bash
-# Custom remote name (auto-detected if not set)
-# - If only one remote exists, uses that
-# - If multiple remotes exist, defaults to "origin"
-git config spry.remote upstream
-
-# Custom branch prefix (default: "spry")
-git config spry.branchPrefix my-prefix
-
-# Custom default branch (auto-detected from remote if not set)
-git config spry.defaultBranch main
-
-# Temporary commit prefixes (default: "WIP,fixup!,amend!,squash!")
-git config spry.tempCommitPrefixes "WIP,DRAFT,TODO"
-
-# Disable temp commit detection (create PRs for all commits)
-git config spry.tempCommitPrefixes ""
-```
-
-### Temporary Commits
-
-Commits with certain prefixes are considered "temporary" and won't automatically get PRs created during `sp sync --open`. This is useful for:
-
-- **WIP commits**: Work you're not ready to review yet
-- **fixup!/amend!/squash! commits**: Commits meant to be squashed during interactive rebase
-
-**Default prefixes** (case-insensitive matching):
-
-- `WIP` - Work in progress
-- `fixup!` - Git's autosquash fixup commits
-- `amend!` - Git's autosquash amend commits
-- `squash!` - Git's autosquash squash commits
-
-**Behavior when detected:**
-
-1. Branches are still pushed (for stacking dependent commits)
-2. PR creation is skipped
-3. Output shows which commits were skipped
-
-**Escape hatch:** If you group a temporary commit with other commits, a PR will be created for the group. This lets you explicitly opt-in when ready.
-
-```bash
-# Example: WIP commit won't get a PR
-git commit -m "WIP: experimenting with new caching approach"
-sp sync --open
-# Output: ⚠ Skipped PR for 1 temporary commit(s)
-
-# Later, when ready, amend the commit message
-git commit --amend -m "Add new caching approach"
-sp sync --open
-# Now creates a PR
-```
-
-**Using fixup! with stacked PRs:**
-
-When you need to fix an earlier commit in your stack, use git's `--fixup` flag. The fixup commit won't get its own PR, keeping your stack clean:
-
-```bash
-# Your stack has 3 commits, each with its own PR
-# PR #1: Add user model
-# PR #2: Add user API
-# PR #3: Add user tests
-
-# You notice a bug in the user model (PR #1)
-# Create a fixup commit targeting that commit
-git commit --fixup "Add user model"
-
-# Sync - the fixup commit pushes but doesn't get a PR
-sp sync --open
-# Output: ⚠ Skipped PR for 1 temporary commit(s):
-#   fixup! Add user model
-
-# When ready to squash, run interactive rebase with autosquash
-git rebase -i --autosquash origin/main
-# The fixup commit automatically moves next to "Add user model" and squashes
-
-# Sync again to update PR #1 with the fix
-sp sync
-```
-
-**Alternative: Adding fixup! commits to an existing PR:**
-
-Some teams prefer reviewers to see fixup! commits that address feedback, rather than squashing immediately. You can group the fixup! commit with the original to add it to the same PR:
-
-```bash
-# PR #1 exists for "Add user model"
-# Reviewer requests changes
-
-# Create a fixup commit
-git commit --fixup "Add user model"
-
-# Group the fixup! commit with the original using sp group
-sp group
-# Select both "Add user model" and "fixup! Add user model" in the TUI
-
-# Sync - now the fixup! commit is part of PR #1
-sp sync
-# Reviewer can see exactly what changed in response to feedback
-
-# Later, when approved, squash before merging
-git rebase -i --autosquash origin/main
-sp sync
-```
-
-## Workflow Examples
-
-### Basic Stacked PR Workflow
-
-```bash
-# Start a new feature
-git checkout -b my-feature origin/main
-
-# Make commits
-git commit -m "Add database migrations"
-git commit -m "Add user model"
-git commit -m "Add user API"
-git commit -m "Add user tests"
-
-# View the stack
-sp view
-# Shows 4 commits, each will become a PR
-
-# Create the PRs
-sp sync --open
-# Creates 4 stacked PRs:
-# PR #1: Add database migrations (base: main)
-# PR #2: Add user model (base: PR #1's branch)
-# PR #3: Add user API (base: PR #2's branch)
-# PR #4: Add user tests (base: PR #3's branch)
-
-# After review feedback, amend a commit
-git rebase -i HEAD~4
-# ... make changes ...
-
-# Sync again to update PRs
-sp sync
-
-# When PR #1 is approved, land it
-sp land
-# PR #1 merges to main, PR #2 is retargeted to main
-
-# Land all remaining ready PRs
-sp land --all
-```
-
-### Grouping Related Commits
-
-```bash
-# You have several commits that should be reviewed together
-git commit -m "Add auth types"
-git commit -m "Add auth middleware"
-git commit -m "Add auth routes"
-
-# Group them into one PR
-sp group
-# Use ←/→ to assign all three commits to group "A"
-# Press Enter to confirm
-
-# Sync creates a single PR for the group
-sp sync --open
-```
-
-### Managing many branches/stacks
-
-```bash
-# View all your open PRs across branches
-sp view --all
-
-# Clean up merged branches
-sp clean --dry-run  # Preview first
-sp clean            # Delete orphaned branches
-```
+You can group multiple commits into a single PR using `sp group`. Grouping is
+stored in `refs/spry/groups` (a JSON record per group), so it never requires a
+commit rewrite. All grouped commits become one PR when you `sp sync --open`.
+See [`sp group`](docs/generated/commands/group.md) for the interactive editor.
 
 ## Limitations
 
 - **No concurrent operation support**: Don't run multiple `sp` commands simultaneously in the same local clone. Not sure why anyone would do this anyway.
-- **Remote auto-detected**: If you have multiple remotes and none is named `origin`, set `git config spry.remote <name>` to specify which one to use.
-- **Default branch auto-detected**: The default branch is auto-detected from the remote (usually `main` or `master`). Override with `git config spry.defaultBranch <branch>` if needed.
+- **Trunk and remote are explicit**: spry does not guess. Set `spry.trunk`, `spry.remote`, and `spry.branchPrefix` in git config before running (see [Configuration](#configuration)).
 
 ## Development
 
 ```bash
-# Run in dev mode
-bun run dev
+# Run the CLI from source (no compile step)
+./scripts/sp <command>   # execs `bun src/cli/index.ts`
 
 # Run tests
 bun test
