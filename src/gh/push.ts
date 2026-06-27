@@ -44,6 +44,17 @@ export async function deleteRemoteBranch(
   return { ok: false, stderr: result.stderr };
 }
 
+// Deleting a remote ref that is already gone upstream is benign — the ref is
+// already in the state we want (an enumerate-then-vanish race, a stale tracking
+// ref that survived a pruning fetch, or GitHub's "auto-delete head branches on
+// merge" having removed it already). git reports this as
+// `error: unable to delete '<name>': remote ref does not exist`.
+const ALREADY_GONE = /remote ref does not exist/i;
+
+export function isAlreadyGone(stderr: string): boolean {
+  return ALREADY_GONE.test(stderr);
+}
+
 export async function listRemoteBranches(
   git: GitRunner,
   remote: string,

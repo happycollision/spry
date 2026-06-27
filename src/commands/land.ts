@@ -15,7 +15,7 @@ import {
   loadPRCache,
   savePRCache,
   pushPRCache,
-  PR_CACHE_REF,
+  deletePRCacheRemote,
 } from "../gh/pr-cache.ts";
 import {
   parseCommitTrailers,
@@ -25,7 +25,13 @@ import {
 } from "../parse/index.ts";
 import type { PRUnit } from "../parse/index.ts";
 import { formatValidationError } from "../ui/format.ts";
-import { findPRsForBranches, retargetPR, pushBranch, deleteRemoteBranch } from "../gh/index.ts";
+import {
+  findPRsForBranches,
+  retargetPR,
+  pushBranch,
+  deleteRemoteBranch,
+  isAlreadyGone,
+} from "../gh/index.ts";
 import { evaluateReadiness } from "./land-readiness.ts";
 import { confirm as defaultConfirm, selectOne } from "../tui/index.ts";
 import { resolveUnitTitle } from "../parse/index.ts";
@@ -192,11 +198,6 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
   }
 }
 
-// Deleting a remote ref that is already gone upstream is benign — GitHub's
-// "auto-delete head branches on merge" may have removed it already. git reports
-// `error: unable to delete '<name>': remote ref does not exist`.
-const ALREADY_GONE = /remote ref does not exist/i;
-
 /**
  * Drop the landed units from the PR cache (`refs/spry/prs`). ALWAYS runs — it is
  * not gated by any setting. `sp sync`'s self-heal cannot clear a fully-landed
@@ -225,12 +226,10 @@ async function dropLandedFromPRCache(
     await savePRCache(ctx.git, cache, { cwd });
 
     if (Object.keys(cache).length === 0) {
-      // The cache is now empty: savePRCache deleted the local ref, so push a
-      // deletion of the remote ref instead of the normal refspec push.
-      const del = await ctx.git.run(["push", config.remote, `:${PR_CACHE_REF}`], { cwd });
-      if (del.exitCode !== 0 && !ALREADY_GONE.test(del.stderr)) {
-        console.log(kleur.dim(`⚠ Could not clear remote PR cache: ${del.stderr.trim()}`));
-      }
+      // The cache is now empty: savePRCache deleted the local ref, so propagate
+      // a deletion of the remote ref instead of pushing a nonexistent source.
+      const del = await deletePRCacheRemote(ctx.git, config.remote, { cwd });
+      if (!del.ok) console.log(kleur.dim(`⚠ Could not clear remote PR cache: ${del.warning}`));
     } else {
       const push = await pushPRCache(ctx.git, config.remote, { cwd });
       if (!push.ok) console.log(kleur.dim(`⚠ Could not push PR cache: ${push.warning}`));
@@ -260,6 +259,10 @@ async function scrubLandedGroupRecords(
     Object.entries(groupRecords).filter(([id]) => !landedIds.has(id)),
   );
 
+  // No empty-special-case needed here (unlike the PR-cache path): landing the
+  // whole stack leaves `remaining` empty, but `saveAllGroupRecords` writes an
+  // empty-tree commit and keeps the ref alive, so the normal refspec push always
+  // has a source to push. `savePRCache`, by contrast, deletes its ref when empty.
   try {
     await saveAllGroupRecords(ctx.git, remaining, { cwd });
     const push = await ctx.git.run(["push", config.remote, "refs/spry/groups:refs/spry/groups"], {
@@ -285,12 +288,16 @@ async function deleteSpentBranches(
   scopeUnits: PRUnit[],
   cwd: string | undefined,
 ): Promise<void> {
+  // No try/catch is needed to honor "nothing here aborts the land": every step
+  // goes through `deleteRemoteBranch`, which returns a result object on failure
+  // (and `git.run` itself doesn't throw), so the loop can never reject. The
+  // guarantee is upheld by the callee contract, not by a guard here.
   for (const unit of scopeUnits) {
     const branch = branchForUnit(unit, config);
     const result = await deleteRemoteBranch(ctx.git, { cwd, remote: config.remote, branch });
     if (result.ok) {
       console.log(`✓ Deleted ${branch}`);
-    } else if (ALREADY_GONE.test(result.stderr)) {
+    } else if (isAlreadyGone(result.stderr)) {
       console.log(kleur.dim(`  ${branch} already gone`));
     } else {
       console.log(kleur.dim(`⚠ Could not delete ${branch}: ${result.stderr.trim()}`));

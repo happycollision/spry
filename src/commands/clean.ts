@@ -1,7 +1,7 @@
 import kleur from "kleur";
 import type { SpryContext } from "../lib/context.ts";
 import { loadConfig, trunkRef } from "../git/index.ts";
-import { deleteRemoteBranch } from "../gh/index.ts";
+import { deleteRemoteBranch, isAlreadyGone } from "../gh/index.ts";
 import type { DeleteRemoteBranchResult } from "../gh/index.ts";
 
 export interface CleanOptions {
@@ -13,12 +13,6 @@ export interface CleanOptions {
    */
   deleteBranch?: (branch: string) => Promise<DeleteRemoteBranchResult>;
 }
-
-// Deleting a ref that is already gone upstream (enumerate-then-vanish race, or a
-// stale tracking ref that survived even a pruning fetch) is benign — the branch
-// is already in the state we want. git's message for this is
-// `error: unable to delete '<name>': remote ref does not exist`.
-const ALREADY_GONE = /remote ref does not exist/i;
 
 /**
  * Delete remote spry branches whose commits have landed on trunk.
@@ -104,7 +98,7 @@ export async function cleanCommand(ctx: SpryContext, opts: CleanOptions = {}): P
     if (result.ok) {
       console.log(`✓ Deleted ${branch}`);
       deleted++;
-    } else if (ALREADY_GONE.test(result.stderr)) {
+    } else if (isAlreadyGone(result.stderr)) {
       console.log(kleur.dim(`  ${branch} already gone`));
     } else {
       console.error(`✗ Could not delete ${branch}: ${result.stderr.trim()}`);

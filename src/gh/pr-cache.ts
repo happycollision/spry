@@ -1,5 +1,6 @@
 import type { PRInfo } from "./pr.ts";
 import type { GitRunner } from "../lib/context.ts";
+import { isAlreadyGone } from "./push.ts";
 
 export interface PRCacheEntry extends PRInfo {
   branch: string;
@@ -89,5 +90,21 @@ export async function pushPRCache(
   const refspec = `${PR_CACHE_REF}:${PR_CACHE_REF}`;
   const result = await git.run(["push", remote, refspec], opts);
   if (result.exitCode === 0) return { ok: true };
+  return { ok: false, warning: result.stderr.trim() };
+}
+
+/**
+ * Delete the PR cache ref on the remote. Used when the local cache has been
+ * emptied (`savePRCache` deletes the local ref in that case, so there is no
+ * source ref to push — only a deletion to propagate). Best-effort like
+ * {@link pushPRCache}; an already-gone remote ref is benign (nothing to delete).
+ */
+export async function deletePRCacheRemote(
+  git: GitRunner,
+  remote: string,
+  opts?: GitOpts,
+): Promise<{ ok: true } | { ok: false; warning: string }> {
+  const result = await git.run(["push", remote, `:${PR_CACHE_REF}`], opts);
+  if (result.exitCode === 0 || isAlreadyGone(result.stderr)) return { ok: true };
   return { ok: false, warning: result.stderr.trim() };
 }

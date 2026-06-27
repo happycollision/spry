@@ -749,6 +749,50 @@ describe("sp land cleanup tail", () => {
     expect(Object.keys(records)).toEqual(["grp00002"]);
   });
 
+  test("a whole-stack group land empties the group records without erroring", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedGroupedStack(repo, git, [
+      {
+        id: "grp00001",
+        members: [
+          { id: "aaa11111", subject: "a" },
+          { id: "bbb22222", subject: "b" },
+        ],
+      },
+      {
+        id: "grp00002",
+        members: [
+          { id: "ccc33333", subject: "c" },
+          { id: "ddd44444", subject: "d" },
+        ],
+      },
+    ]);
+
+    const { gh } = stubGh(
+      ghPrStub({
+        "spry/test/grp00001": { number: 1 },
+        "spry/test/grp00002": { number: 2 },
+      }),
+    );
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      // Land through the TOP group → the whole stack lands.
+      await runLand(ctx, { cwd: repo.path, through: "grp00002" });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBeUndefined();
+    expect(logs.out.join("\n")).toContain("Landed");
+    // saveAllGroupRecords({}) wrote an empty-tree commit and kept the ref.
+    const records = await loadGroupRecords(ctx.git, { cwd: repo.path });
+    expect(records).toEqual({});
+  });
+
   test("with autoDeleteOnLand true, the spent remote branches are deleted", async () => {
     const repo = await makeConfiguredRepo();
     const git = createRealGitRunner();
