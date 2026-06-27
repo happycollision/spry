@@ -99,6 +99,11 @@ Optional:
 # Falls back to parsing the remote URL when unset; set this for non-GitHub
 # remotes or unusual URL formats.
 git config spry.repo owner/repo
+
+# When true, `sp land` deletes the remote branches of the units it just
+# landed. Default false. Leave it off (and use `sp clean`) if your repo has
+# GitHub's "automatically delete head branches" setting enabled.
+git config spry.autoDeleteOnLand true
 ```
 
 ## Quick Start
@@ -127,7 +132,8 @@ docs (produced from the doc tests, so they never drift from the code):
 - [`sp view`](docs/generated/commands/view.md) — display the current stack and PR status
 - [`sp sync`](docs/generated/commands/sync.md) — push branches, open PRs (`--open`), push every tracked stack (`--all`)
 - [`sp rebase`](docs/generated/commands/rebase.md) — fetch, check if behind trunk, and rebase the stack (`--all` for every tracked branch)
-- [`sp land`](docs/generated/commands/land.md) — retarget in-scope PRs to trunk and fast-forward trunk to the target tip (`--through <id>`)
+- [`sp land`](docs/generated/commands/land.md) — retarget in-scope PRs to trunk and fast-forward trunk to the target tip (`--through <id>`); scrubs the landed units' cached state, and deletes their remote branches when `spry.autoDeleteOnLand` is set
+- [`sp clean`](docs/generated/commands/clean.md) — delete remote spry branches that have landed on trunk (`--dry-run` to preview)
 - [`sp group`](docs/generated/commands/group.md) — interactive TUI for grouping and reordering commits
 
 Browse them all in [`docs/generated/commands/`](docs/generated/commands/).
