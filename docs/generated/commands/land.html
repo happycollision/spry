@@ -32,15 +32,14 @@
       `CLOSED`. `sp land` never deletes branches (that is `sp clean`'s job):
     </p>
     <pre class="command">sp land --through aaaa1111</pre>
-    <pre class="output">
-↑ pushed spry/dondenton/bbbb2222
-↑ pushed spry/dondenton/aaaa1111
-↻ retargeted PR #11 → spry/dondenton/bbbb2222
-✓ Updated PR cache (2 PRs)
-✓ Sync complete
-↻ retargeted PR #11 → main
-✓ Landed 2 PRs to main</pre
-    >
+    <pre class="output">&#x2191; pushed spry/dondenton/bbbb2222
+&#x2191; pushed spry/dondenton/aaaa1111
+&#x21BB; retargeted PR #11 &#x2192; spry/dondenton/bbbb2222
+&#x2713; Updated PR cache (2 PRs)
+&#x2713; Sync complete
+&#x21BB; retargeted PR #11 &#x2192; main
+&#x2713; Landed 2 PRs to main
+  Run `sp clean` to delete the landed branches from the remote.<span style="font-weight:normal;text-decoration:none;font-style:normal"></span></pre>
     <p>
       Run `sp land` with no arguments to choose the land point interactively. Spry shows a
       single-select menu of the stack's units (bottom→top) — use ↑/↓ to move, Enter to select. The

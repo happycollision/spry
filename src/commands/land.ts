@@ -1,13 +1,22 @@
 import kleur from "kleur";
 import type { SpryContext } from "../lib/context.ts";
 import { loadConfig, trunkRef, getStackCommits, branchForUnit } from "../git/index.ts";
+import type { SpryConfig } from "../git/index.ts";
+import type { GroupRecords } from "../parse/index.ts";
 import {
   fetchGroupRecords,
   loadGroupRecords,
+  saveAllGroupRecords,
   buildCommitGroupMap,
   extractGroupTitles,
 } from "../git/group-titles.ts";
-import { fetchPRCache } from "../gh/pr-cache.ts";
+import {
+  fetchPRCache,
+  loadPRCache,
+  savePRCache,
+  pushPRCache,
+  PR_CACHE_REF,
+} from "../gh/pr-cache.ts";
 import {
   parseCommitTrailers,
   parseStack,
@@ -16,7 +25,7 @@ import {
 } from "../parse/index.ts";
 import type { PRUnit } from "../parse/index.ts";
 import { formatValidationError } from "../ui/format.ts";
-import { findPRsForBranches, retargetPR, pushBranch } from "../gh/index.ts";
+import { findPRsForBranches, retargetPR, pushBranch, deleteRemoteBranch } from "../gh/index.ts";
 import { evaluateReadiness } from "./land-readiness.ts";
 import { confirm as defaultConfirm, selectOne } from "../tui/index.ts";
 import { resolveUnitTitle } from "../parse/index.ts";
@@ -163,8 +172,129 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
 
   const n = scopeUnits.length;
   console.log(`✓ Landed ${n} PR${n === 1 ? "" : "s"} to ${config.trunk}`);
+
+  // 7. Cleanup tail — scrub the state of the units we just landed. The land has
+  //    already succeeded; nothing below may abort it. Every failure here warns
+  //    (dim) and continues.
+  const landedIds = new Set(scopeUnits.map((u) => u.id));
+  await dropLandedFromPRCache(ctx, config, landedIds, cwd);
+  await scrubLandedGroupRecords(ctx, config, groupRecords, landedIds, cwd);
+  if (config.autoDeleteOnLand) {
+    await deleteSpentBranches(ctx, config, scopeUnits, cwd);
+  }
+
+  // 8. Closing guidance reflects what cleanup actually did.
   if (units.length > scopeUnits.length) {
-    console.log(kleur.dim("  Run `sp sync` to retarget the remaining PRs, then `sp clean`."));
+    console.log(kleur.dim("  Run `sp sync` to retarget the remaining PRs."));
+  }
+  if (!config.autoDeleteOnLand) {
+    console.log(kleur.dim("  Run `sp clean` to delete the landed branches from the remote."));
+  }
+}
+
+// Deleting a remote ref that is already gone upstream is benign — GitHub's
+// "auto-delete head branches on merge" may have removed it already. git reports
+// `error: unable to delete '<name>': remote ref does not exist`.
+const ALREADY_GONE = /remote ref does not exist/i;
+
+/**
+ * Drop the landed units from the PR cache (`refs/spry/prs`). ALWAYS runs — it is
+ * not gated by any setting. `sp sync`'s self-heal cannot clear a fully-landed
+ * stack (its `writePRCache` early-returns on an empty cache), so land removes
+ * the stale entries deterministically. When the drop empties the cache,
+ * `savePRCache` deletes the LOCAL ref; we then propagate that as a deletion of
+ * the REMOTE ref rather than pushing a now-nonexistent source ref.
+ */
+async function dropLandedFromPRCache(
+  ctx: SpryContext,
+  config: SpryConfig,
+  landedIds: Set<string>,
+  cwd: string | undefined,
+): Promise<void> {
+  try {
+    const cache = await loadPRCache(ctx.git, { cwd });
+    let dropped = 0;
+    for (const id of landedIds) {
+      if (id in cache) {
+        delete cache[id];
+        dropped++;
+      }
+    }
+    if (dropped === 0) return;
+
+    await savePRCache(ctx.git, cache, { cwd });
+
+    if (Object.keys(cache).length === 0) {
+      // The cache is now empty: savePRCache deleted the local ref, so push a
+      // deletion of the remote ref instead of the normal refspec push.
+      const del = await ctx.git.run(["push", config.remote, `:${PR_CACHE_REF}`], { cwd });
+      if (del.exitCode !== 0 && !ALREADY_GONE.test(del.stderr)) {
+        console.log(kleur.dim(`⚠ Could not clear remote PR cache: ${del.stderr.trim()}`));
+      }
+    } else {
+      const push = await pushPRCache(ctx.git, config.remote, { cwd });
+      if (!push.ok) console.log(kleur.dim(`⚠ Could not push PR cache: ${push.warning}`));
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.log(kleur.dim(`⚠ Could not update PR cache: ${message}`));
+  }
+}
+
+/**
+ * Remove landed group records from `refs/spry/groups`. ALWAYS runs. A unit is a
+ * group unit iff its id is a key in the loaded group records; groups are atomic,
+ * so a landed group is wholly in scope. Single-commit units never appear here.
+ */
+async function scrubLandedGroupRecords(
+  ctx: SpryContext,
+  config: SpryConfig,
+  groupRecords: GroupRecords,
+  landedIds: Set<string>,
+  cwd: string | undefined,
+): Promise<void> {
+  const landedGroups = Object.keys(groupRecords).filter((id) => landedIds.has(id));
+  if (landedGroups.length === 0) return;
+
+  const remaining: GroupRecords = Object.fromEntries(
+    Object.entries(groupRecords).filter(([id]) => !landedIds.has(id)),
+  );
+
+  try {
+    await saveAllGroupRecords(ctx.git, remaining, { cwd });
+    const push = await ctx.git.run(["push", config.remote, "refs/spry/groups:refs/spry/groups"], {
+      cwd,
+    });
+    if (push.exitCode !== 0) {
+      console.log(kleur.dim(`⚠ Could not push group records: ${push.stderr.trim()}`));
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.log(kleur.dim(`⚠ Could not update group records: ${message}`));
+  }
+}
+
+/**
+ * Delete the spent remote branches of the landed units. GATED on
+ * `config.autoDeleteOnLand`. A failed delete warns (dim) and continues — land
+ * already succeeded, so nothing here aborts. An "already gone" delete is benign.
+ */
+async function deleteSpentBranches(
+  ctx: SpryContext,
+  config: SpryConfig,
+  scopeUnits: PRUnit[],
+  cwd: string | undefined,
+): Promise<void> {
+  for (const unit of scopeUnits) {
+    const branch = branchForUnit(unit, config);
+    const result = await deleteRemoteBranch(ctx.git, { cwd, remote: config.remote, branch });
+    if (result.ok) {
+      console.log(`✓ Deleted ${branch}`);
+    } else if (ALREADY_GONE.test(result.stderr)) {
+      console.log(kleur.dim(`  ${branch} already gone`));
+    } else {
+      console.log(kleur.dim(`⚠ Could not delete ${branch}: ${result.stderr.trim()}`));
+    }
   }
 }
 

@@ -8,7 +8,8 @@ import type {
   SpryContext,
   TestRepo,
 } from "../lib/index.ts";
-import { saveGroupRecord } from "../../src/git/group-titles.ts";
+import { saveGroupRecord, loadGroupRecords } from "../../src/git/group-titles.ts";
+import { loadPRCache } from "../../src/gh/pr-cache.ts";
 
 const repos: TestRepo[] = [];
 
@@ -611,5 +612,246 @@ describe("sp land unresolved review threads", () => {
     const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
     expect(after).toBe(tip);
     expect(logs.out.join("\n")).toContain("Landed");
+  });
+});
+
+/**
+ * Build a stack of groups on `feature`. Each group's members are committed in
+ * order, the group record is saved, and the group's tip branch is pushed to the
+ * origin (mirrors {@link publishedStack} but for group units).
+ */
+async function publishedGroupedStack(
+  repo: TestRepo,
+  git: ReturnType<typeof createRealGitRunner>,
+  groups: { id: string; members: { id: string; subject: string }[] }[],
+): Promise<void> {
+  await git.run(["checkout", "-b", "feature"], { cwd: repo.path });
+  for (const g of groups) {
+    for (const m of g.members) {
+      await git.run(["commit", "--allow-empty", "-m", `${m.subject}\n\nSpry-Commit-Id: ${m.id}`], {
+        cwd: repo.path,
+      });
+    }
+    await saveGroupRecord(
+      git,
+      g.id,
+      { title: g.id, members: g.members.map((m) => m.id) },
+      { cwd: repo.path },
+    );
+    const tip = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${tip}:refs/heads/spry/test/${g.id}`], { cwd: repo.path });
+  }
+}
+
+describe("sp land cleanup tail", () => {
+  test("drops the landed units' PR-cache entries (whole stack empties the cache without erroring)", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedStack(repo, git, [
+      { id: "aaa11111", subject: "first" },
+      { id: "bbb22222", subject: "second" },
+    ]);
+
+    const { gh } = stubGh(
+      ghPrStub({
+        "spry/test/aaa11111": { number: 1 },
+        "spry/test/bbb22222": { number: 2 },
+      }),
+    );
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, { cwd: repo.path, through: "bbb22222" });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBeUndefined();
+    // Local cache ref is gone (savePRCache deletes the ref when empty).
+    const localCache = await loadPRCache(ctx.git, { cwd: repo.path });
+    expect(Object.keys(localCache)).toEqual([]);
+    // The empty cache is propagated to the remote as a ref deletion.
+    const remoteRef = (
+      await git.run(["ls-remote", "origin", "refs/spry/prs"], { cwd: repo.path })
+    ).stdout.trim();
+    expect(remoteRef).toBe("");
+  });
+
+  test("a partial land drops only the landed units' cache entries and keeps the rest", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedStack(repo, git, [
+      { id: "aaa11111", subject: "first" },
+      { id: "bbb22222", subject: "second" },
+    ]);
+
+    const { gh } = stubGh(
+      ghPrStub({
+        "spry/test/aaa11111": { number: 1 },
+        "spry/test/bbb22222": { number: 2 },
+      }),
+    );
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, { cwd: repo.path, through: "aaa11111" });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBeUndefined();
+    const localCache = await loadPRCache(ctx.git, { cwd: repo.path });
+    expect(Object.keys(localCache)).toEqual(["bbb22222"]);
+  });
+
+  test("scrubs landed group records; a partial land keeps out-of-scope groups", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedGroupedStack(repo, git, [
+      {
+        id: "grp00001",
+        members: [
+          { id: "aaa11111", subject: "a" },
+          { id: "bbb22222", subject: "b" },
+        ],
+      },
+      {
+        id: "grp00002",
+        members: [
+          { id: "ccc33333", subject: "c" },
+          { id: "ddd44444", subject: "d" },
+        ],
+      },
+    ]);
+
+    const { gh } = stubGh(
+      ghPrStub({
+        "spry/test/grp00001": { number: 1 },
+        "spry/test/grp00002": { number: 2 },
+      }),
+    );
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, { cwd: repo.path, through: "grp00001" });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBeUndefined();
+    const records = await loadGroupRecords(ctx.git, { cwd: repo.path });
+    expect(Object.keys(records)).toEqual(["grp00002"]);
+  });
+
+  test("with autoDeleteOnLand true, the spent remote branches are deleted", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await git.run(["config", "spry.autoDeleteOnLand", "true"], { cwd: repo.path });
+    await publishedStack(repo, git, [
+      { id: "aaa11111", subject: "first" },
+      { id: "bbb22222", subject: "second" },
+    ]);
+
+    // Sanity: both spry branches exist on the origin before landing.
+    const before = (
+      await git.run(["ls-remote", "--heads", "origin", "spry/test/*"], { cwd: repo.path })
+    ).stdout.trim();
+    expect(before).toContain("spry/test/aaa11111");
+    expect(before).toContain("spry/test/bbb22222");
+
+    const { gh } = stubGh(
+      ghPrStub({
+        "spry/test/aaa11111": { number: 1 },
+        "spry/test/bbb22222": { number: 2 },
+      }),
+    );
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, { cwd: repo.path, through: "bbb22222" });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBeUndefined();
+    const after = (
+      await git.run(["ls-remote", "--heads", "origin", "spry/test/*"], { cwd: repo.path })
+    ).stdout.trim();
+    expect(after).toBe("");
+    expect(logs.out.join("\n")).toContain("Deleted spry/test/aaa11111");
+    expect(logs.out.join("\n")).toContain("Deleted spry/test/bbb22222");
+  });
+
+  test("with autoDeleteOnLand false (default), the spent remote branches are NOT deleted", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedStack(repo, git, [
+      { id: "aaa11111", subject: "first" },
+      { id: "bbb22222", subject: "second" },
+    ]);
+
+    const { gh } = stubGh(
+      ghPrStub({
+        "spry/test/aaa11111": { number: 1 },
+        "spry/test/bbb22222": { number: 2 },
+      }),
+    );
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, { cwd: repo.path, through: "bbb22222" });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBeUndefined();
+    const after = (
+      await git.run(["ls-remote", "--heads", "origin", "spry/test/*"], { cwd: repo.path })
+    ).stdout.trim();
+    expect(after).toContain("spry/test/aaa11111");
+    expect(after).toContain("spry/test/bbb22222");
+  });
+
+  test("an already-gone branch during deletion is benign (no failure)", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await git.run(["config", "spry.autoDeleteOnLand", "true"], { cwd: repo.path });
+    await publishedStack(repo, git, [
+      { id: "aaa11111", subject: "first" },
+      { id: "bbb22222", subject: "second" },
+    ]);
+    // Remove one branch from the origin BEFORE landing so the auto-delete step
+    // hits a "remote ref does not exist" — which must be treated as benign.
+    await git.run(["push", "origin", "--delete", "spry/test/aaa11111"], { cwd: repo.path });
+
+    const { gh } = stubGh(
+      ghPrStub({
+        "spry/test/aaa11111": { number: 1 },
+        "spry/test/bbb22222": { number: 2 },
+      }),
+    );
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, { cwd: repo.path, through: "bbb22222" });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBeUndefined();
+    expect(logs.out.join("\n")).toContain("Landed");
+    expect(logs.out.join("\n")).toMatch(/spry\/test\/aaa11111 already gone/);
   });
 });

@@ -14,6 +14,7 @@ sp land --through aaaa1111
 ✓ Sync complete
 ↻ retargeted PR #11 → main
 ✓ Landed 2 PRs to main
+  Run `sp clean` to delete the landed branches from the remote.
 
 ```
 
