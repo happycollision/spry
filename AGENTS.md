@@ -155,4 +155,4 @@ The GitHub workflow automatically builds binaries for all platforms and creates 
 
 **Version format:** `X.Y.Z` or `X.Y.Z-prerelease` (e.g., `0.1.0`, `0.1.0-alpha.4`, `1.0.0-beta.1`)
 
-We are doing main development on the `rebuild-spry` branch. Split off and merge back to that branch for feature work.
+We are doing main development on `main`. Split feature work off from `main` and merge it back there.

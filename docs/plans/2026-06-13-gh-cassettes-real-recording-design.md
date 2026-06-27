@@ -1,7 +1,7 @@
 # Design: Real `gh` Cassettes via Deterministic Identity
 
 **Date:** 2026-06-13
-**Branch:** `rebuild-spry`
+**Branch at design time:** rebuild integration branch
 **Resolves:** Solo todo #18 — "Add a gh cassette injection seam to the CLI for record/replay in subprocess doc tests"
 
 ---

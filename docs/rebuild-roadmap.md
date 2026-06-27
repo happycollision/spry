@@ -1,19 +1,19 @@
 # Rebuild Roadmap
 
-This document tracks the feature gap between `main` and the `rebuild-spry` branch, and records decisions about what to do with each item.
+This document records the rebuild feature audit and the decisions about what to port, redesign, or drop.
 
 The rebuild started fresh with better test infrastructure and a cleaner architecture. Not everything from `main` needs a direct port — some things should be redesigned, some merged, some dropped.
 
-**Status as of 2026-06-27:** The rebuild now covers the core workflow with deliberate redesigns rather than one-for-one parity with `main`. Most observed differences are accepted product decisions (documented below). The main remaining parity area is `sp group`: the interactive editor exists, but we still need to consider the capabilities that `main`'s helper commands covered and decide whether they need new rebuild-native workflows.
+**Status as of 2026-06-27:** The rebuilt implementation has been fast-forwarded into `main`. We are still rebuilding, but future work should branch from `main` rather than from the old `rebuild-spry` integration branch. The rebuild now covers the core workflow with deliberate redesigns rather than one-for-one parity with the pre-rebuild codebase. Most observed differences are accepted product decisions (documented below). The main remaining parity area is `sp group`: the interactive editor exists, but we still need to consider the capabilities that the old helper commands covered and decide whether they need new rebuild-native workflows.
 
-**Main comparison point:** local `main` tip at audit time is
+**Pre-merge comparison point:** local `main` tip at audit time was
 `466674e30a8342895ea009903a0df2e0de45222f` (commit date
-2026-02-03 00:04:37 -0500). Use this as the feature-diff anchor before merging
-`rebuild-spry` back to `main`.
+2026-02-03 00:04:37 -0500). Use this as the feature-diff anchor for the
+pre-rebuild codebase.
 
 ---
 
-## What exists on this branch
+## What exists now
 
 - `sp view` — offline stack display, reads PR status from `refs/spry/prs` cache
 - `sp sync` — push branches, open PRs (`--open`), retarget stacked PRs; **`--all`** pushes every tracked stack (push-only)
@@ -28,7 +28,7 @@ Branch tracking (`refs/spry/local/tracked-branches`) is written automatically by
 
 The rebuild is no longer trying to match `main` flag-for-flag. These are the remaining follow-up areas after the feature audit:
 
-- **Revisit legacy `sp group` helper capabilities.** `main` had `sp group --apply`, `sp group --fix`, and `sp group dissolve`. This branch currently ships the interactive editor only. We are not assuming those exact commands should return, but we need to consider the jobs they did before deciding whether to drop them or design rebuild-native replacements.
+- **Revisit legacy `sp group` helper capabilities.** The pre-rebuild code had `sp group --apply`, `sp group --fix`, and `sp group dissolve`. The rebuilt code currently ships the interactive editor only. We are not assuming those exact commands should return, but we need to consider the jobs they did before deciding whether to drop them or design rebuild-native replacements.
 
 The cleanup capabilities `main` bundled into `clean` are resolved as follows:
 

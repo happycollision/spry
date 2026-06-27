@@ -79,4 +79,4 @@ git push
 git status
 ```
 
-Expected final status says the branch is up to date with `origin/rebuild-spry` and the working tree is clean.
+Expected final status says the branch is up to date with its upstream and the working tree is clean.

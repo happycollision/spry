@@ -446,11 +446,11 @@ git commit -m "docs(cassettes): record/refresh workflow + never-hand-author rule
 
 **Step 1:** `bun run check` (types + lint + format), then `bun run test:docker` (offline suite green with no network).
 **Step 2:** Optionally `SPRY_RECORD=1 bun run test:ci` once to confirm record mode end-to-end.
-**Step 3:** Merge `feat/gh-cassettes-real-recording` back into `rebuild-spry` (per `CLAUDE.md`).
+**Step 3:** Merge `feat/gh-cassettes-real-recording` back into the then-current rebuild integration branch.
 
 ### Task 6.3: Mark Solo todo #18 done
 
-Only after offline replay of real recordings is green on `rebuild-spry`. Post a closing comment summarizing: real record mode shipped (`SPRY_GH_CASSETTE_RECORD`), replay seam (`SPRY_GH_CASSETTE`, `match: "args"` + stdin), determinism bridge (pinned dates/identity + seeded ids), fragments migrated, and that **no responses were hand-authored** this time. Then set the todo to completed.
+Only after offline replay of real recordings is green on the then-current rebuild integration branch. Post a closing comment summarizing: real record mode shipped (`SPRY_GH_CASSETTE_RECORD`), replay seam (`SPRY_GH_CASSETTE`, `match: "args"` + stdin), determinism bridge (pinned dates/identity + seeded ids), fragments migrated, and that **no responses were hand-authored** this time. Then set the todo to completed.
 
 ---
 
