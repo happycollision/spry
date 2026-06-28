@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- CLI-thrown command errors now print as clean `✗ ...` failures instead of leaking Bun source-frame stack traces when running from TypeScript in development.
 - `sp sync --open` no longer hangs when opening a pull request whose body is empty. The git/gh subprocess runners now feed stdin via `Bun.spawn`, so an empty stdin is a real EOF instead of being inherited from the terminal — Bun's `$` shell silently no-ops a `< ${buffer}` redirect when the buffer is empty, which left `gh pr create --body-file -` blocking on the TUI's terminal forever.
 - PR status query against GitHub was broken: it referenced `$REPOSITORY_OWNER`/`$REPOSITORY_NAME`, which `gh api graphql` does not auto-populate, so every real PR lookup failed with `variableNotDefined`. This was masked because all tests stubbed `gh`. The query now declares `$owner`/`$repo` and `sp sync`/`sp view`/`sp land`/`sp group` pass them from a resolved repo slug (a new optional `spry.repo` git-config override, falling back to parsing the remote URL). This restores `sp sync`'s PR-cache refresh and retargeting against real GitHub.
 - `sp group` reorder: `rewriteCommitChain` now accepts an optional `base` commit so reordered stacks are rooted at the merge base rather than being appended on top of the original chain. Previously, reordering two commits would produce a three-commit history instead of two.
