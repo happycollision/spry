@@ -76,10 +76,7 @@ describe("getParents", () => {
 
   test("returns empty array for root commit", async () => {
     repo = await createRepo();
-    const result = await git.run(
-      ["rev-list", "--max-parents=0", "HEAD"],
-      { cwd: repo.path },
-    );
+    const result = await git.run(["rev-list", "--max-parents=0", "HEAD"], { cwd: repo.path });
     const root = result.stdout.trim();
     const parents = await getParents(git, root, { cwd: repo.path });
     expect(parents).toEqual([]);
@@ -139,14 +136,9 @@ describe("createCommit", () => {
     const tree = await getTree(git, "HEAD", { cwd: repo.path });
     const env = await getAuthorAndCommitterEnv(git, "HEAD", { cwd: repo.path });
 
-    const newSha = await createCommit(
-      git,
-      tree,
-      [parentSha],
-      "plumbing commit message",
-      env,
-      { cwd: repo.path },
-    );
+    const newSha = await createCommit(git, tree, [parentSha], "plumbing commit message", env, {
+      cwd: repo.path,
+    });
 
     expect(newSha).toMatch(/^[0-9a-f]{40}$/);
     expect(newSha).not.toBe(parentSha);
@@ -189,25 +181,16 @@ describe("mergeTree", () => {
   test("conflict with overlapping changes", async () => {
     repo = await createRepo();
     // Create base with shared file
-    const baseSha = await repo.commitFiles(
-      { "shared.txt": "base content" },
-      "base",
-    );
+    const baseSha = await repo.commitFiles({ "shared.txt": "base content" }, "base");
 
     // Branch A modifies shared file
     await repo.branch("conflict-a");
-    const shaA = await repo.commitFiles(
-      { "shared.txt": "version A" },
-      "modify A",
-    );
+    const shaA = await repo.commitFiles({ "shared.txt": "version A" }, "modify A");
 
     // Back to base, branch B modifies same file differently
     await repo.checkout(repo.defaultBranch);
     await repo.branch("conflict-b");
-    const shaB = await repo.commitFiles(
-      { "shared.txt": "version B" },
-      "modify B",
-    );
+    const shaB = await repo.commitFiles({ "shared.txt": "version B" }, "modify B");
 
     const result = await mergeTree(git, baseSha, shaA, shaB, {
       cwd: repo.path,
@@ -231,22 +214,11 @@ describe("updateRef", () => {
     // Create a new commit via plumbing
     const tree = await getTree(git, sha2, { cwd: repo.path });
     const env = await getAuthorAndCommitterEnv(git, sha2, { cwd: repo.path });
-    const newSha = await createCommit(
-      git,
-      tree,
-      [sha2],
-      "ref update test",
-      env,
-      { cwd: repo.path },
-    );
+    const newSha = await createCommit(git, tree, [sha2], "ref update test", env, {
+      cwd: repo.path,
+    });
 
-    await updateRef(
-      git,
-      `refs/heads/${repo.defaultBranch}`,
-      newSha,
-      sha2,
-      { cwd: repo.path },
-    );
+    await updateRef(git, `refs/heads/${repo.defaultBranch}`, newSha, sha2, { cwd: repo.path });
 
     const currentSha = await getFullSha(git, repo.defaultBranch, {
       cwd: repo.path,
@@ -318,12 +290,7 @@ describe("rewriteCommitChain", () => {
     const rewrites = new Map<string, string>();
     rewrites.set(sha2, "REWRITTEN second");
 
-    const result = await rewriteCommitChain(
-      git,
-      [sha1, sha2, sha3],
-      rewrites,
-      { cwd: repo.path },
-    );
+    const result = await rewriteCommitChain(git, [sha1, sha2, sha3], rewrites, { cwd: repo.path });
 
     expect(result.mapping.size).toBe(3);
 
@@ -381,20 +348,14 @@ describe("rebasePlumbing", () => {
     const base = await getFullSha(git, "HEAD", { cwd: repo.path });
 
     // Create work on main
-    await repo.commitFiles(
-      { "main-work.txt": "main content" },
-      "main work",
-    );
+    await repo.commitFiles({ "main-work.txt": "main content" }, "main work");
     await repo.checkout(repo.defaultBranch);
     const mainTip = await getFullSha(git, "HEAD", { cwd: repo.path });
 
     // Go back to base, branch off and add non-conflicting work
     await repo.checkout(base);
     await repo.branch("rebase-src");
-    const featureSha = await repo.commitFiles(
-      { "feature.txt": "feature content" },
-      "feature work",
-    );
+    const featureSha = await repo.commitFiles({ "feature.txt": "feature content" }, "feature work");
 
     const result = await rebasePlumbing(git, mainTip, [featureSha], {
       cwd: repo.path,
@@ -423,16 +384,10 @@ describe("rebasePlumbing", () => {
   test("detects conflicts", async () => {
     repo = await createRepo();
     // Create base with shared file
-    const baseSha = await repo.commitFiles(
-      { "conflict.txt": "base content" },
-      "conflict base",
-    );
+    const baseSha = await repo.commitFiles({ "conflict.txt": "base content" }, "conflict base");
 
     // Main modifies it
-    await repo.commitFiles(
-      { "conflict.txt": "main version" },
-      "main conflict",
-    );
+    await repo.commitFiles({ "conflict.txt": "main version" }, "main conflict");
     const mainTip = await getFullSha(git, "HEAD", { cwd: repo.path });
 
     // Branch from base, modify same file

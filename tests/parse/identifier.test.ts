@@ -97,7 +97,14 @@ describe("resolveIdentifier", () => {
 
   test("resolves group ID", () => {
     const groupUnits = [
-      makeGroup("grp00001", ["aaa111222333444555666777888999000aaabbbccc", "bbb222333444555666777888999000aaabbbcccddd"], ["abc12345", "def67890"]),
+      makeGroup(
+        "grp00001",
+        [
+          "aaa111222333444555666777888999000aaabbbccc",
+          "bbb222333444555666777888999000aaabbbcccddd",
+        ],
+        ["abc12345", "def67890"],
+      ),
     ];
     const result = resolveIdentifier("grp00001", groupUnits, commits);
     expect(result.ok).toBe(true);
@@ -106,7 +113,14 @@ describe("resolveIdentifier", () => {
 
   test("resolves commit hash to containing group", () => {
     const groupUnits = [
-      makeGroup("grp00001", ["aaa111222333444555666777888999000aaabbbccc", "bbb222333444555666777888999000aaabbbcccddd"], ["abc12345", "def67890"]),
+      makeGroup(
+        "grp00001",
+        [
+          "aaa111222333444555666777888999000aaabbbccc",
+          "bbb222333444555666777888999000aaabbbcccddd",
+        ],
+        ["abc12345", "def67890"],
+      ),
     ];
     const result = resolveIdentifier("bbb2223", groupUnits, commits);
     expect(result.ok).toBe(true);
@@ -151,7 +165,12 @@ describe("formatResolutionError", () => {
   });
 
   test("formats ambiguous error", () => {
-    const msg = formatResolutionError({ ok: false, error: "ambiguous", identifier: "abc", matches: ["abc123", "abc456"] });
+    const msg = formatResolutionError({
+      ok: false,
+      error: "ambiguous",
+      identifier: "abc",
+      matches: ["abc123", "abc456"],
+    });
     expect(msg).toContain("matches multiple");
   });
 });

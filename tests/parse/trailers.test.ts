@@ -48,13 +48,21 @@ describe("parseTrailers", () => {
 
 describe("addTrailers", () => {
   test("adds single trailer to message", async () => {
-    const result = await addTrailers("Add feature\n\nSome description.", { "Spry-Commit-Id": "a1b2c3d4" }, git);
+    const result = await addTrailers(
+      "Add feature\n\nSome description.",
+      { "Spry-Commit-Id": "a1b2c3d4" },
+      git,
+    );
     expect(result).toContain("Spry-Commit-Id: a1b2c3d4");
     expect(result).toContain("Add feature");
   });
 
   test("adds multiple trailers", async () => {
-    const result = await addTrailers("Add feature", { "Spry-Commit-Id": "a1b2c3d4", "Spry-Group": "f7e8d9c0" }, git);
+    const result = await addTrailers(
+      "Add feature",
+      { "Spry-Commit-Id": "a1b2c3d4", "Spry-Group": "f7e8d9c0" },
+      git,
+    );
     expect(result).toContain("Spry-Commit-Id: a1b2c3d4");
     expect(result).toContain("Spry-Group: f7e8d9c0");
   });
@@ -65,7 +73,11 @@ describe("addTrailers", () => {
   });
 
   test("roundtrip: added trailers can be parsed back", async () => {
-    const withTrailers = await addTrailers("Add feature", { "Spry-Commit-Id": "a1b2c3d4", "Spry-Group": "f7e8d9c0" }, git);
+    const withTrailers = await addTrailers(
+      "Add feature",
+      { "Spry-Commit-Id": "a1b2c3d4", "Spry-Group": "f7e8d9c0" },
+      git,
+    );
     const parsed = await parseTrailers(withTrailers, git);
     expect(parsed["Spry-Commit-Id"]).toBe("a1b2c3d4");
     expect(parsed["Spry-Group"]).toBe("f7e8d9c0");

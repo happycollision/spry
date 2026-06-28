@@ -1,9 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { createRealGitRunner, createRepo } from "../../tests/lib/index.ts";
-import {
-  getWorkingTreeStatus,
-  requireCleanWorkingTree,
-} from "../../src/git/status.ts";
+import { getWorkingTreeStatus, requireCleanWorkingTree } from "../../src/git/status.ts";
 
 const git = createRealGitRunner();
 
@@ -76,9 +73,7 @@ describe("requireCleanWorkingTree", () => {
     const repo = await createRepo();
     try {
       await Bun.write(repo.path + "/README.md", "modified");
-      await expect(
-        requireCleanWorkingTree(git, { cwd: repo.path }),
-      ).rejects.toThrow("uncommitted");
+      await expect(requireCleanWorkingTree(git, { cwd: repo.path })).rejects.toThrow("uncommitted");
     } finally {
       await repo.cleanup();
     }
