@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `sp sync` and `sp sync --all` now tolerate a dirty working tree. Sync is push-only and no longer performs a real rebase, so local uncommitted changes do not affect the explicit commit SHAs it publishes.
+- `sp group` now allows metadata-only grouping and renaming with a dirty working tree, while disabling commit reordering in the TUI until the tree is clean.
 - Internal: extracted the gh cassette seam into a shared `createSeamedGhClient` helper (`src/lib/gh-seam.ts`) so the CLI and test harnesses select record/replay/real consistently.
 - Group membership now stored in `refs/spry/groups` alongside titles instead of `Spry-Group` commit trailers. Each group record is a JSON blob `{"title":"...","members":["commitId1",...]}`. `parseStack` now accepts an explicit `CommitGroupMap` (Spry-Commit-Id → groupId) instead of reading `Spry-Group` from commit messages, so grouping never requires a commit rewrite.
 - `loadGroupTitles`/`saveGroupTitle`/`fetchGroupTitles` replaced by `loadGroupRecords`/`saveGroupRecord`/`fetchGroupRecords` plus `buildCommitGroupMap` and `extractGroupTitles` helpers.

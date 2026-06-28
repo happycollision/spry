@@ -28,33 +28,52 @@
       Run `sp group` to open the interactive group editor. Use ↑↓ to move between commits and ←→ to
       assign or remove group membership. Commits in the same group ship as a single PR.
     </p>
-    <pre class="screen">Stack: feature/auth (3 commits)
+    <pre class="screen">
+Stack: feature/auth (3 commits)
 
    1  c5d2a9f  Add login form                           [A: Auth Flow]
-<span style="color:#0AA">&#x25B6;</span>  2  8e3b6f1  Add session handling                     [A]
+&#x25B6;  2  8e3b6f1  Add session handling                     [A]
    3  7c3d9e2  Fix typo in README
 
-&#x2191;&#x2193; cursor  &#x2190;&#x2192; group  Space grab  r rename  Enter save  q quit</pre>
+&#x2191;&#x2193; cursor  &#x2190;&#x2192; group  Space grab  r rename  Enter save  q quit</pre
+    >
     <p>
       Press `r` to rename the group at the cursor. Type a title and press Enter to confirm, or Esc
       to cancel.
     </p>
-    <pre class="screen">Stack: feature/auth (2 commits)
+    <pre class="screen">
+Stack: feature/auth (2 commits)
 
    1  f1a9e4c  Add login form                           [A: Auth&#x258C;]
-<span style="color:#0AA">&#x25B6;</span>  2  7c3d9e2  Add session handling                     [A]
+&#x25B6;  2  7c3d9e2  Add session handling                     [A]
 
-<span style="color:#0AA">RENAME MODE</span> &#x2014; Type title  Enter confirm  Esc cancel</pre>
+RENAME MODE &#x2014; Type title  Enter confirm  Esc cancel</pre
+    >
     <p>
       Press Space to grab a commit and ↑↓ to reorder it. Spry predicts rebase conflicts as you move
       — rows with ⚠ may conflict. Press Space or Enter to drop the commit at its new position.
     </p>
-    <pre class="screen">Stack: feature/auth (2 commits)
+    <pre class="screen">
+Stack: feature/auth (2 commits)
 
-<span style="color:#A50">&#x25CF;  1  f1a9e4c</span><span style="color:#A50">  Add session handling                    </span>
-   2  c5d2a9f  Add login form
+&#x25CF;  1  2d7f4a1  Add session handling
+   2  8e3b6f1  Add login form
 
-<span style="color:#0AA">MOVE MODE</span> &#x2014; &#x2191;&#x2193; reorder  Space/Enter drop  Esc cancel</pre>
+MOVE MODE &#x2014; &#x2191;&#x2193; reorder  Space/Enter drop  Esc cancel</pre
+    >
+    <p>
+      If the working tree is dirty, `sp group` still allows metadata-only grouping and renaming, but
+      disables commit reordering until local changes are cleaned up.
+    </p>
+    <pre class="screen">
+Stack: feature/auth (2 commits)
+
+&#x25B6;  1  2d7f4a1  Add login form
+   2  b47e1d0  Add session handling
+
+Reordering disabled: working tree is dirty.
+&#x2191;&#x2193; cursor  &#x2190;&#x2192; group  Space disabled  r rename  Enter save  q quit</pre
+    >
     <p>
       When you group commits and one of them already has an open PR, `sp group` adopts that PR for
       the new group instead of stranding it. Spry looks up each commit's branch on GitHub before the
@@ -68,12 +87,14 @@
       While reordering, Spry predicts rebase conflicts in the background. Rows marked with ⚠ are
       likely to conflict if dropped in their current position.
     </p>
-    <pre class="screen">Stack: feature/config (2 commits)
+    <pre class="screen">
+Stack: feature/config (2 commits)
 
-<span style="color:#A50">&#x25CF;  1  b47e1d0</span><span style="color:#A50">  Set version to 2                         <span style="color:#A00">&#x26A0;</span></span>
-   2  2d7f4a1  Set version to 1                         <span style="color:#A00">&#x26A0;</span>
+&#x25CF;  1  b47e1d0  Set version to 2                         &#x26A0;
+   2  2d7f4a1  Set version to 1                         &#x26A0;
 
-<span style="color:#0AA">MOVE MODE</span> &#x2014; &#x2191;&#x2193; reorder  Space/Enter drop  Esc cancel
-<span style="color:#A00">&#x26A0; Moving this commit may cause a conflict</span></pre>
+MOVE MODE &#x2014; &#x2191;&#x2193; reorder  Space/Enter drop  Esc cancel
+&#x26A0; Moving this commit may cause a conflict</pre
+    >
   </body>
 </html>

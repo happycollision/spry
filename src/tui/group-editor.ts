@@ -10,6 +10,7 @@ export interface GroupEditorOptions {
   branch: string;
   trunkRef: string;
   cwd?: string;
+  canReorder?: boolean;
 }
 
 export async function runGroupEditor(
@@ -28,7 +29,7 @@ export async function runGroupEditor(
   const mergeBase = await getMergeBase(git, opts.trunkRef, { cwd: opts.cwd });
   const originalHashes = commits.map((c) => c.hash);
 
-  let state = createInitialState(commits, groupRecords);
+  let state = createInitialState(commits, groupRecords, { canReorder: opts.canReorder });
 
   function render(): void {
     stdout.write(renderGroupEditor(state, opts.branch));

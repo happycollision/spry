@@ -29,13 +29,17 @@
       whose tip commits are now ancestors of trunk:
     </p>
     <pre class="command">sp clean</pre>
-    <pre class="output">&#x2713; Deleted spry/dondenton/login
-Cleaned 1 landed branch.<span style="font-weight:normal;text-decoration:none;font-style:normal"></span></pre>
+    <pre class="output">
+✓ Deleted spry/dondenton/login
+Cleaned 1 landed branch.</pre
+    >
     <p>Pass `--dry-run` to see which branches would be removed without deleting anything:</p>
     <pre class="command">sp clean --dry-run</pre>
-    <pre class="output">Would delete 1 landed branch:
-  spry/dondenton/login<span style="font-weight:normal;text-decoration:none;font-style:normal">
-Run `sp clean` to delete them.<span style="font-weight:normal;text-decoration:none;font-style:normal"></span></span></pre>
+    <pre class="output">
+Would delete 1 landed branch:
+  spry/dondenton/login
+Run `sp clean` to delete them.</pre
+    >
     <p>When no tracked branch has landed yet, `sp clean` leaves every branch in place:</p>
     <pre class="command">sp clean</pre>
     <pre class="output">✓ No landed branches to clean</pre>

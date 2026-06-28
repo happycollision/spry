@@ -30,10 +30,23 @@ Press Space to grab a commit and ↑↓ to reorder it. Spry predicts rebase conf
 ```
 Stack: feature/auth (2 commits)
 
-●  1  f1a9e4c  Add session handling
-   2  c5d2a9f  Add login form
+●  1  2d7f4a1  Add session handling
+   2  8e3b6f1  Add login form
 
 MOVE MODE — ↑↓ reorder  Space/Enter drop  Esc cancel
+
+```
+
+If the working tree is dirty, `sp group` still allows metadata-only grouping and renaming, but disables commit reordering until local changes are cleaned up.
+
+```
+Stack: feature/auth (2 commits)
+
+▶  1  2d7f4a1  Add login form
+   2  b47e1d0  Add session handling
+
+Reordering disabled: working tree is dirty.
+↑↓ cursor  ←→ group  Space disabled  r rename  Enter save  q quit
 
 ```
 

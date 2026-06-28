@@ -28,6 +28,7 @@ export interface GroupEditorState {
   conflicts: Set<number>; // row indices with predicted conflicts
   hasChanges: boolean;
   originalOrder: string[]; // commit hashes in order at session start
+  canReorder: boolean;
 }
 
 export type EditorEvent =
@@ -48,11 +49,16 @@ export interface GroupEditorResult {
   cancelled: boolean;
 }
 
+export interface CreateInitialStateOptions {
+  canReorder?: boolean;
+}
+
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 export function createInitialState(
   commits: CommitWithTrailers[],
   groupRecords: GroupRecords,
+  options: CreateInitialStateOptions = {},
 ): GroupEditorState {
   // Map commitId → groupId from stored records
   const commitToGroupId: Record<string, string> = {};
@@ -98,6 +104,7 @@ export function createInitialState(
     conflicts: new Set(),
     hasChanges: false,
     originalOrder: commits.map((c) => c.hash),
+    canReorder: options.canReorder ?? true,
   };
 }
 
@@ -124,6 +131,7 @@ function applyNormal(state: GroupEditorState, event: EditorEvent): GroupEditorSt
   if (event.type === "arrow-left") return retreatGroup(state);
   if (event.type === "space") {
     if (state.rows.length === 0) return state;
+    if (!state.canReorder) return state;
     return { ...state, mode: "move", grabbed: state.cursor, grabbedOrigin: state.cursor };
   }
   if (event.type === "char" && event.char === "r") {

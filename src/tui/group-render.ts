@@ -60,7 +60,11 @@ export function renderGroupEditor(state: GroupEditorState, branch: string): stri
   } else if (state.mode === "rename") {
     lines.push(kleur.cyan("RENAME MODE") + kleur.dim(" — Type title  Enter confirm  Esc cancel"));
   } else {
-    lines.push(kleur.dim("↑↓ cursor  ←→ group  Space grab  r rename  Enter save  q quit"));
+    if (!state.canReorder) {
+      lines.push(kleur.yellow("Reordering disabled: working tree is dirty."));
+    }
+    const reorderHelp = state.canReorder ? "Space grab" : "Space disabled";
+    lines.push(kleur.dim(`↑↓ cursor  ←→ group  ${reorderHelp}  r rename  Enter save  q quit`));
   }
 
   return CLEAR_SCREEN + HIDE_CURSOR + lines.join("\n");

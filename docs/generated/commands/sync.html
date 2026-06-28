@@ -32,9 +32,9 @@
     </p>
     <pre class="command">sp sync</pre>
     <pre class="output">
-&#x2191; pushed spry/dondenton/aaaa1111
+↑ pushed spry/dondenton/aaaa1111
 PR retargeting unavailable: &lt;hint&gt;
-&#x2713; Sync complete</pre
+✓ Sync complete</pre
     >
     <p>
       Use `sp sync --open &lt;id&gt;` to publish a commit for the first time — Spry pushes the
@@ -67,8 +67,10 @@ PR retargeting unavailable: &lt;hint&gt;
       shows an interactive menu — use Space to toggle, Enter to confirm:
     </p>
     <pre class="command">sp sync --open</pre>
-    <pre class="screen">Select units to open (space toggle, a all, enter confirm, esc cancel):
-<span style="color:#0AA">&gt;</span> [ ] aaaa1111  Add login</pre>
+    <pre class="screen">
+Select units to open (space toggle, a all, enter confirm, esc cancel):
+&gt; [ ] aaaa1111  Add login</pre
+    >
     <pre class="output">
 ↑ pushed spry/dondenton/aaaa1111
 ✓ Created PR #42: Add login
@@ -84,9 +86,11 @@ PR retargeting unavailable: &lt;hint&gt;
       anything else. This happens automatically on first use:
     </p>
     <pre class="command">sp sync</pre>
-    <pre class="output">&#x2713; Injected 1 commit ID(s)
-PR retargeting unavailable: network error (branches still updated)<span style="font-weight:normal;text-decoration:none;font-style:normal">
-&#x2713; Sync complete</span></pre>
+    <pre class="output">
+✓ Injected 1 commit ID(s)
+PR retargeting unavailable: network error (branches still updated)
+✓ Sync complete</pre
+    >
     <p>
       After pushing, `sp sync` checks each open PR's base, retargets any that are wrong, and
       refreshes the local PR status cache read by `sp view`. No network call is needed at view time

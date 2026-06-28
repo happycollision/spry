@@ -91,6 +91,40 @@ describe("sp group TUI", () => {
     expect(allRecords[0]!.title).toBe("Auth Flow");
   });
 
+  test("dirty working tree disables reordering but still allows grouping", async () => {
+    const repo = await makeRepo();
+    const git = createRealGitRunner();
+
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "First commit"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "Second commit"], { cwd: repo.path });
+    await Bun.write(join(repo.path, "README.md"), "# Test repo\n\ndirty but local\n");
+
+    const term = await createTerminalDriver("bun", ["run", harnessPath, repo.path], {
+      cols: 100,
+      rows: 30,
+    });
+
+    await term.waitForText("Reordering disabled: working tree is dirty.", { timeout: 15000 });
+    term.press(" "); // would enter move mode if reordering were enabled
+    await Bun.sleep(100);
+    expect(term.capture().text).not.toContain("MOVE MODE");
+
+    term.press("ArrowRight"); // grouping is still allowed
+    await Bun.sleep(100);
+    term.press("Enter");
+    await term.waitForText("Groups updated", { timeout: 10000 });
+    await term.close();
+
+    const records = await loadGroupRecords(git, { cwd: repo.path });
+    const allRecords = Object.values(records);
+    expect(allRecords).toHaveLength(1);
+    expect(allRecords[0]!.members).toHaveLength(1);
+
+    const status = (await git.run(["status", "--porcelain"], { cwd: repo.path })).stdout;
+    expect(status).toContain(" M README.md");
+  });
+
   test("cancelling with q writes no records", async () => {
     const repo = await makeRepo();
     const git = createRealGitRunner();

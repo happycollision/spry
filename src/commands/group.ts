@@ -6,7 +6,7 @@ import {
   getCurrentBranch,
   getStackCommits,
   injectMissingIds,
-  requireCleanWorkingTree,
+  getWorkingTreeStatus,
   saveAllGroupRecords,
   pushGroupRecords,
   fetchGroupRecords,
@@ -45,7 +45,7 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
     process.exit(1);
   }
 
-  await requireCleanWorkingTree(ctx.git, { cwd });
+  const workingTreeStatus = await getWorkingTreeStatus(ctx.git, { cwd });
 
   await registerBranch(ctx.git, branch, { cwd });
 
@@ -95,6 +95,7 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
     branch,
     trunkRef: ref,
     cwd,
+    canReorder: !workingTreeStatus.isDirty,
   });
 
   if (result.cancelled) {

@@ -120,6 +120,47 @@ describe("sp group docs", () => {
     await term.close();
   });
 
+  docTest(
+    "Dirty tree disables reordering",
+    { section: "commands/group", order: 22 },
+    async (doc) => {
+      const repo = await createRepo();
+      repos.push(repo);
+      doc.scrub(repo);
+      const git = repo.git;
+
+      await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
+      await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+      await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
+      await git.run(["checkout", "-b", "feature/auth"], { cwd: repo.path });
+      await git.run(["commit", "--allow-empty", "-m", "Add login form"], { cwd: repo.path });
+      await git.run(["commit", "--allow-empty", "-m", "Add session handling"], { cwd: repo.path });
+      writeFileSync(join(repo.path, "README.md"), "# Test repo\n\ndirty but local\n");
+
+      doc.prose(
+        "If the working tree is dirty, `sp group` still allows metadata-only grouping and renaming, but disables commit reordering until local changes are cleaned up.",
+      );
+
+      const term = await createTerminalDriver("bun", ["run", harnessPath, repo.path], {
+        cols: 80,
+        rows: 20,
+      });
+
+      await term.waitForText("Reordering disabled: working tree is dirty.", { timeout: 15000 });
+      await Bun.sleep(200);
+
+      const { expect } = await import("bun:test");
+      const snapshot = term.capture();
+      doc.screen(snapshot);
+      expect(snapshot.text).toContain("Reordering disabled");
+      expect(snapshot.text).toContain("Space disabled");
+
+      term.type("q");
+      await term.waitForText("Cancelled", { timeout: 5000 });
+      await term.close();
+    },
+  );
+
   docTest("Renaming a group", { section: "commands/group", order: 15 }, async (doc) => {
     const repo = await createRepo();
     repos.push(repo);
