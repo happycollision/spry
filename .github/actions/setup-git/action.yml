@@ -1,5 +1,5 @@
 name: "Setup Git"
-description: "Install a specific version of Git from source"
+description: "Install a specific version of Git from source, with caching"
 
 inputs:
   version:
@@ -9,29 +9,40 @@ inputs:
 runs:
   using: "composite"
   steps:
+    # Build git into a versioned prefix under /opt so the cache key maps 1:1 to a
+    # git version and we never clobber the runner's own /usr/local.
+    - name: Restore cached git build
+      id: cache-git
+      uses: actions/cache@v4
+      with:
+        path: /opt/git/${{ inputs.version }}
+        key: git-${{ runner.os }}-${{ inputs.version }}
+
     - name: Install build dependencies
+      if: steps.cache-git.outputs.cache-hit != 'true'
       shell: bash
       run: |
         sudo apt-get update
         sudo apt-get install -y libcurl4-gnutls-dev libexpat1-dev gettext libz-dev libssl-dev
 
     - name: Build and install git ${{ inputs.version }}
+      if: steps.cache-git.outputs.cache-hit != 'true'
       shell: bash
       run: |
         cd /tmp
         curl -L "https://github.com/git/git/archive/refs/tags/v${{ inputs.version }}.tar.gz" | tar xz
         cd "git-${{ inputs.version }}"
-        make prefix=/usr/local all -j$(nproc)
-        sudo make prefix=/usr/local install
+        make prefix=/opt/git/${{ inputs.version }} all -j$(nproc)
+        sudo make prefix=/opt/git/${{ inputs.version }} install
 
     - name: Add to PATH
       shell: bash
-      run: echo "/usr/local/bin" >> $GITHUB_PATH
+      run: echo "/opt/git/${{ inputs.version }}/bin" >> $GITHUB_PATH
 
     - name: Verify installation
       shell: bash
       run: |
-        INSTALLED=$(/usr/local/bin/git --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+        INSTALLED=$(/opt/git/${{ inputs.version }}/bin/git --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
         if [ "$INSTALLED" != "${{ inputs.version }}" ]; then
           echo "ERROR: Expected git ${{ inputs.version }}, got $INSTALLED"
           exit 1

@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # Run on every PR, regardless of base branch. sp stacks PRs onto intermediate
+  # spry/** branches (not just main), so a main-only filter would skip every PR
+  # except the bottom of a stack.
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -10,15 +12,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Run the suite on the minimum supported git (2.40). The "< 2.40 is
+      # rejected" path is covered by a unit test with a mocked git runner, so we
+      # don't need an unsupported binary here.
       - uses: ./.github/actions/setup-git
         with:
           version: "2.40.0"
       - uses: jdx/mise-action@v2
       - run: bun install --frozen-lockfile
       - run: bunx tsc --noEmit
-        continue-on-error: true
       - run: bunx oxlint
-        continue-on-error: true
       - run: bunx oxfmt --check .
-        continue-on-error: true
       - run: bun test
