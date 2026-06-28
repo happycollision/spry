@@ -19,7 +19,7 @@ test("command errors are printed without a Bun source-frame stack", async () => 
     await repo.git.run(["config", "spry.branchPrefix", "spry/test"]);
     await Bun.write(join(repo.path, "README.md"), "# Test repo\n\ndirty\n");
 
-    const { result } = await runSp(repo.path, "sync", ["--open"]);
+    const { result } = await runSp(repo.path, "rebase");
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(

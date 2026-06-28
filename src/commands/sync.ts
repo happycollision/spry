@@ -18,7 +18,6 @@ import {
 import { loadTrackedBranches, saveTrackedBranches } from "../git/tracked-branches.ts";
 import { injectMissingIdsForBranch } from "../git/rebase.ts";
 import { isDetachedHead, getStackCommitsForBranch } from "../git/queries.ts";
-import { requireCleanWorkingTree } from "../git/status.ts";
 import {
   parseCommitTrailers,
   parseStack,
@@ -64,8 +63,6 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   if (opts.all) {
     return syncAllCommand(ctx, config, cwd);
   }
-
-  await requireCleanWorkingTree(ctx.git, { cwd });
 
   const ref = trunkRef(config);
 
@@ -425,8 +422,6 @@ async function syncAllCommand(
   config: SpryConfig,
   cwd: string | undefined,
 ): Promise<void> {
-  await requireCleanWorkingTree(ctx.git, { cwd });
-
   const ref = trunkRef(config);
 
   // Remote/global reads — done once, not per branch.

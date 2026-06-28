@@ -236,6 +236,31 @@ describe("syncCommand bare", () => {
     expect(logs.out.join("\n")).toContain("Sync complete");
   });
 
+  test("tolerates dirty tracked files because sync does not rebase", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "C\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    await Bun.write(`${repo.path}/README.md`, "# Test repo\n\ndirty but local\n");
+
+    const { gh, calls } = stubGh(ghPRMap({}));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    try {
+      await syncCommand(ctx, { cwd: repo.path });
+    } finally {
+      logs.restore();
+    }
+
+    const editCalls = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
+    expect(editCalls).toHaveLength(0);
+    expect(logs.out.join("\n")).toContain("Sync complete");
+    const status = (await git.run(["status", "--porcelain"], { cwd: repo.path })).stdout;
+    expect(status).toContain(" M README.md");
+  });
+
   test("pushes branch when remote ref already exists; retarget skipped if base correct", async () => {
     const repo = await makeRepoWithConfig();
     const git = createRealGitRunner();
@@ -942,6 +967,39 @@ describe("sp sync --all (loop)", () => {
     expect(out).toContain("spry/test/aaa11111");
     expect(out).toContain("spry/test/bbb22222");
     expect(trap.exitCode).toBeUndefined();
+  });
+
+  test("tolerates dirty tracked files while syncing tracked stacks", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+
+    await git.run(["checkout", "-b", "feature-a"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A work\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    const aHead = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${aHead}:refs/heads/spry/test/aaa11111`], { cwd: repo.path });
+    await registerBranch(git, "feature-a", { cwd: repo.path });
+    await Bun.write(`${repo.path}/README.md`, "# Test repo\n\ndirty but local\n");
+
+    const { gh } = stubGh(ghPRMap({}));
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await syncCommand(ctx, { cwd: repo.path, all: true });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(logs.out.join("\n")).toContain("spry/test/aaa11111");
+    expect(logs.out.join("\n")).toContain("Sync complete");
+    expect(trap.exitCode).toBeUndefined();
+    const status = (await git.run(["status", "--porcelain"], { cwd: repo.path })).stdout;
+    expect(status).toContain(" M README.md");
   });
 
   test("prunes a tracked branch that no longer exists locally", async () => {
