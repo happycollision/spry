@@ -2,6 +2,24 @@
 
 See @docs/rebuild-roadmap.md for the feature gap between `main` and this branch, and decisions about what to port, redesign, or drop.
 
+## Dogfooding `sp`
+
+We dogfood `sp` for our own pull requests. Some `sp` commands are **interactive**
+(they open a TUI and block on input), so the agent cannot run them — a backgrounded
+interactive command just hangs on a closed stdin. When dogfooding, note which tools
+are interactive and **ask the user to run those commands themselves** (e.g. via the
+`! <command>` prompt prefix) rather than invoking them yourself.
+
+Known interactive commands:
+
+- `sp sync --open` — prompts in a TUI when opening PRs.
+- `sp group` — interactive grouping/reordering editor.
+- `sp land` (bare, no `--through`) — opens a single-select picker.
+
+Non-interactive (safe for the agent to run): `sp view`, `sp sync` (push-only,
+no `--open`), `sp rebase`, `sp clean`, `sp land --through <id>`. Confirm a command
+is non-interactive before relying on it; when in doubt, ask the user to run it.
+
 ## Git
 
 Please don't use `git -C ...` because it makes it impossible for me to whitelist commands for you. Just be in the correct directory and do normal git operations. Please pass this instruction to any sub-agents you spawn.
