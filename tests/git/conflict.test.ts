@@ -24,10 +24,7 @@ describe("getCommitFiles", () => {
 
   test("returns files from a commit with 2 files", async () => {
     repo = await createRepo();
-    const sha = await repo.commitFiles(
-      { "a.txt": "hello\n", "b.txt": "world\n" },
-      "two files",
-    );
+    const sha = await repo.commitFiles({ "a.txt": "hello\n", "b.txt": "world\n" }, "two files");
     const files = await getCommitFiles(git, sha, { cwd: repo.path });
     expect(files.sort()).toEqual(["a.txt", "b.txt"]);
   });
@@ -35,10 +32,7 @@ describe("getCommitFiles", () => {
   test("returns [] for empty commit", async () => {
     repo = await createRepo();
     // Create an empty commit using git directly
-    await git.run(
-      ["commit", "--allow-empty", "-m", "empty commit"],
-      { cwd: repo.path },
-    );
+    await git.run(["commit", "--allow-empty", "-m", "empty commit"], { cwd: repo.path });
     const sha = await getFullSha(git, "HEAD", { cwd: repo.path });
     const files = await getCommitFiles(git, sha, { cwd: repo.path });
     expect(files).toEqual([]);
@@ -147,46 +141,23 @@ describe("simulateMerge", () => {
       "modify bottom",
     );
 
-    const result = await simulateMerge(
-      git,
-      base,
-      shaA,
-      shaB,
-      ["shared.txt"],
-      { cwd: repo.path },
-    );
+    const result = await simulateMerge(git, base, shaA, shaB, ["shared.txt"], { cwd: repo.path });
     // Non-conflicting merge with overlapping files -> warning
     expect(["clean", "warning"]).toContain(result.status);
   });
 
   test("conflicting changes returns conflict with file in result", async () => {
     repo = await createRepo();
-    const baseCommit = await repo.commitFiles(
-      { "shared.txt": "original content\n" },
-      "base file",
-    );
+    const baseCommit = await repo.commitFiles({ "shared.txt": "original content\n" }, "base file");
     const base = await getFullSha(git, baseCommit, { cwd: repo.path });
 
     // Both modify the same line
-    const shaA = await repo.commitFiles(
-      { "shared.txt": "version A\n" },
-      "modify A",
-    );
+    const shaA = await repo.commitFiles({ "shared.txt": "version A\n" }, "modify A");
 
     await repo.checkout(base);
-    const shaB = await repo.commitFiles(
-      { "shared.txt": "version B\n" },
-      "modify B",
-    );
+    const shaB = await repo.commitFiles({ "shared.txt": "version B\n" }, "modify B");
 
-    const result = await simulateMerge(
-      git,
-      base,
-      shaA,
-      shaB,
-      ["shared.txt"],
-      { cwd: repo.path },
-    );
+    const result = await simulateMerge(git, base, shaA, shaB, ["shared.txt"], { cwd: repo.path });
     expect(result.status).toBe("conflict");
     expect(result.files).toContain("shared.txt");
   });
@@ -215,21 +186,12 @@ describe("predictConflict", () => {
 
   test("conflicting same file returns conflict", async () => {
     repo = await createRepo();
-    const baseCommit = await repo.commitFiles(
-      { "shared.txt": "original\n" },
-      "base",
-    );
+    const baseCommit = await repo.commitFiles({ "shared.txt": "original\n" }, "base");
     const base = await getFullSha(git, baseCommit, { cwd: repo.path });
 
-    const shaA = await repo.commitFiles(
-      { "shared.txt": "version A\n" },
-      "A",
-    );
+    const shaA = await repo.commitFiles({ "shared.txt": "version A\n" }, "A");
     await repo.checkout(base);
-    const shaB = await repo.commitFiles(
-      { "shared.txt": "version B\n" },
-      "B",
-    );
+    const shaB = await repo.commitFiles({ "shared.txt": "version B\n" }, "B");
 
     const result = await predictConflict(git, shaA, shaB, base, {
       cwd: repo.path,
@@ -252,34 +214,21 @@ describe("checkReorderConflicts", () => {
     const sha1 = await repo.commitFiles({ "a.txt": "aaa\n" }, "commit 1");
     const sha2 = await repo.commitFiles({ "b.txt": "bbb\n" }, "commit 2");
 
-    const result = await checkReorderConflicts(
-      git,
-      [sha1, sha2],
-      [sha1, sha2],
-      base,
-      { cwd: repo.path },
-    );
+    const result = await checkReorderConflicts(git, [sha1, sha2], [sha1, sha2], base, {
+      cwd: repo.path,
+    });
     expect(result.size).toBe(0);
   });
 
   test("reversed order with conflicting file changes returns map with entries", async () => {
     repo = await createRepo();
-    const baseCommit = await repo.commitFiles(
-      { "shared.txt": "original\n" },
-      "base",
-    );
+    const baseCommit = await repo.commitFiles({ "shared.txt": "original\n" }, "base");
     const base = await getFullSha(git, baseCommit, { cwd: repo.path });
 
     // Two commits that both modify the same file
-    const sha1 = await repo.commitFiles(
-      { "shared.txt": "version 1\n" },
-      "commit 1",
-    );
+    const sha1 = await repo.commitFiles({ "shared.txt": "version 1\n" }, "commit 1");
     // sha2 builds on sha1, but we treat them as independent for conflict check
-    const sha2 = await repo.commitFiles(
-      { "shared.txt": "version 2\n" },
-      "commit 2",
-    );
+    const sha2 = await repo.commitFiles({ "shared.txt": "version 2\n" }, "commit 2");
 
     const result = await checkReorderConflicts(
       git,

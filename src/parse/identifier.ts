@@ -21,7 +21,12 @@ export function resolveIdentifier(
   const hashMatches = commits.filter((c) => c.hash.startsWith(identifier));
   if (hashMatches.length === 0) return { ok: false, error: "not-found", identifier };
   if (hashMatches.length > 1) {
-    return { ok: false, error: "ambiguous", identifier, matches: hashMatches.map((c) => c.hash.slice(0, 8)) };
+    return {
+      ok: false,
+      error: "ambiguous",
+      identifier,
+      matches: hashMatches.map((c) => c.hash.slice(0, 8)),
+    };
   }
 
   const matchedHash = hashMatches[0]?.hash;

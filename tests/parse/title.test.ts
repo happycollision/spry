@@ -17,17 +17,31 @@ function makeUnit(overrides: Partial<PRUnit> = {}): PRUnit {
 
 describe("resolveUnitTitle", () => {
   test("returns stored title when available", () => {
-    const unit = makeUnit({ type: "group", title: "My Group Title", subjects: ["First", "Second"] });
+    const unit = makeUnit({
+      type: "group",
+      title: "My Group Title",
+      subjects: ["First", "Second"],
+    });
     expect(resolveUnitTitle(unit)).toBe("My Group Title");
   });
 
   test("falls back to first subject when title is undefined", () => {
-    const unit = makeUnit({ type: "group", title: undefined, subjects: ["First commit", "Second commit"] });
+    const unit = makeUnit({
+      type: "group",
+      title: undefined,
+      subjects: ["First commit", "Second commit"],
+    });
     expect(resolveUnitTitle(unit)).toBe("First commit");
   });
 
   test("returns Untitled when no title and no subjects", () => {
-    const unit = makeUnit({ type: "group", title: undefined, commitIds: [], commits: [], subjects: [] });
+    const unit = makeUnit({
+      type: "group",
+      title: undefined,
+      commitIds: [],
+      commits: [],
+      subjects: [],
+    });
     expect(resolveUnitTitle(unit)).toBe("Untitled");
   });
 
