@@ -261,6 +261,46 @@ describe("syncCommand bare", () => {
     expect(status).toContain(" M README.md");
   });
 
+  test("skips push when remote ref already matches local tip", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "C\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+
+    // Pre-create the remote branch at the exact tip sync would push.
+    const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${head}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+
+    // Record every `git push` that targets a spry branch ref.
+    const branchPushes: string[] = [];
+    const realGit = createRealGitRunner();
+    const ctx: SpryContext = {
+      gh: stubGh(ghPRMap({ "spry/test/aaa11111": { number: 10, baseRefName: "main" } })).gh,
+      git: {
+        run: async (args, opts) => {
+          if (args[0] === "push" && args.some((a) => a.includes("refs/heads/spry/test/"))) {
+            branchPushes.push(args.join(" "));
+          }
+          return realGit.run(args, { ...opts, cwd: opts?.cwd ?? repo.path });
+        },
+      },
+    };
+    const logs = captureLogs();
+    try {
+      await syncCommand(ctx, { cwd: repo.path });
+    } finally {
+      logs.restore();
+    }
+
+    // Remote tip already equals local tip → no push should happen.
+    expect(branchPushes).toEqual([]);
+    expect(logs.out.join("\n")).toContain("Sync complete");
+  });
+
   test("pushes branch when remote ref already exists; retarget skipped if base correct", async () => {
     const repo = await makeRepoWithConfig();
     const git = createRealGitRunner();
@@ -269,9 +309,10 @@ describe("syncCommand bare", () => {
       cwd: repo.path,
     });
 
-    // Pre-create the remote branch
-    const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
-    await git.run(["push", "origin", `${head}:refs/heads/spry/test/aaa11111`], {
+    // Pre-create the remote branch at an OLDER sha (main) so the remote tip
+    // differs from the local unit tip — this is what warrants a real push.
+    const mainSha = (await git.run(["rev-parse", "main"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${mainSha}:refs/heads/spry/test/aaa11111`], {
       cwd: repo.path,
     });
 
@@ -339,8 +380,9 @@ describe("syncCommand bare", () => {
     await git.run(["commit", "--allow-empty", "-m", "C\n\nSpry-Commit-Id: aaa11111"], {
       cwd: repo.path,
     });
-    const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
-    await git.run(["push", "origin", `${head}:refs/heads/spry/test/aaa11111`], {
+    // Remote branch exists at an older sha (main) so a real push is warranted.
+    const mainSha = (await git.run(["rev-parse", "main"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${mainSha}:refs/heads/spry/test/aaa11111`], {
       cwd: repo.path,
     });
 
@@ -888,7 +930,7 @@ describe("buildOpenCandidates", () => {
 
   test("disables units that already have a remote branch", () => {
     const units = [single("aaa11111", "A"), single("bbb22222", "B")];
-    const existing = new Set(["spry/test/aaa11111"]);
+    const existing = new Map([["spry/test/aaa11111", "deadbeef"]]);
     const out = buildOpenCandidates(units, existing, config);
     expect(out[0]?.disabled).toBe(true);
     expect(out[0]?.hint).toBe("(already published)");
@@ -897,7 +939,7 @@ describe("buildOpenCandidates", () => {
 
   test("does not disable group units (they can be opened)", () => {
     const units = [single("aaa11111", "A"), group("grp00001", "G")];
-    const out = buildOpenCandidates(units, new Set(), config);
+    const out = buildOpenCandidates(units, new Map(), config);
     expect(out[1]?.disabled).toBeUndefined();
     expect(out[1]?.hint).toBeUndefined();
   });
@@ -930,13 +972,17 @@ describe("sp sync --all (loop)", () => {
     const repo = await makeRepoWithConfig();
     const git = createRealGitRunner();
 
+    // Remote branches exist at an older sha (main) so a real push is warranted.
+    const mainSha = (await git.run(["rev-parse", "main"], { cwd: repo.path })).stdout.trim();
+
     // Stack A: feature-a with one published unit
     await git.run(["checkout", "-b", "feature-a"], { cwd: repo.path });
     await git.run(["commit", "--allow-empty", "-m", "A work\n\nSpry-Commit-Id: aaa11111"], {
       cwd: repo.path,
     });
-    const aHead = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
-    await git.run(["push", "origin", `${aHead}:refs/heads/spry/test/aaa11111`], { cwd: repo.path });
+    await git.run(["push", "origin", `${mainSha}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
     await registerBranch(git, "feature-a", { cwd: repo.path });
 
     // Stack B: feature-b with one published unit
@@ -945,8 +991,9 @@ describe("sp sync --all (loop)", () => {
     await git.run(["commit", "--allow-empty", "-m", "B work\n\nSpry-Commit-Id: bbb22222"], {
       cwd: repo.path,
     });
-    const bHead = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
-    await git.run(["push", "origin", `${bHead}:refs/heads/spry/test/bbb22222`], { cwd: repo.path });
+    await git.run(["push", "origin", `${mainSha}:refs/heads/spry/test/bbb22222`], {
+      cwd: repo.path,
+    });
     await registerBranch(git, "feature-b", { cwd: repo.path });
 
     // gh: no PRs found (empty), so retarget/cache do nothing.
@@ -977,8 +1024,11 @@ describe("sp sync --all (loop)", () => {
     await git.run(["commit", "--allow-empty", "-m", "A work\n\nSpry-Commit-Id: aaa11111"], {
       cwd: repo.path,
     });
-    const aHead = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
-    await git.run(["push", "origin", `${aHead}:refs/heads/spry/test/aaa11111`], { cwd: repo.path });
+    // Remote branch exists at an older sha (main) so a real push is warranted.
+    const mainSha = (await git.run(["rev-parse", "main"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${mainSha}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
     await registerBranch(git, "feature-a", { cwd: repo.path });
     await Bun.write(`${repo.path}/README.md`, "# Test repo\n\ndirty but local\n");
 
@@ -1187,25 +1237,35 @@ describe("sp sync --all (loop)", () => {
     const repo = await makeRepoWithConfig();
     const git = createRealGitRunner();
 
-    // feature-a is healthy; feature-b's remote ref will be diverged to trip the
-    // force-with-lease guard.
-    for (const [branch, id] of [
-      ["feature-a", "aaa11111"],
-      ["feature-b", "bbb22222"],
-    ] as const) {
-      await git.run(["checkout", "main"], { cwd: repo.path });
-      await git.run(["checkout", "-b", branch], { cwd: repo.path });
-      await git.run(["commit", "--allow-empty", "-m", `${branch}\n\nSpry-Commit-Id: ${id}`], {
-        cwd: repo.path,
-      });
-      const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
-      await git.run(["push", "origin", `${head}:refs/heads/spry/test/${id}`], { cwd: repo.path });
-      await registerBranch(git, branch, { cwd: repo.path });
-    }
+    const localMainSha = (await git.run(["rev-parse", "main"], { cwd: repo.path })).stdout.trim();
 
-    // Diverge feature-b's remote ref to a sha the local clone doesn't know.
-    const mainSha = (await git.run(["rev-parse", "main"], { cwd: repo.originPath })).stdout.trim();
-    await git.run(["update-ref", "refs/heads/spry/test/bbb22222", mainSha], {
+    // feature-a is healthy: its remote branch starts at an older sha (main) so a
+    // real push is warranted (a same-sha remote would now be skipped).
+    await git.run(["checkout", "-b", "feature-a"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "feature-a\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    await git.run(["push", "origin", `${localMainSha}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+    await registerBranch(git, "feature-a", { cwd: repo.path });
+
+    // feature-b: push its own tip so the local clone's tracking ref expects that
+    // sha, then diverge origin behind its back to trip force-with-lease.
+    await git.run(["checkout", "main"], { cwd: repo.path });
+    await git.run(["checkout", "-b", "feature-b"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "feature-b\n\nSpry-Commit-Id: bbb22222"], {
+      cwd: repo.path,
+    });
+    const bHead = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${bHead}:refs/heads/spry/test/bbb22222`], { cwd: repo.path });
+    await registerBranch(git, "feature-b", { cwd: repo.path });
+
+    // Diverge feature-b's remote ref to a sha the local clone doesn't expect.
+    const originMainSha = (
+      await git.run(["rev-parse", "main"], { cwd: repo.originPath })
+    ).stdout.trim();
+    await git.run(["update-ref", "refs/heads/spry/test/bbb22222", originMainSha], {
       cwd: repo.originPath,
     });
 

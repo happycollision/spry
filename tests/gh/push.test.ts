@@ -159,6 +159,23 @@ describe("listRemoteBranches", () => {
     expect(set.has("other/zzz")).toBe(false);
   });
 
+  test("maps each branch to its tip SHA", async () => {
+    const repo = await makeRepo();
+    const git = createRealGitRunner();
+    await repo.branch("feature");
+    const sha = await repo.commit("Work");
+    await pushBranch(git, {
+      cwd: repo.path,
+      remote: "origin",
+      sha,
+      branch: "spry/test/aaa11111",
+      forceWithLease: true,
+    });
+
+    const map = await listRemoteBranches(git, "origin", "spry/test", { cwd: repo.path });
+    expect(map.get("spry/test/aaa11111")).toBe(sha);
+  });
+
   test("returns empty set when no matching branches exist", async () => {
     const repo = await makeRepo();
     const git = createRealGitRunner();

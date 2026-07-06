@@ -176,7 +176,7 @@ async function pushExistingBranches(
   ctx: SpryContext,
   config: SpryConfig,
   units: PRUnit[],
-  existing: Set<string>,
+  existing: Map<string, string>,
   cwd: string | undefined,
 ): Promise<{ pushed: string[]; hadFailure: boolean }> {
   const pushed: string[] = [];
@@ -186,6 +186,14 @@ async function pushExistingBranches(
     if (!existing.has(branch)) continue;
     const headHash = unit.commits.at(-1);
     if (!headHash) continue;
+    // Skip the push when the remote tip already equals the local tip: the push
+    // would be a no-op round-trip. Retarget still runs on already-published
+    // branches (see retargetBranches below), so an unchanged branch whose PR
+    // has the wrong base is still fixed.
+    if (existing.get(branch) === headHash) {
+      pushed.push(branch);
+      continue;
+    }
     const result = await pushBranch(ctx.git, {
       cwd,
       remote: config.remote,
@@ -209,7 +217,7 @@ async function pushExistingBranches(
 
 export function buildOpenCandidates(
   units: PRUnit[],
-  existing: Set<string>,
+  existing: ReadonlyMap<string, string>,
   config: SpryConfig,
 ): { id: string; label: string; hint?: string; disabled?: boolean }[] {
   return units.map((unit) => {
@@ -235,7 +243,7 @@ function resolveOpenTargets(
   raw: string,
   units: PRUnit[],
   commits: CommitWithTrailers[],
-  existing: Set<string>,
+  existing: ReadonlyMap<string, string>,
   config: SpryConfig,
 ): ResolveTargetsResult {
   const ids = raw

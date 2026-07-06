@@ -55,26 +55,31 @@ export function isAlreadyGone(stderr: string): boolean {
   return ALREADY_GONE.test(stderr);
 }
 
+// Returns a map of remote branch name → tip SHA for every branch under `prefix`.
+// The SHA lets callers skip a push when the remote tip already matches the local
+// tip. The map still answers "does this branch exist?" via `.has(branch)`, so it
+// is a drop-in for the previous `Set<string>` at every call site.
 export async function listRemoteBranches(
   git: GitRunner,
   remote: string,
   prefix: string,
   opts?: { cwd?: string },
-): Promise<Set<string>> {
+): Promise<Map<string, string>> {
   const result = await git.run(["ls-remote", "--heads", remote, `${prefix}/*`], { cwd: opts?.cwd });
   if (result.exitCode !== 0) {
     throw new Error(`git ls-remote failed: ${result.stderr.trim()}`);
   }
-  const set = new Set<string>();
+  const map = new Map<string, string>();
   for (const line of result.stdout.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     const tab = trimmed.indexOf("\t");
     if (tab === -1) continue;
+    const sha = trimmed.slice(0, tab).trim();
     const ref = trimmed.slice(tab + 1);
     if (ref.startsWith("refs/heads/")) {
-      set.add(ref.slice("refs/heads/".length));
+      map.set(ref.slice("refs/heads/".length), sha);
     }
   }
-  return set;
+  return map;
 }

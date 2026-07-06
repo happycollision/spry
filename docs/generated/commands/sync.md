@@ -1,6 +1,6 @@
 # sync
 
-Run `sp sync` to push your stack's commits to their already-published remote branches. Spry derives each branch as `<spry.branchPrefix>/<unit-id>` and only pushes branches that already exist on the remote — it never creates new ones. Use `sp sync --open` to publish for the first time.
+Run `sp sync` to push your stack's commits to their already-published remote branches. Spry derives each branch as `<spry.branchPrefix>/<unit-id>` and only pushes branches that already exist on the remote — it never creates new ones, and it skips branches whose remote tip already matches, so a second `sp sync` with no new commits does no redundant work. Use `sp sync --open` to publish for the first time.
 
 ```
 sp sync

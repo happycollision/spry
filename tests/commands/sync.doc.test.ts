@@ -39,14 +39,16 @@ describe("sp sync docs", () => {
       cwd: repo.path,
     });
 
-    // Pre-publish the branch
-    const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
-    await git.run(["push", "origin", `${head}:refs/heads/spry/dondenton/aaa11111`], {
+    // Pre-publish the branch at an older sha (main) so its remote tip is behind
+    // the local commit — this is the case where `sp sync` actually pushes. When
+    // the remote already matches the local tip, sync skips the redundant push.
+    const mainSha = (await git.run(["rev-parse", "main"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${mainSha}:refs/heads/spry/dondenton/aaa11111`], {
       cwd: repo.path,
     });
 
     doc.prose(
-      "Run `sp sync` to push your stack's commits to their already-published remote branches. Spry derives each branch as `<spry.branchPrefix>/<unit-id>` and only pushes branches that already exist on the remote — it never creates new ones. Use `sp sync --open` to publish for the first time.",
+      "Run `sp sync` to push your stack's commits to their already-published remote branches. Spry derives each branch as `<spry.branchPrefix>/<unit-id>` and only pushes branches that already exist on the remote — it never creates new ones, and it skips branches whose remote tip already matches, so a second `sp sync` with no new commits does no redundant work. Use `sp sync --open` to publish for the first time.",
     );
 
     // Canonicalize the gh-unavailable hint so fragments stay deterministic
@@ -258,11 +260,12 @@ describe("sp sync docs", () => {
       await repo.git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: bbb22222"]);
 
       // Pre-publish both branches (sync only pushes branches that already exist
-      // on the remote).
-      const aSha = (await repo.git.run(["rev-parse", "HEAD~1"])).stdout.trim();
-      const bSha = (await repo.git.run(["rev-parse", "HEAD"])).stdout.trim();
-      await repo.git.run(["push", "origin", `${aSha}:refs/heads/spry/dondenton/aaa11111`]);
-      await repo.git.run(["push", "origin", `${bSha}:refs/heads/spry/dondenton/bbb22222`]);
+      // on the remote). Publish them at an older sha (main) so their remote tips
+      // are behind the local commits — that is the case where sync pushes. (A
+      // remote already at the local tip is skipped as redundant.)
+      const mainSha = (await repo.git.run(["rev-parse", "main"])).stdout.trim();
+      await repo.git.run(["push", "origin", `${mainSha}:refs/heads/spry/dondenton/aaa11111`]);
+      await repo.git.run(["push", "origin", `${mainSha}:refs/heads/spry/dondenton/bbb22222`]);
 
       // In record mode, open the two real PRs. bbb22222 gets the WRONG base
       // (main) so sync has a PR to retarget onto aaa11111's branch.
@@ -414,7 +417,11 @@ describe("sp sync docs", () => {
       const { $ } = await import("bun");
 
       // Two independent stacks, each already published once (and, in record
-      // mode, each with its own PR targeting trunk).
+      // mode, each with its own PR targeting trunk). Publish each branch at an
+      // older sha (main) so its remote tip is behind the local commit — that is
+      // the case where sync pushes. (A remote already at the local tip is
+      // skipped as redundant.)
+      const mainSha = (await repo.git.run(["rev-parse", "main"])).stdout.trim();
       for (const [branch, id] of [
         ["feature/login", "aaa11111"],
         ["feature/search", "bbb22222"],
@@ -422,8 +429,7 @@ describe("sp sync docs", () => {
         await repo.git.run(["checkout", "main"]);
         await repo.git.run(["checkout", "-b", branch]);
         await repo.git.run(["commit", "--allow-empty", "-m", `Work\n\nSpry-Commit-Id: ${id}`]);
-        const head = (await repo.git.run(["rev-parse", "HEAD"])).stdout.trim();
-        await repo.git.run(["push", "origin", `${head}:refs/heads/spry/dondenton/${id}`]);
+        await repo.git.run(["push", "origin", `${mainSha}:refs/heads/spry/dondenton/${id}`]);
         await registerBranch(repo.git, branch);
         if (recording) {
           await $`gh pr create --title ${branch} --head spry/dondenton/${id} --base main --body ${"Stack"}`
