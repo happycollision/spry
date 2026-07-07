@@ -13,46 +13,42 @@
         pre.command { background: #0d1117; color: #c9d1d9; border-left: 3px solid #58a6ff; }
         pre.output { background: #0d1117; color: #c9d1d9; }
         pre.screen { background: #0d1117; color: #c9d1d9; }
-        .ansi-black { color: #000; } .ansi-red { color: #c0392b; } .ansi-green { color: #27ae60; }
-        .ansi-yellow { color: #f39c12; } .ansi-blue { color: #2980b9; } .ansi-magenta { color: #8e44ad; }
-        .ansi-cyan { color: #16a085; } .ansi-white { color: #bdc3c7; }
-        .ansi-bright-black { color: #7f8c8d; } .ansi-bright-red { color: #e74c3c; } .ansi-bright-green { color: #2ecc71; }
-        .ansi-bright-yellow { color: #f1c40f; } .ansi-bright-blue { color: #3498db; } .ansi-bright-magenta { color: #9b59b6; }
-        .ansi-bright-cyan { color: #1abc9c; } .ansi-bright-white { color: #ecf0f1; }
-        .ansi-bold { font-weight: bold; }
+        .ansi-black-fg { color: #000; } .ansi-red-fg { color: #c0392b; } .ansi-green-fg { color: #27ae60; }
+        .ansi-yellow-fg { color: #f39c12; } .ansi-blue-fg { color: #2980b9; } .ansi-magenta-fg { color: #8e44ad; }
+        .ansi-cyan-fg { color: #16a085; } .ansi-white-fg { color: #bdc3c7; }
+        .ansi-bright-black-fg { color: #7f8c8d; } .ansi-bright-red-fg { color: #e74c3c; } .ansi-bright-green-fg { color: #2ecc71; }
+        .ansi-bright-yellow-fg { color: #f1c40f; } .ansi-bright-blue-fg { color: #3498db; } .ansi-bright-magenta-fg { color: #9b59b6; }
+        .ansi-bright-cyan-fg { color: #1abc9c; } .ansi-bright-white-fg { color: #ecf0f1; }
+        .ansi-bold { font-weight: bold; } .ansi-dim { opacity: 0.65; }
     </style>
   </head>
   <body>
     <h1>sp view</h1>
     <p>View the current stack of commits on your feature branch:</p>
     <pre class="command">sp view</pre>
-    <pre class="output">
-Stack: feature (2 commits)
-○ no PR  ◐ open  ✓ merged  ✗ closed
+    <pre class="output">Stack: feature (2 commits)
+<span class="ansi-dim">○ no PR  ◐ open  ✓ merged  ✗ closed</span>
 
   → origin/main
 ────────────────────────────────────────────────────────────────────────
-  ○ Add login page (bbbb2222)
+  <span class="ansi-dim">○</span> Add login page <span class="ansi-dim">(bbbb2222)</span>
 ────────────────────────────────────────────────────────────────────────
-  ○ Add signup form (aaaa1111)
-────────────────────────────────────────────────────────────────────────</pre
-    >
+  <span class="ansi-dim">○</span> Add signup form <span class="ansi-dim">(aaaa1111)</span>
+────────────────────────────────────────────────────────────────────────</pre>
     <p>When you're on a branch with no commits ahead of trunk:</p>
     <pre class="command">sp view</pre>
     <pre class="output">No commits ahead of origin/main</pre>
     <p>sp view reads PR status from a local git ref written by sp sync — no network call needed:</p>
     <pre class="command">sp view</pre>
-    <pre class="output">
-Stack: feature (1 commit)
-○ no PR  ◐ open  ✓ merged  ✗ closed
-checks: ✓ pass  ✗ fail  ⏳ pending  — none
-approval: ✓ approved  ✗ changes  ? required  — none
+    <pre class="output">Stack: feature (1 commit)
+<span class="ansi-dim">○ no PR  ◐ open  ✓ merged  ✗ closed</span>
+<span class="ansi-dim">checks: ✓ pass  ✗ fail  ⏳ pending  — none</span>
+<span class="ansi-dim">approval: ✓ approved  ✗ changes  ? required  — none</span>
 
   → origin/main
 ────────────────────────────────────────────────────────────────────────
-  ◐ Add login page (aaaa1111)
-    https://github.com/&lt;owner&gt;/&lt;repo&gt;/pull/42 - checks:✓ approval:— comments:0/2
-────────────────────────────────────────────────────────────────────────</pre
-    >
+  <span class="ansi-blue-fg">◐</span> Add login page <span class="ansi-dim">(aaaa1111)</span>
+    <span class="ansi-blue-fg">https://github.com/&lt;owner&gt;/&lt;repo&gt;/pull/42</span> - checks:<span class="ansi-green-fg">✓</span> approval:<span class="ansi-dim">—</span> comments:0/2
+────────────────────────────────────────────────────────────────────────</pre>
   </body>
 </html>

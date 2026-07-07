@@ -40,6 +40,14 @@ export const SPRY_ID_POOL: readonly string[] = [
   "ffff7777",
 ];
 
+// Pool slots are assigned by position in the `shas` array, which comes from a
+// `git log --all --reflog` walk in doc.ts. That makes doc stability depend on
+// the walk returning the same commits in the same order every run. IF THE
+// GENERATED DOCS EVER CHURN AGAIN (placeholder SHAs swapping between runs),
+// suspect the *input* first: a doc test whose repo ends each run in a different
+// state — e.g. killing the TUI subprocess before a post-save write completes —
+// will shift every later slot. That exact bug happened once; diagnosis and
+// method in docs/investigations/2026-07-07-group-reflog-nondeterminism.md.
 export function buildShaMap(shas: string[]): Map<string, string> {
   const map = new Map<string, string>();
   for (const sha of shas) {

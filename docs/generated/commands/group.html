@@ -13,13 +13,13 @@
         pre.command { background: #0d1117; color: #c9d1d9; border-left: 3px solid #58a6ff; }
         pre.output { background: #0d1117; color: #c9d1d9; }
         pre.screen { background: #0d1117; color: #c9d1d9; }
-        .ansi-black { color: #000; } .ansi-red { color: #c0392b; } .ansi-green { color: #27ae60; }
-        .ansi-yellow { color: #f39c12; } .ansi-blue { color: #2980b9; } .ansi-magenta { color: #8e44ad; }
-        .ansi-cyan { color: #16a085; } .ansi-white { color: #bdc3c7; }
-        .ansi-bright-black { color: #7f8c8d; } .ansi-bright-red { color: #e74c3c; } .ansi-bright-green { color: #2ecc71; }
-        .ansi-bright-yellow { color: #f1c40f; } .ansi-bright-blue { color: #3498db; } .ansi-bright-magenta { color: #9b59b6; }
-        .ansi-bright-cyan { color: #1abc9c; } .ansi-bright-white { color: #ecf0f1; }
-        .ansi-bold { font-weight: bold; }
+        .ansi-black-fg { color: #000; } .ansi-red-fg { color: #c0392b; } .ansi-green-fg { color: #27ae60; }
+        .ansi-yellow-fg { color: #f39c12; } .ansi-blue-fg { color: #2980b9; } .ansi-magenta-fg { color: #8e44ad; }
+        .ansi-cyan-fg { color: #16a085; } .ansi-white-fg { color: #bdc3c7; }
+        .ansi-bright-black-fg { color: #7f8c8d; } .ansi-bright-red-fg { color: #e74c3c; } .ansi-bright-green-fg { color: #2ecc71; }
+        .ansi-bright-yellow-fg { color: #f1c40f; } .ansi-bright-blue-fg { color: #3498db; } .ansi-bright-magenta-fg { color: #9b59b6; }
+        .ansi-bright-cyan-fg { color: #1abc9c; } .ansi-bright-white-fg { color: #ecf0f1; }
+        .ansi-bold { font-weight: bold; } .ansi-dim { opacity: 0.65; }
     </style>
   </head>
   <body>
@@ -28,52 +28,44 @@
       Run `sp group` to open the interactive group editor. Use ↑↓ to move between commits and ←→ to
       assign or remove group membership. Commits in the same group ship as a single PR.
     </p>
-    <pre class="screen">
-Stack: feature/auth (3 commits)
+    <pre class="screen">Stack: feature/auth (3 commits)
 
-   1  c5d2a9f  Add login form                           [A: Auth Flow]
-&#x25B6;  2  8e3b6f1  Add session handling                     [A]
-   3  7c3d9e2  Fix typo in README
+   1  <span class="ansi-dim">c5d2a9f</span>  Add login form                           [A: Auth Flow]
+<span class="ansi-cyan-fg">▶</span>  2  <span class="ansi-dim">8e3b6f1</span>  Add session handling                     [A]
+   3  <span class="ansi-dim">7c3d9e2</span>  Fix typo in README
 
-&#x2191;&#x2193; cursor  &#x2190;&#x2192; group  Space grab  r rename  Enter save  q quit</pre
-    >
+<span class="ansi-dim">↑↓ cursor  ←→ group  Space grab  r rename  Enter save  q quit</span></pre>
     <p>
       Press `r` to rename the group at the cursor. Type a title and press Enter to confirm, or Esc
       to cancel.
     </p>
-    <pre class="screen">
-Stack: feature/auth (2 commits)
+    <pre class="screen">Stack: feature/auth (2 commits)
 
-   1  f1a9e4c  Add login form                           [A: Auth&#x258C;]
-&#x25B6;  2  7c3d9e2  Add session handling                     [A]
+   1  <span class="ansi-dim">f1a9e4c</span>  Add login form                           [A: Auth▌]
+<span class="ansi-cyan-fg">▶</span>  2  <span class="ansi-dim">7c3d9e2</span>  Add session handling                     [A]
 
-RENAME MODE &#x2014; Type title  Enter confirm  Esc cancel</pre
-    >
+<span class="ansi-cyan-fg">RENAME MODE</span><span class="ansi-dim"> — Type title  Enter confirm  Esc cancel</span></pre>
     <p>
       Press Space to grab a commit and ↑↓ to reorder it. Spry predicts rebase conflicts as you move
       — rows with ⚠ may conflict. Press Space or Enter to drop the commit at its new position.
     </p>
-    <pre class="screen">
-Stack: feature/auth (2 commits)
+    <pre class="screen">Stack: feature/auth (2 commits)
 
-&#x25CF;  1  2d7f4a1  Add session handling
-   2  8e3b6f1  Add login form
+<span class="ansi-yellow-fg">●  1  </span><span class="ansi-yellow-fg ansi-dim">f1a9e4c</span><span class="ansi-yellow-fg">  Add session handling                    </span>
+   2  <span class="ansi-dim">c5d2a9f</span>  Add login form
 
-MOVE MODE &#x2014; &#x2191;&#x2193; reorder  Space/Enter drop  Esc cancel</pre
-    >
+<span class="ansi-cyan-fg">MOVE MODE</span><span class="ansi-dim"> — ↑↓ reorder  Space/Enter drop  Esc cancel</span></pre>
     <p>
       If the working tree is dirty, `sp group` still allows metadata-only grouping and renaming, but
       disables commit reordering until local changes are cleaned up.
     </p>
-    <pre class="screen">
-Stack: feature/auth (2 commits)
+    <pre class="screen">Stack: feature/auth (2 commits)
 
-&#x25B6;  1  2d7f4a1  Add login form
-   2  b47e1d0  Add session handling
+<span class="ansi-cyan-fg">▶</span>  1  <span class="ansi-dim">2d7f4a1</span>  Add login form
+   2  <span class="ansi-dim">b47e1d0</span>  Add session handling
 
-Reordering disabled: working tree is dirty.
-&#x2191;&#x2193; cursor  &#x2190;&#x2192; group  Space disabled  r rename  Enter save  q quit</pre
-    >
+<span class="ansi-yellow-fg">Reordering disabled: working tree is dirty.</span>
+<span class="ansi-dim">↑↓ cursor  ←→ group  Space disabled  r rename  Enter save  q quit</span></pre>
     <p>
       When you group commits and one of them already has an open PR, `sp group` adopts that PR for
       the new group instead of stranding it. Spry looks up each commit's branch on GitHub before the
@@ -87,14 +79,12 @@ Reordering disabled: working tree is dirty.
       While reordering, Spry predicts rebase conflicts in the background. Rows marked with ⚠ are
       likely to conflict if dropped in their current position.
     </p>
-    <pre class="screen">
-Stack: feature/config (2 commits)
+    <pre class="screen">Stack: feature/config (2 commits)
 
-&#x25CF;  1  b47e1d0  Set version to 2                         &#x26A0;
-   2  2d7f4a1  Set version to 1                         &#x26A0;
+<span class="ansi-yellow-fg">●  1  </span><span class="ansi-yellow-fg ansi-dim">b47e1d0</span><span class="ansi-yellow-fg">  Set version to 2                         </span><span class="ansi-red-fg">⚠</span>
+   2  <span class="ansi-dim">2d7f4a1</span>  Set version to 1                         <span class="ansi-red-fg">⚠</span>
 
-MOVE MODE &#x2014; &#x2191;&#x2193; reorder  Space/Enter drop  Esc cancel
-&#x26A0; Moving this commit may cause a conflict</pre
-    >
+<span class="ansi-cyan-fg">MOVE MODE</span><span class="ansi-dim"> — ↑↓ reorder  Space/Enter drop  Esc cancel</span>
+<span class="ansi-red-fg">⚠ Moving this commit may cause a conflict</span></pre>
   </body>
 </html>

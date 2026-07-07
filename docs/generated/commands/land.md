@@ -7,8 +7,6 @@ sp land --through aaaa1111
 ```
 
 ```
-↑ pushed spry/dondenton/bbbb2222
-↑ pushed spry/dondenton/aaaa1111
 ↻ retargeted PR #11 → spry/dondenton/bbbb2222
 ✓ Updated PR cache (2 PRs)
 ✓ Sync complete

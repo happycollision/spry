@@ -13,13 +13,13 @@
         pre.command { background: #0d1117; color: #c9d1d9; border-left: 3px solid #58a6ff; }
         pre.output { background: #0d1117; color: #c9d1d9; }
         pre.screen { background: #0d1117; color: #c9d1d9; }
-        .ansi-black { color: #000; } .ansi-red { color: #c0392b; } .ansi-green { color: #27ae60; }
-        .ansi-yellow { color: #f39c12; } .ansi-blue { color: #2980b9; } .ansi-magenta { color: #8e44ad; }
-        .ansi-cyan { color: #16a085; } .ansi-white { color: #bdc3c7; }
-        .ansi-bright-black { color: #7f8c8d; } .ansi-bright-red { color: #e74c3c; } .ansi-bright-green { color: #2ecc71; }
-        .ansi-bright-yellow { color: #f1c40f; } .ansi-bright-blue { color: #3498db; } .ansi-bright-magenta { color: #9b59b6; }
-        .ansi-bright-cyan { color: #1abc9c; } .ansi-bright-white { color: #ecf0f1; }
-        .ansi-bold { font-weight: bold; }
+        .ansi-black-fg { color: #000; } .ansi-red-fg { color: #c0392b; } .ansi-green-fg { color: #27ae60; }
+        .ansi-yellow-fg { color: #f39c12; } .ansi-blue-fg { color: #2980b9; } .ansi-magenta-fg { color: #8e44ad; }
+        .ansi-cyan-fg { color: #16a085; } .ansi-white-fg { color: #bdc3c7; }
+        .ansi-bright-black-fg { color: #7f8c8d; } .ansi-bright-red-fg { color: #e74c3c; } .ansi-bright-green-fg { color: #2ecc71; }
+        .ansi-bright-yellow-fg { color: #f1c40f; } .ansi-bright-blue-fg { color: #3498db; } .ansi-bright-magenta-fg { color: #9b59b6; }
+        .ansi-bright-cyan-fg { color: #1abc9c; } .ansi-bright-white-fg { color: #ecf0f1; }
+        .ansi-bold { font-weight: bold; } .ansi-dim { opacity: 0.65; }
     </style>
   </head>
   <body>
@@ -42,13 +42,13 @@
     <pre class="command">sp rebase</pre>
     <pre
       class="output"
-    ><span style="color:#A00">&#x2717; Rebase would conflict on commit b47e1d05: Add API handler</span>
-<span style="color:#A00"></span>
-<span style="color:#A00">  Conflicting files:</span>
-<span style="color:#A00">    - api.ts</span>
-<span style="color:#A00"></span>
-<span style="color:#A00">  Resolve the upstream changes manually, then run `sp rebase` again.</span>
-<span style="color:#A00">  Or use `git rebase` for interactive conflict resolution.</span></pre>
+    ><span class="ansi-red-fg">✗ Rebase would conflict on commit b47e1d05: Add API handler</span>
+
+<span class="ansi-red-fg">  Conflicting files:</span>
+<span class="ansi-red-fg">    - api.ts</span>
+
+<span class="ansi-red-fg">  Resolve the upstream changes manually, then run `sp rebase` again.</span>
+<span class="ansi-red-fg">  Or use `git rebase` for interactive conflict resolution.</span></pre>
     <p>
       When all tracked branches are already based on the latest trunk, `sp rebase --all` fetches and
       reports each as up to date:

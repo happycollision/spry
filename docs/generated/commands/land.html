@@ -13,13 +13,13 @@
         pre.command { background: #0d1117; color: #c9d1d9; border-left: 3px solid #58a6ff; }
         pre.output { background: #0d1117; color: #c9d1d9; }
         pre.screen { background: #0d1117; color: #c9d1d9; }
-        .ansi-black { color: #000; } .ansi-red { color: #c0392b; } .ansi-green { color: #27ae60; }
-        .ansi-yellow { color: #f39c12; } .ansi-blue { color: #2980b9; } .ansi-magenta { color: #8e44ad; }
-        .ansi-cyan { color: #16a085; } .ansi-white { color: #bdc3c7; }
-        .ansi-bright-black { color: #7f8c8d; } .ansi-bright-red { color: #e74c3c; } .ansi-bright-green { color: #2ecc71; }
-        .ansi-bright-yellow { color: #f1c40f; } .ansi-bright-blue { color: #3498db; } .ansi-bright-magenta { color: #9b59b6; }
-        .ansi-bright-cyan { color: #1abc9c; } .ansi-bright-white { color: #ecf0f1; }
-        .ansi-bold { font-weight: bold; }
+        .ansi-black-fg { color: #000; } .ansi-red-fg { color: #c0392b; } .ansi-green-fg { color: #27ae60; }
+        .ansi-yellow-fg { color: #f39c12; } .ansi-blue-fg { color: #2980b9; } .ansi-magenta-fg { color: #8e44ad; }
+        .ansi-cyan-fg { color: #16a085; } .ansi-white-fg { color: #bdc3c7; }
+        .ansi-bright-black-fg { color: #7f8c8d; } .ansi-bright-red-fg { color: #e74c3c; } .ansi-bright-green-fg { color: #2ecc71; }
+        .ansi-bright-yellow-fg { color: #f1c40f; } .ansi-bright-blue-fg { color: #3498db; } .ansi-bright-magenta-fg { color: #9b59b6; }
+        .ansi-bright-cyan-fg { color: #1abc9c; } .ansi-bright-white-fg { color: #ecf0f1; }
+        .ansi-bold { font-weight: bold; } .ansi-dim { opacity: 0.65; }
     </style>
   </head>
   <body>
@@ -32,26 +32,20 @@
       `CLOSED`. `sp land` never deletes branches (that is `sp clean`'s job):
     </p>
     <pre class="command">sp land --through aaaa1111</pre>
-    <pre class="output">
-↑ pushed spry/dondenton/bbbb2222
-↑ pushed spry/dondenton/aaaa1111
-↻ retargeted PR #11 → spry/dondenton/bbbb2222
+    <pre class="output">↻ retargeted PR #11 → spry/dondenton/bbbb2222
 ✓ Updated PR cache (2 PRs)
 ✓ Sync complete
 ↻ retargeted PR #11 → main
 ✓ Landed 2 PRs to main
-  Run `sp clean` to delete the landed branches from the remote.</pre
-    >
+<span class="ansi-dim">  Run `sp clean` to delete the landed branches from the remote.</span></pre>
     <p>
       Run `sp land` with no arguments to choose the land point interactively. Spry shows a
       single-select menu of the stack's units (bottom→top) — use ↑/↓ to move, Enter to select. The
       chosen unit becomes the `--through` target:
     </p>
     <pre class="command">sp land</pre>
-    <pre class="screen">
-Select the unit to land through (&#x2191;/&#x2193; move, enter select, esc cancel):
-&gt; bbbb2222  Add login
-  aaaa1111  Add logout</pre
-    >
+    <pre class="screen">Select the unit to land through (↑/↓ move, enter select, esc cancel):
+<span class="ansi-cyan-fg">&gt;</span> <span class="ansi-cyan-fg">bbbb2222  Add login</span>
+  aaaa1111  Add logout</pre>
   </body>
 </html>

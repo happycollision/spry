@@ -116,7 +116,13 @@ describe("sp group docs", () => {
     term.press(" "); // drop
     await Bun.sleep(100);
     term.press("Enter"); // save
-    await term.waitForText("Reordered", { timeout: 10000 });
+    // Wait for the FINAL message, not the mid-command "Reordered": the
+    // group-records save/push runs after "Reordered" prints, and close() kills
+    // the process — waiting on the early sentinel raced that write, making the
+    // repo's reflog commit count (and thus the doc-scrubber's SHA registry)
+    // flip between runs. See
+    // docs/investigations/2026-07-07-group-reflog-nondeterminism.md.
+    await term.waitForText("Groups updated", { timeout: 10000 });
     await term.close();
   });
 

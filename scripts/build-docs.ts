@@ -1,7 +1,7 @@
 import type { DocFragment, DocEntry } from "../tests/lib/doc-types.ts";
 import { readdir, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import AnsiToHtml from "ansi-to-html";
+import Anser from "anser";
 import { buildShaMap, buildSpryMap, scanAndReplace } from "../tests/lib/sha-scanner.ts";
 
 /** Assemble doc fragments into markdown strings grouped by section. */
@@ -49,7 +49,14 @@ function renderEntry(entry: DocEntry): string {
   }
 }
 
-const converter = new AnsiToHtml({ escapeXML: true, newline: false });
+// Convert captured ANSI to HTML. We escape the raw text first (Anser's
+// escapeForHtml leaves ESC bytes intact) and then let Anser wrap the escaped
+// text in balanced `ansi-*` class spans. We use Anser rather than ansi-to-html
+// because ansi-to-html@0.7.2 (its final release) renders the SGR reset ESC[22m
+// as an *opening* <span>, producing unbalanced markup that churned the docs.
+function ansiToHtml(ansi: string): string {
+  return Anser.ansiToHtml(Anser.escapeForHtml(ansi), { use_classes: true });
+}
 
 const HTML_CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -60,13 +67,13 @@ const HTML_CSS = `
   pre.command { background: #0d1117; color: #c9d1d9; border-left: 3px solid #58a6ff; }
   pre.output { background: #0d1117; color: #c9d1d9; }
   pre.screen { background: #0d1117; color: #c9d1d9; }
-  .ansi-black { color: #000; } .ansi-red { color: #c0392b; } .ansi-green { color: #27ae60; }
-  .ansi-yellow { color: #f39c12; } .ansi-blue { color: #2980b9; } .ansi-magenta { color: #8e44ad; }
-  .ansi-cyan { color: #16a085; } .ansi-white { color: #bdc3c7; }
-  .ansi-bright-black { color: #7f8c8d; } .ansi-bright-red { color: #e74c3c; } .ansi-bright-green { color: #2ecc71; }
-  .ansi-bright-yellow { color: #f1c40f; } .ansi-bright-blue { color: #3498db; } .ansi-bright-magenta { color: #9b59b6; }
-  .ansi-bright-cyan { color: #1abc9c; } .ansi-bright-white { color: #ecf0f1; }
-  .ansi-bold { font-weight: bold; }
+  .ansi-black-fg { color: #000; } .ansi-red-fg { color: #c0392b; } .ansi-green-fg { color: #27ae60; }
+  .ansi-yellow-fg { color: #f39c12; } .ansi-blue-fg { color: #2980b9; } .ansi-magenta-fg { color: #8e44ad; }
+  .ansi-cyan-fg { color: #16a085; } .ansi-white-fg { color: #bdc3c7; }
+  .ansi-bright-black-fg { color: #7f8c8d; } .ansi-bright-red-fg { color: #e74c3c; } .ansi-bright-green-fg { color: #2ecc71; }
+  .ansi-bright-yellow-fg { color: #f1c40f; } .ansi-bright-blue-fg { color: #3498db; } .ansi-bright-magenta-fg { color: #9b59b6; }
+  .ansi-bright-cyan-fg { color: #1abc9c; } .ansi-bright-white-fg { color: #ecf0f1; }
+  .ansi-bold { font-weight: bold; } .ansi-dim { opacity: 0.65; }
 `.trim();
 
 function escapeHtml(text: string): string {
@@ -83,7 +90,7 @@ function renderEntryHtml(entry: DocEntry): string {
     case "screen": {
       const cls = entry.type;
       const inner = entry.ansiContent
-        ? converter.toHtml(entry.ansiContent.trimEnd())
+        ? ansiToHtml(entry.ansiContent.trimEnd())
         : escapeHtml(entry.content.trimEnd());
       return `<pre class="${cls}">${inner}</pre>`;
     }
