@@ -4,7 +4,7 @@ This document records the rebuild feature audit and the decisions about what to 
 
 The rebuild started fresh with better test infrastructure and a cleaner architecture. Not everything from `main` needs a direct port — some things should be redesigned, some merged, some dropped.
 
-**Status as of 2026-06-27:** The rebuilt implementation has been fast-forwarded into `main`. We are still rebuilding, but future work should branch from `main` rather than from the old `rebuild-spry` integration branch. The rebuild now covers the core workflow with deliberate redesigns rather than one-for-one parity with the pre-rebuild codebase. Most observed differences are accepted product decisions (documented below). The main remaining parity area is `sp group`: the interactive editor exists, but we still need to consider the capabilities that the old helper commands covered and decide whether they need new rebuild-native workflows.
+**Status as of 2026-06-27:** The rebuilt implementation has been fast-forwarded into `main`. We are still rebuilding, but future work should branch from `main` rather than from the old `rebuild-spry` integration branch. The rebuild now covers the core workflow with deliberate redesigns rather than one-for-one parity with the pre-rebuild codebase. Most observed differences are accepted product decisions (documented below).
 
 **Pre-merge comparison point:** local `main` tip at audit time was
 `466674e30a8342895ea009903a0df2e0de45222f` (commit date
@@ -24,11 +24,9 @@ pre-rebuild codebase.
 
 Branch tracking (`refs/spry/local/tracked-branches`) is written automatically by `sp sync`, `sp group`, and `sp rebase`, and powers the `--all` variants.
 
-## Remaining work
+## Feature-audit decisions
 
-The rebuild is no longer trying to match `main` flag-for-flag. These are the remaining follow-up areas after the feature audit:
-
-- **Revisit legacy `sp group` helper capabilities.** The pre-rebuild code had `sp group --apply`, `sp group --fix`, and `sp group dissolve`. The rebuilt code currently ships the interactive editor only. We are not assuming those exact commands should return, but we need to consider the jobs they did before deciding whether to drop them or design rebuild-native replacements.
+The rebuild is no longer trying to match `main` flag-for-flag. The feature audit is settled; the sections below record the decisions — what was reduced, dropped, deferred, or accepted.
 
 The cleanup capabilities `main` bundled into `clean` are resolved as follows:
 
@@ -84,31 +82,18 @@ before the stack has been rebased onto a newer trunk. **Decided (2026-06-27):
 deferred.** Keep the current behavior for now; revisit if multi-machine or
 multi-author workflows become painful.
 
-### `sp group` helper capabilities — needs follow-up
+### `sp group` helper capabilities — dropped
 
-`main` had helper surfaces around the interactive editor that covered capabilities
-this branch does not currently expose:
-
-- `sp group --apply <json>` — non-interactive grouping/reordering for scripts,
-  tests, and repeatable recipes.
-- `sp group --fix[=dissolve|merge]` — repair flow for invalid or split group
-  state.
-- `sp group dissolve [group-id]` with `--inherit <commit>` / `--no-inherit` —
-  explicit group dissolution, including deterministic PR inheritance when a
-  group already has an open PR.
-
-The current branch stores grouping in `refs/spry/groups`, so these should not be
-ported blindly from `main`'s trailer-rewrite model. The capabilities to preserve
-for a future design discussion are:
-
-- automation: there is no non-interactive way to apply a grouping spec;
-- recovery: there is no dedicated repair command if group state gets awkward;
-- dissolution: removing a group through the editor lacks the explicit PR
-  inheritance controls that `main` exposed.
-
-**Open follow-up:** decide whether these capabilities are still needed, and if
-so, whether they should be served by restored commands, new rebuild-native flows,
-or improvements to the interactive editor.
+`main` had helper surfaces around the interactive editor that this branch does
+not expose: `sp group --apply <json>` (non-interactive grouping for
+scripts/tests), `sp group --fix[=dissolve|merge]` (repair flow for invalid/split
+group state), and `sp group dissolve [group-id]` with `--inherit`/`--no-inherit`
+(explicit dissolution with deterministic PR inheritance). The rebuild ships the
+interactive editor only, and stores grouping in `refs/spry/groups` rather than
+`main`'s trailer-rewrite model. **Decided (2026-07-11): dropped.** The automation,
+repair, and explicit-dissolution jobs these covered are not needed now. If they
+resurface, redesign them rebuild-native against `refs/spry/groups` — do not port
+`main`'s commands blindly.
 
 ---
 
