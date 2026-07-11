@@ -86,6 +86,24 @@ git push                          # Push code
 - Use descriptive titles and set appropriate priority/type
 - Always sync before ending session
 
+### Capturing tangential discoveries
+
+**Always log tangential discoveries as beads issues — never wonder whether it's
+worth capturing.** If, while working on something, you notice an unrelated bug,
+a broken/dangling config, a stale doc, a missing test, a footgun, or any "huh,
+that's not right" — file it immediately, then return to your task. The bar is
+zero: capturing a non-issue costs a `br close`; losing a real one costs a
+rediscovery later.
+
+- Title it with a `Discovery:` prefix, e.g.
+  `br create --title="Discovery: dangling .git/info/exclude symlink" --type=chore --priority=3 --description="<what you saw, where, why it matters>"`.
+- Inline the full context in the description — the finding, the file/location,
+  and why it matters — since the issue is the only record.
+- Do **not** derail your current task to fix it; the issue is the capture.
+- Publish it with the [Session Protocol](#session-protocol) before the session
+  ends (a `br create` alone does not share it — it must be committed and pushed
+  to the nook).
+
 <!-- end-br-agent-instructions -->
 
 ## Beads issue tracking (git nook)
