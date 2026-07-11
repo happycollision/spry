@@ -26,13 +26,7 @@ import {
 } from "../parse/index.ts";
 import type { PRUnit } from "../parse/index.ts";
 import { formatValidationError } from "../ui/format.ts";
-import {
-  findPRsForBranches,
-  retargetPR,
-  pushBranch,
-  deleteRemoteBranch,
-  isAlreadyGone,
-} from "../gh/index.ts";
+import { findPRsForBranches, pushBranch, deleteRemoteBranch, isAlreadyGone } from "../gh/index.ts";
 import { evaluateReadiness } from "./land-readiness.ts";
 import { confirm as defaultConfirm, selectOne } from "../tui/index.ts";
 import { resolveUnitTitle } from "../parse/index.ts";
@@ -144,23 +138,7 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
     }
   }
 
-  // 5. Retarget every scope PR to trunk BEFORE the push (the secret sauce).
-  for (const unit of scopeUnits) {
-    const branch = branchForUnit(unit, config);
-    const pr = prMap.get(branch);
-    if (!pr || pr.state !== "OPEN") continue;
-    if (pr.baseRefName === config.trunk) continue;
-    try {
-      await retargetPR(ctx, pr.number, config.trunk, { cwd });
-      console.log(`↻ retargeted PR #${pr.number} → ${config.trunk}`);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`✗ Could not retarget PR #${pr.number}: ${message}`);
-      process.exit(1); // never ff with an un-retargeted middle PR
-    }
-  }
-
-  // 6. One ff push to the target tip.
+  // 5. One ff push to the target tip.
   const result = await pushBranch(ctx.git, {
     cwd,
     remote: config.remote,
@@ -180,7 +158,7 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
   const n = scopeUnits.length;
   console.log(`✓ Landed ${n} PR${n === 1 ? "" : "s"} to ${config.trunk}`);
 
-  // 7. Cleanup tail — scrub the state of the units we just landed. The land has
+  // 6. Cleanup tail — scrub the state of the units we just landed. The land has
   //    already succeeded; nothing below may abort it. Every failure here warns
   //    (dim) and continues.
   const landedIds = new Set(scopeUnits.map((u) => u.id));
@@ -190,7 +168,7 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
     await deleteSpentBranches(ctx, config, scopeUnits, cwd);
   }
 
-  // 8. Closing guidance reflects what cleanup actually did.
+  // 7. Closing guidance reflects what cleanup actually did.
   if (units.length > scopeUnits.length) {
     console.log(kleur.dim("  Run `sp sync` to retarget the remaining PRs."));
   }
