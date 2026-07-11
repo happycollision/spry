@@ -188,6 +188,44 @@ bun run format
 bun run check
 ```
 
+### Issue tracking (beads + git nook)
+
+Spry's issues are tracked with [beads_rust](https://github.com/Dicklesworthstone/beads_rust)
+(`br`), stored in `.beads/`. That directory is **not** committed on `main` — it
+lives in a [git nook](https://github.com/happycollision/git-nook), an inner git
+repo hidden under `.git/` whose data is published to a custom ref on `origin`
+(`refs/nook/happycollision/spry/beads`) that never shows up in branch listings or
+a default clone. This keeps issue-tracker churn off the `main` branch history.
+
+A fresh clone has no `.beads/` and no nook wired up. To hook into the shared
+issues after cloning:
+
+```bash
+# 1. Install the tools (once per machine)
+#    - br:       https://github.com/Dicklesworthstone/beads_rust
+#    - git-nook: https://github.com/happycollision/git-nook
+
+# 2. Wire up the nook. This targets `origin` and, because the ref already
+#    exists there, bootstraps .beads/ from it automatically.
+git nook add beads origin --dir .beads
+
+# 3. Import the JSONL into a local beads DB
+br sync --import-only
+
+# 4. Verify
+git nook beads status   # expect: up to date with origin/main
+br ready                # list actionable issues
+```
+
+The day-to-day flow (create/update issues with `br`, then publish) is documented
+in [`AGENTS.md`](AGENTS.md) under "Beads Workflow Integration". In short: after
+changing issues, run `br sync --flush-only`, then
+`git nook beads add --all && git nook beads commit -m "issues" && git nook beads push`.
+
+> **Note:** if `git nook add` fails writing to `.git/info/exclude`, check whether
+> that path is a dangling symlink (some global git templates symlink it); replace
+> it with a real file and retry.
+
 ### Documentation tests
 
 Some tests double as the source of user-facing documentation. They're written with `docTest` (see `tests/commands/view.doc.test.ts` for an example). When a doc test passes, it writes a JSON fragment to `.test-tmp/doc-fragments/`. The `docs:build` script assembles those fragments into markdown under `docs/generated/`.
