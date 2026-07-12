@@ -1,5 +1,27 @@
 import { test, expect } from "bun:test";
+import { $ } from "bun";
 import { createGitHubFixture, verifyTestRepo } from "./github-fixture.ts";
+
+/** Resolve the default branch's tip SHA — a valid target for a new ref. */
+async function headSha(owner: string, repo: string): Promise<string> {
+  const result = await $`gh api repos/${owner}/${repo}/commits/HEAD --jq .sha`.quiet().nothrow();
+  return result.stdout.toString().trim();
+}
+
+/**
+ * Poll until `ref` appears under refs/spry/ (GitHub's git-refs API is eventually
+ * consistent, so a freshly-created ref may not be immediately listable).
+ */
+async function waitForSpryRef(owner: string, repo: string, ref: string): Promise<void> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const result = await $`gh api repos/${owner}/${repo}/git/matching-refs/spry/ --jq '.[].ref'`
+      .quiet()
+      .nothrow();
+    if (result.stdout.toString().includes(ref)) return;
+    await Bun.sleep(500);
+  }
+  throw new Error(`Seeded ref ${ref} never became visible under refs/spry/`);
+}
 
 // These tests drive real `gh` against the live spry-check test repo. They
 // require gh auth + network, so they share the SPRY_RECORD gate with cassette
@@ -32,3 +54,37 @@ test.skipIf(SKIP)("reset leaves zero open PRs", async () => {
   const remaining = await fixture.closeAllPRs();
   expect(remaining).toBe(0);
 });
+
+test.skipIf(SKIP)(
+  "reset purges all refs/spry/* custom refs",
+  async () => {
+    const fixture = await createGitHubFixture();
+
+    // Seed a stale spry ref to simulate leftover state from a prior record run
+    // (e.g. a refs/spry/groups blob that survives across runs because the test
+    // commit-ids are deterministic).
+    await $`gh api -X POST repos/${fixture.owner}/${fixture.repo}/git/refs -f ref=refs/spry/test-purge -f sha=${await headSha(fixture.owner, fixture.repo)}`
+      .quiet()
+      .nothrow();
+
+    // GitHub's git-refs API is eventually consistent — wait until the seeded ref
+    // is actually visible before asking reset() to purge it, so we test the
+    // purge and not the create-propagation window.
+    await waitForSpryRef(fixture.owner, fixture.repo, "refs/spry/test-purge");
+
+    const report = await fixture.reset();
+    expect(report.errors).toEqual([]);
+    // The seeded ref must have been counted among the purged refs.
+    expect(report.spryRefsDeleted).toBeGreaterThanOrEqual(1);
+
+    // No refs/spry/* refs should remain after reset.
+    const remaining =
+      await $`gh api repos/${fixture.owner}/${fixture.repo}/git/matching-refs/spry/ --jq '.[].ref'`
+        .quiet()
+        .nothrow();
+    const refs = remaining.stdout.toString().trim();
+    expect(refs).toBe("");
+  },
+  // Real gh round-trips (seed + list + delete + verify) exceed the 5s default.
+  60000,
+);
