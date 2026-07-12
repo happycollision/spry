@@ -32,8 +32,8 @@
       Use `sp sync --open` to publish for the first time.
     </p>
     <pre class="command">sp sync</pre>
-    <pre class="output">↑ pushed spry/dondenton/aaaa1111
-<span class="ansi-dim">PR retargeting unavailable: &lt;hint&gt;
+    <pre class="output"><span class="ansi-dim">PR retargeting unavailable: &lt;hint&gt;
+↑ pushed spry/dondenton/aaaa1111
 ✓ Sync complete</span></pre>
     <p>
       Use `sp sync --open &lt;id&gt;` to publish a commit for the first time — Spry pushes the
@@ -42,6 +42,7 @@
     </p>
     <pre class="command">sp sync --open aaaa1111</pre>
     <pre class="output">
+✓ Updated PR cache (1 PR)
 ↑ pushed spry/dondenton/aaaa1111
 ✓ Created PR #1001: Add login
   https://github.com/owner/repo/pull/1001
@@ -55,6 +56,7 @@
     </p>
     <pre class="command">sp sync --open grp00001</pre>
     <pre class="output">
+✓ Updated PR cache (1 PR)
 ↑ pushed spry/dondenton/grp00001
 ✓ Created PR #42: Auth flow
   https://github.com/owner/repo/pull/42
@@ -93,6 +95,7 @@
     </p>
     <pre class="command">sp sync</pre>
     <pre class="output">
+✓ Updated PR cache (2 PRs)
 ↑ pushed spry/dondenton/bbbb2222
 ↑ pushed spry/dondenton/aaaa1111
 ↻ retargeted PR #11 → spry/dondenton/bbbb2222
