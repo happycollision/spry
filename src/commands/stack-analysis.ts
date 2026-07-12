@@ -53,14 +53,44 @@ export function missingIdHashes(commits: CommitWithTrailers[]): string[] {
   return commits.filter((c) => !c.trailers["Spry-Commit-Id"]).map((c) => c.hash);
 }
 
+async function originSha(
+  git: GitRunner,
+  branch: string,
+  cwd: string | undefined,
+): Promise<string | null> {
+  const res = await git.run(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`], {
+    cwd,
+  });
+  if (res.exitCode !== 0) return null;
+  const sha = res.stdout.trim();
+  return sha.length > 0 ? sha : null;
+}
+
 export async function analyzeStack(
   // ctx is narrowed to { git } — this module is pure/read-only and never calls gh.
   ctx: { git: GitRunner },
   input: AnalyzeStackInput,
   opts: AnalyzeStackOptions = {},
 ): Promise<StackAnalysis> {
-  void ctx;
-  void input;
-  void opts;
-  return { units: [] };
+  const { units, commits, prCache, config } = input;
+  const cwd = opts.cwd;
+  const missing = new Set(missingIdHashes(commits));
+
+  const analyzed: UnitAnalysis[] = [];
+  for (const unit of units) {
+    const branch = branchForUnit(unit, config);
+    const localTip = unit.commits.at(-1);
+    const remoteTip = await originSha(ctx.git, branch, cwd);
+    const unpushed = !localTip || remoteTip === null || remoteTip !== localTip;
+
+    const missingId = unit.commits.some((sha) => missing.has(sha));
+
+    const cached = prCache[unit.id];
+    const currentBase = cached?.baseRefName;
+    const expectedBase = expectedBaseFor(unit, units, config);
+    const misTargeted = cached !== undefined && cached.baseRefName !== expectedBase;
+
+    analyzed.push({ unit, branch, missingId, unpushed, misTargeted, currentBase, expectedBase });
+  }
+  return { units: analyzed };
 }
