@@ -206,10 +206,12 @@ describe("sp land --through", () => {
     ]);
     const tip = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
 
+    // A correctly-stacked stack: bottom PR based on trunk, upper PR based on the
+    // bottom unit's branch. Land now verifies this and refuses a mis-targeted stack.
     const { gh } = stubGh(
       ghPrStub({
-        "spry/test/aaa11111": { number: 1 },
-        "spry/test/bbb22222": { number: 2 },
+        "spry/test/aaa11111": { number: 1, base: "main" },
+        "spry/test/bbb22222": { number: 2, base: "spry/test/aaa11111" },
       }),
     );
     const ctx = makeCtx(repo, gh);
@@ -297,6 +299,42 @@ describe("sp land --through", () => {
     ).stdout.trim();
     expect(originMain).toBe(tip);
     expect(trap.exitCode).toBeUndefined();
+  });
+
+  test("land fails when an in-scope PR is mis-targeted (no ff-push)", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedStack(repo, git, [
+      { id: "aaa11111", subject: "Add login" },
+      { id: "bbb22222", subject: "Add logout" },
+    ]);
+    await git.run(["fetch", "origin"], { cwd: repo.path });
+    const before = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+
+    // Both PRs based on "main": unit bbb22222 should be based on
+    // spry/test/aaa11111, so it is mis-targeted and trips landBlockers.
+    const passing = [{ __typename: "CheckRun", status: "COMPLETED", conclusion: "SUCCESS" }];
+    const { gh } = stubGh(
+      ghPrStub({
+        "spry/test/aaa11111": { number: 1, base: "main", rollup: passing },
+        "spry/test/bbb22222": { number: 2, base: "main", rollup: passing },
+      }),
+    );
+    const ctx = makeCtx(repo, gh);
+
+    const { err, restore } = captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, { through: "bbb22222", cwd: repo.path });
+    } finally {
+      trap.restore();
+      restore();
+    }
+
+    const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+    expect(after).toBe(before); // did NOT land
+    expect(err.join("\n")).toMatch(/sp sync/);
+    expect(err.join("\n")).toMatch(/base/i);
   });
 
   test("unknown --through id exits 1 with a resolution error and lands nothing", async () => {
@@ -446,7 +484,7 @@ describe("sp land readiness", () => {
     });
   }
 
-  test("a scope unit with no open PR errors and points to sp sync --open", async () => {
+  test("a scope unit with no open PR errors and points to sp sync", async () => {
     const repo = await makeConfiguredRepo();
     const git = createRealGitRunner();
     await publishedStack(repo, git, [{ id: "aaa11111", subject: "first" }]);
@@ -465,7 +503,10 @@ describe("sp land readiness", () => {
     }
 
     expect(trap.exitCode).toBe(1);
-    expect(logs.err.join("\n")).toMatch(/sp sync --open/);
+    // landBlockers reports "no open PR" and the unified guidance points at `sp sync`
+    // (the read-write split moved publishing/retargeting entirely into sync).
+    expect(logs.err.join("\n")).toMatch(/no open PR/);
+    expect(logs.err.join("\n")).toMatch(/sp sync/);
     const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
     expect(after).toBe(before);
   });
@@ -481,10 +522,11 @@ describe("sp land no-arg picker", () => {
     ]);
     const tip = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
 
+    // Correctly-stacked bases so the whole-stack land passes the readiness gate.
     const { gh } = stubGh(
       ghPrStub({
-        "spry/test/aaa11111": { number: 1 },
-        "spry/test/bbb22222": { number: 2 },
+        "spry/test/aaa11111": { number: 1, base: "main" },
+        "spry/test/bbb22222": { number: 2, base: "spry/test/aaa11111" },
       }),
     );
     const ctx = makeCtx(repo, gh);
@@ -630,10 +672,11 @@ describe("sp land cleanup tail", () => {
       { id: "bbb22222", subject: "second" },
     ]);
 
+    // Correctly-stacked bases so the whole-stack land passes the readiness gate.
     const { gh } = stubGh(
       ghPrStub({
-        "spry/test/aaa11111": { number: 1 },
-        "spry/test/bbb22222": { number: 2 },
+        "spry/test/aaa11111": { number: 1, base: "main" },
+        "spry/test/bbb22222": { number: 2, base: "spry/test/aaa11111" },
       }),
     );
     const ctx = makeCtx(repo, gh);
@@ -747,10 +790,12 @@ describe("sp land cleanup tail", () => {
       },
     ]);
 
+    // Whole-stack group land: the upper group's PR must be based on the lower
+    // group's branch for the readiness gate to accept it.
     const { gh } = stubGh(
       ghPrStub({
-        "spry/test/grp00001": { number: 1 },
-        "spry/test/grp00002": { number: 2 },
+        "spry/test/grp00001": { number: 1, base: "main" },
+        "spry/test/grp00002": { number: 2, base: "spry/test/grp00001" },
       }),
     );
     const ctx = makeCtx(repo, gh);
@@ -787,10 +832,11 @@ describe("sp land cleanup tail", () => {
     expect(before).toContain("spry/test/aaa11111");
     expect(before).toContain("spry/test/bbb22222");
 
+    // Correctly-stacked bases so the whole-stack land passes the readiness gate.
     const { gh } = stubGh(
       ghPrStub({
-        "spry/test/aaa11111": { number: 1 },
-        "spry/test/bbb22222": { number: 2 },
+        "spry/test/aaa11111": { number: 1, base: "main" },
+        "spry/test/bbb22222": { number: 2, base: "spry/test/aaa11111" },
       }),
     );
     const ctx = makeCtx(repo, gh);
@@ -820,10 +866,11 @@ describe("sp land cleanup tail", () => {
       { id: "bbb22222", subject: "second" },
     ]);
 
+    // Correctly-stacked bases so the whole-stack land passes the readiness gate.
     const { gh } = stubGh(
       ghPrStub({
-        "spry/test/aaa11111": { number: 1 },
-        "spry/test/bbb22222": { number: 2 },
+        "spry/test/aaa11111": { number: 1, base: "main" },
+        "spry/test/bbb22222": { number: 2, base: "spry/test/aaa11111" },
       }),
     );
     const ctx = makeCtx(repo, gh);
@@ -844,7 +891,13 @@ describe("sp land cleanup tail", () => {
     expect(after).toContain("spry/test/bbb22222");
   });
 
-  test("an already-gone branch during deletion is benign (no failure)", async () => {
+  test("land refuses a unit whose remote branch is gone (caught by readiness, not the cleanup tail)", async () => {
+    // Under the read-write split, land verifies every in-scope unit is pushed
+    // (analyzeStack reads `origin/<branch>`) BEFORE the ff-push. A branch missing
+    // from the remote is caught by the readiness gate, so land aborts and never
+    // reaches the cleanup tail. The cleanup tail's own already-gone tolerance
+    // (deleteRemoteBranch / isAlreadyGone) is still covered by
+    // tests/commands/clean.test.ts.
     const repo = await makeConfiguredRepo();
     const git = createRealGitRunner();
     await git.run(["config", "spry.autoDeleteOnLand", "true"], { cwd: repo.path });
@@ -852,14 +905,16 @@ describe("sp land cleanup tail", () => {
       { id: "aaa11111", subject: "first" },
       { id: "bbb22222", subject: "second" },
     ]);
-    // Remove one branch from the origin BEFORE landing so the auto-delete step
-    // hits a "remote ref does not exist" — which must be treated as benign.
+    const before = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+
+    // Delete the bottom unit's remote branch before landing: it is now unpushed.
     await git.run(["push", "origin", "--delete", "spry/test/aaa11111"], { cwd: repo.path });
 
+    // Correctly-stacked bases — the block must come from the missing branch, not targeting.
     const { gh } = stubGh(
       ghPrStub({
-        "spry/test/aaa11111": { number: 1 },
-        "spry/test/bbb22222": { number: 2 },
+        "spry/test/aaa11111": { number: 1, base: "main" },
+        "spry/test/bbb22222": { number: 2, base: "spry/test/aaa11111" },
       }),
     );
     const ctx = makeCtx(repo, gh);
@@ -872,8 +927,12 @@ describe("sp land cleanup tail", () => {
       logs.restore();
     }
 
-    expect(trap.exitCode).toBeUndefined();
-    expect(logs.out.join("\n")).toContain("Landed");
-    expect(logs.out.join("\n")).toMatch(/spry\/test\/aaa11111 already gone/);
+    expect(trap.exitCode).toBe(1);
+    // Nothing landed.
+    const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+    expect(after).toBe(before);
+    // The error names the unpushed problem and points at `sp sync`.
+    expect(logs.err.join("\n")).toMatch(/not pushed|stale/i);
+    expect(logs.err.join("\n")).toMatch(/sp sync/);
   });
 });
