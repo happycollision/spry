@@ -1626,3 +1626,53 @@ describe("syncCommand reorder park", () => {
     expect(logs.out.join("\n")).not.toContain("parked");
   });
 });
+
+describe("syncCommand park failure is fail-safe", () => {
+  test("a failed park excludes that branch from the push and exits 1", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    await git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: bbb22222"], {
+      cwd: repo.path,
+    });
+    // Push A's branch at an OLDER sha (main) so a real push WOULD occur absent the skip.
+    const mainSha = (await git.run(["rev-parse", "main"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${mainSha}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+    const bSha = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${bSha}:refs/heads/spry/test/bbb22222`], {
+      cwd: repo.path,
+    });
+
+    // A's PR is mismatched (base=B, expected=main) so it will be parked; make
+    // the park (pr edit) fail so A must be skipped by the push.
+    const { gh } = stubGh((call) => {
+      if (call.args[0] === "pr" && call.args[1] === "edit") {
+        return { stdout: "", stderr: "network down", exitCode: 1 };
+      }
+      return ghPRMap({
+        "spry/test/aaa11111": { number: 10, baseRefName: "spry/test/bbb22222" },
+        "spry/test/bbb22222": { number: 11, baseRefName: "main" },
+      })(call);
+    });
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await syncCommand(ctx, { cwd: repo.path });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+    expect(trap.exitCode).toBe(1);
+    // A was NOT pushed (park failed → skipped).
+    expect(logs.out.join("\n")).not.toContain("pushed spry/test/aaa11111");
+    expect(logs.err.join("\n")).toMatch(/Could not park PR #10/);
+  });
+});
