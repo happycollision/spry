@@ -896,8 +896,8 @@ describe("sp land cleanup tail", () => {
     // (analyzeStack reads `origin/<branch>`) BEFORE the ff-push. A branch missing
     // from the remote is caught by the readiness gate, so land aborts and never
     // reaches the cleanup tail. The cleanup tail's own already-gone tolerance
-    // (deleteRemoteBranch / isAlreadyGone) is still covered by
-    // tests/commands/clean.test.ts.
+    // (the `isAlreadyGone` predicate) is unit-tested directly in
+    // tests/gh/push.test.ts.
     const repo = await makeConfiguredRepo();
     const git = createRealGitRunner();
     await git.run(["config", "spry.autoDeleteOnLand", "true"], { cwd: repo.path });
