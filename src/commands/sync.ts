@@ -208,7 +208,28 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   // 3. Cheap signal: which branches already exist on the remote?
   const existing = await listRemoteBranches(ctx.git, config.remote, config.branchPrefix, { cwd });
 
-  // 4. Push phase — only branches that already exist remotely
+  // 3.5 Phase 1 — pre-push park. When the stack has been reordered, an
+  // in-place force-push can make a PR's head reachable from its stale base and
+  // GitHub marks it MERGED. Parking every mismatched open PR onto trunk first
+  // removes those stale relationships. Branches whose park fails are excluded
+  // from the push (fail-safe) and flip hadFailure.
+  const prMapForPark = checked.prMap;
+  let parkFailed = new Set<string>();
+  if (prMapForPark && stackHasReorder(units, prMapForPark, config)) {
+    const existingBranches = units
+      .map((u) => branchForUnit(u, config))
+      .filter((b) => existing.has(b));
+    parkFailed = await parkMismatchedToTrunk(
+      ctx,
+      config,
+      units,
+      existingBranches,
+      prMapForPark,
+      cwd,
+    );
+  }
+
+  // 4. Push phase — only branches that already exist remotely (skip park failures)
   const pushResult = await pushExistingBranches(
     ctx,
     config,
@@ -216,6 +237,7 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
     existing,
     checked.preFetchRemoteTips,
     cwd,
+    parkFailed,
   );
 
   // 5. --open: open new PRs (with their own pushes)
@@ -281,7 +303,8 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
     await writePRCache(ctx, config, units, prMap, cwd);
   }
 
-  const hadFailure = pushResult.hadFailure || openHadFailure || retargetHadFailure;
+  const hadFailure =
+    pushResult.hadFailure || openHadFailure || retargetHadFailure || parkFailed.size > 0;
   if (hadFailure) {
     console.log("⚠ Sync completed with warnings");
     process.exit(1);
@@ -296,12 +319,14 @@ async function pushExistingBranches(
   existing: Map<string, string>,
   preFetchTips: Map<string, string>,
   cwd: string | undefined,
+  skip: ReadonlySet<string> = new Set(),
 ): Promise<{ pushed: string[]; hadFailure: boolean }> {
   const pushed: string[] = [];
   let hadFailure = false;
   for (const unit of units) {
     const branch = branchForUnit(unit, config);
     if (!existing.has(branch)) continue;
+    if (skip.has(branch)) continue; // park failed for this branch — do not push
     const headHash = unit.commits.at(-1);
     if (!headHash) continue;
     // Skip the push when the remote tip already equals the local tip: the push
@@ -481,6 +506,81 @@ async function openPRs(
   return { branches, hadFailure };
 }
 
+/**
+ * A reorder is "detected" when at least one open PR's current on-GitHub base
+ * (from prMap) differs from the base a correctly-stacked PR would have
+ * (expectedBaseFor). When nothing is changing, sync takes the cheap path and
+ * skips the pre-push park entirely. Closed/merged PRs and units with no PR are
+ * ignored — only open PRs can be endangered by the push.
+ */
+export function stackHasReorder(
+  units: PRUnit[],
+  prMap: Map<string, PRInfo | null>,
+  config: SpryConfig,
+): boolean {
+  for (const unit of units) {
+    const branch = branchForUnit(unit, config);
+    const pr = prMap.get(branch);
+    if (!pr || pr.state !== "OPEN") continue;
+    if (pr.baseRefName !== sharedExpectedBaseFor(unit, units, config)) return true;
+  }
+  return false;
+}
+
+/**
+ * Phase 1 of a reorder-safe sync: retarget every open, mismatched PR in
+ * `branches` to `config.trunk` BEFORE the push. Trunk never contains a stack
+ * head, so `gh pr edit --base trunk` always succeeds; parking here removes the
+ * stale base relationships that would otherwise let the force-push mark a PR
+ * MERGED. Returns the set of branches whose park FAILED — the caller must not
+ * push those (pushing with an unparked stale base risks the merge).
+ *
+ * Why excluding just the failed PR's OWN branch from the push is sufficient
+ * (and not, as it first appears, the wrong lever): GitHub decides MERGED by
+ * commit-SHA reachability from the base branch tip, and a reorder rewrites every
+ * repositioned commit to a fresh SHA (`rebasePlumbing` → `commit-tree`). A PR is
+ * only parked when it is *mismatched* — i.e. its position relative to its base
+ * changed — which means its head commit was rewritten to a new SHA that appears
+ * in no branch's pushed history. So a PR left unparked by a failed park cannot
+ * have its (old-SHA) head made reachable by any *other* branch's push. The one
+ * way an old head SHA survives verbatim into another pushed branch is an
+ * unchanged bottom prefix, but such a PR is *matched* (base == expectedBase) and
+ * is never parked. The parked set and the surviving-old-SHA set are disjoint, so
+ * skipping the failed PR's own branch is enough. (See beads spry-8vz2 for an
+ * optional defensive hardening — abort the whole stack's push on any park
+ * failure — that would remove the reliance on this SHA-rewriting invariant.)
+ */
+export async function parkMismatchedToTrunk(
+  ctx: SpryContext,
+  config: SpryConfig,
+  units: PRUnit[],
+  branches: string[],
+  prMap: Map<string, PRInfo | null>,
+  cwd: string | undefined,
+): Promise<Set<string>> {
+  const failed = new Set<string>();
+  for (const unit of units) {
+    const branch = branchForUnit(unit, config);
+    if (!branches.includes(branch)) continue;
+    const pr = prMap.get(branch);
+    if (!pr || pr.state !== "OPEN") continue;
+    // Already on trunk (e.g. the bottom unit) — nothing to park.
+    if (pr.baseRefName === config.trunk) continue;
+    // Only park PRs whose base is actually changing; a PR already correctly
+    // stacked and staying put needs no intermediate hop.
+    if (pr.baseRefName === sharedExpectedBaseFor(unit, units, config)) continue;
+    try {
+      await retargetPR(ctx, pr.number, config.trunk, { cwd });
+      console.log(`↻ parked PR #${pr.number} → ${config.trunk}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`⚠ Could not park PR #${pr.number}: ${message}`);
+      failed.add(branch);
+    }
+  }
+  return failed;
+}
+
 async function retargetMismatched(
   ctx: SpryContext,
   config: SpryConfig,
@@ -624,25 +724,62 @@ async function syncAllCommand(
       continue;
     }
 
-    // 3. Push the branches that already exist on the remote.
-    //    `sp sync --all` does not run checkSync's fetch, so there is no
-    //    pre-fetch snapshot to pin against — pass an empty map, which falls
-    //    back to the bare `--force-with-lease` (today's behavior).
+    // 3. Parse only — push happens after the batched PR lookup + park below.
+    stacks.push({ branch, units: result.units, pushed: [] });
+  }
+
+  // Batched PR lookup BEFORE any push, so each stack can park its mismatched
+  // open PRs to trunk before it is force-pushed (reorder-merge fix, spry-206).
+  const allBranches = stacks.flatMap((s) => s.units.map((u) => branchForUnit(u, config)));
+  let prMap: Map<string, PRInfo | null> | undefined;
+  if (allBranches.length > 0) {
+    try {
+      prMap = await findPRsForBranches(ctx, allBranches, {
+        cwd,
+        owner: config.owner,
+        repo: config.repo,
+      });
+    } catch (err) {
+      const hint = retargetingFallbackHint(err);
+      console.log(kleur.dim(`${hint} (branches still updated)`));
+    }
+  }
+
+  // Park + push each stack. Park (if reordered) precedes that stack's push.
+  // `sp sync --all` does not run checkSync's fetch, so there is no pre-fetch
+  // snapshot to pin against — pass an empty map for the lease baseline, which
+  // falls back to the bare `--force-with-lease` (today's behavior).
+  for (const stack of stacks) {
+    let parkFailed = new Set<string>();
+    if (prMap && stackHasReorder(stack.units, prMap, config)) {
+      const existingBranches = stack.units
+        .map((u) => branchForUnit(u, config))
+        .filter((b) => existing.has(b));
+      parkFailed = await parkMismatchedToTrunk(
+        ctx,
+        config,
+        stack.units,
+        existingBranches,
+        prMap,
+        cwd,
+      );
+      if (parkFailed.size > 0) hadFailure = true;
+    }
     const pushResult = await pushExistingBranches(
       ctx,
       config,
-      result.units,
+      stack.units,
       existing,
       new Map(),
       cwd,
+      parkFailed,
     );
     if (pushResult.hadFailure) hadFailure = true;
-
-    stacks.push({ branch, units: result.units, pushed: pushResult.pushed });
+    stack.pushed = pushResult.pushed;
   }
 
-  // PR retarget + cache happen once, after the loop (Task 4 fills this in).
-  await finishSyncAll(ctx, config, stacks, cwd);
+  // PR retarget + cache — reuse the prMap we already fetched.
+  await finishSyncAll(ctx, config, stacks, prMap, cwd);
 
   await saveTrackedBranches(ctx.git, stillTracked, { cwd });
 
@@ -657,24 +794,11 @@ async function finishSyncAll(
   ctx: SpryContext,
   config: SpryConfig,
   stacks: StackState[],
+  prMap: Map<string, PRInfo | null> | undefined,
   cwd: string | undefined,
 ): Promise<void> {
   if (stacks.length === 0) return;
-
-  // One batched PR lookup across every branch of every stack.
-  const allBranches = stacks.flatMap((s) => s.units.map((u) => branchForUnit(u, config)));
-  let prMap: Map<string, PRInfo | null> | undefined;
-  try {
-    prMap = await findPRsForBranches(ctx, allBranches, {
-      cwd,
-      owner: config.owner,
-      repo: config.repo,
-    });
-  } catch (err) {
-    const hint = retargetingFallbackHint(err);
-    console.log(kleur.dim(`${hint} (branches still updated)`));
-    return;
-  }
+  if (!prMap) return; // lookup failed upstream; branches were still pushed
 
   // Retarget each stack independently against the shared map. Unlike
   // single-branch sync, retarget failures are non-fatal here: each one
