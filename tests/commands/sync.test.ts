@@ -1676,3 +1676,48 @@ describe("syncCommand park failure is fail-safe", () => {
     expect(logs.err.join("\n")).toMatch(/Could not park PR #10/);
   });
 });
+
+describe("syncCommand --all reorder park", () => {
+  test("parks a reordered tracked stack to trunk before pushing", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    await git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: bbb22222"], {
+      cwd: repo.path,
+    });
+    const aSha = (await git.run(["rev-parse", "HEAD~1"], { cwd: repo.path })).stdout.trim();
+    const bSha = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${aSha}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+    await git.run(["push", "origin", `${bSha}:refs/heads/spry/test/bbb22222`], {
+      cwd: repo.path,
+    });
+    // Track this branch so --all picks it up.
+    await registerBranch(repo.git, "feature/x", { cwd: repo.path });
+
+    const { gh, calls } = stubGh(
+      ghPRMap({
+        "spry/test/aaa11111": { number: 10, baseRefName: "spry/test/bbb22222" },
+        "spry/test/bbb22222": { number: 11, baseRefName: "main" },
+      }),
+    );
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    try {
+      await syncCommand(ctx, { cwd: repo.path, all: true });
+    } finally {
+      logs.restore();
+    }
+    const edits = calls
+      .filter((c) => c.args[0] === "pr" && c.args[1] === "edit")
+      .map((c) => c.args.join(" "));
+    expect(edits).toContain("pr edit 10 --base main"); // park A
+    expect(edits).toContain("pr edit 11 --base spry/test/aaa11111"); // re-stack B
+    // The park log line is unique to Phase 1 (finishSyncAll's retarget logs "↻ retargeted").
+    expect(logs.out.join("\n")).toContain("↻ parked PR #10 → main");
+  });
+});

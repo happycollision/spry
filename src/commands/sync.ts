@@ -709,25 +709,62 @@ async function syncAllCommand(
       continue;
     }
 
-    // 3. Push the branches that already exist on the remote.
-    //    `sp sync --all` does not run checkSync's fetch, so there is no
-    //    pre-fetch snapshot to pin against — pass an empty map, which falls
-    //    back to the bare `--force-with-lease` (today's behavior).
+    // 3. Parse only — push happens after the batched PR lookup + park below.
+    stacks.push({ branch, units: result.units, pushed: [] });
+  }
+
+  // Batched PR lookup BEFORE any push, so each stack can park its mismatched
+  // open PRs to trunk before it is force-pushed (reorder-merge fix, spry-206).
+  const allBranches = stacks.flatMap((s) => s.units.map((u) => branchForUnit(u, config)));
+  let prMap: Map<string, PRInfo | null> | undefined;
+  if (allBranches.length > 0) {
+    try {
+      prMap = await findPRsForBranches(ctx, allBranches, {
+        cwd,
+        owner: config.owner,
+        repo: config.repo,
+      });
+    } catch (err) {
+      const hint = retargetingFallbackHint(err);
+      console.log(kleur.dim(`${hint} (branches still updated)`));
+    }
+  }
+
+  // Park + push each stack. Park (if reordered) precedes that stack's push.
+  // `sp sync --all` does not run checkSync's fetch, so there is no pre-fetch
+  // snapshot to pin against — pass an empty map for the lease baseline, which
+  // falls back to the bare `--force-with-lease` (today's behavior).
+  for (const stack of stacks) {
+    let parkFailed = new Set<string>();
+    if (prMap && stackHasReorder(stack.units, prMap, config)) {
+      const existingBranches = stack.units
+        .map((u) => branchForUnit(u, config))
+        .filter((b) => existing.has(b));
+      parkFailed = await parkMismatchedToTrunk(
+        ctx,
+        config,
+        stack.units,
+        existingBranches,
+        prMap,
+        cwd,
+      );
+      if (parkFailed.size > 0) hadFailure = true;
+    }
     const pushResult = await pushExistingBranches(
       ctx,
       config,
-      result.units,
+      stack.units,
       existing,
       new Map(),
       cwd,
+      parkFailed,
     );
     if (pushResult.hadFailure) hadFailure = true;
-
-    stacks.push({ branch, units: result.units, pushed: pushResult.pushed });
+    stack.pushed = pushResult.pushed;
   }
 
-  // PR retarget + cache happen once, after the loop (Task 4 fills this in).
-  await finishSyncAll(ctx, config, stacks, cwd);
+  // PR retarget + cache — reuse the prMap we already fetched.
+  await finishSyncAll(ctx, config, stacks, prMap, cwd);
 
   await saveTrackedBranches(ctx.git, stillTracked, { cwd });
 
@@ -742,24 +779,11 @@ async function finishSyncAll(
   ctx: SpryContext,
   config: SpryConfig,
   stacks: StackState[],
+  prMap: Map<string, PRInfo | null> | undefined,
   cwd: string | undefined,
 ): Promise<void> {
   if (stacks.length === 0) return;
-
-  // One batched PR lookup across every branch of every stack.
-  const allBranches = stacks.flatMap((s) => s.units.map((u) => branchForUnit(u, config)));
-  let prMap: Map<string, PRInfo | null> | undefined;
-  try {
-    prMap = await findPRsForBranches(ctx, allBranches, {
-      cwd,
-      owner: config.owner,
-      repo: config.repo,
-    });
-  } catch (err) {
-    const hint = retargetingFallbackHint(err);
-    console.log(kleur.dim(`${hint} (branches still updated)`));
-    return;
-  }
+  if (!prMap) return; // lookup failed upstream; branches were still pushed
 
   // Retarget each stack independently against the shared map. Unlike
   // single-branch sync, retarget failures are non-fatal here: each one
