@@ -208,7 +208,28 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   // 3. Cheap signal: which branches already exist on the remote?
   const existing = await listRemoteBranches(ctx.git, config.remote, config.branchPrefix, { cwd });
 
-  // 4. Push phase — only branches that already exist remotely
+  // 3.5 Phase 1 — pre-push park. When the stack has been reordered, an
+  // in-place force-push can make a PR's head reachable from its stale base and
+  // GitHub marks it MERGED. Parking every mismatched open PR onto trunk first
+  // removes those stale relationships. Branches whose park fails are excluded
+  // from the push (fail-safe) and flip hadFailure.
+  const prMapForPark = checked.prMap;
+  let parkFailed = new Set<string>();
+  if (prMapForPark && stackHasReorder(units, prMapForPark, config)) {
+    const existingBranches = units
+      .map((u) => branchForUnit(u, config))
+      .filter((b) => existing.has(b));
+    parkFailed = await parkMismatchedToTrunk(
+      ctx,
+      config,
+      units,
+      existingBranches,
+      prMapForPark,
+      cwd,
+    );
+  }
+
+  // 4. Push phase — only branches that already exist remotely (skip park failures)
   const pushResult = await pushExistingBranches(
     ctx,
     config,
@@ -216,6 +237,7 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
     existing,
     checked.preFetchRemoteTips,
     cwd,
+    parkFailed,
   );
 
   // 5. --open: open new PRs (with their own pushes)
@@ -281,7 +303,8 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
     await writePRCache(ctx, config, units, prMap, cwd);
   }
 
-  const hadFailure = pushResult.hadFailure || openHadFailure || retargetHadFailure;
+  const hadFailure =
+    pushResult.hadFailure || openHadFailure || retargetHadFailure || parkFailed.size > 0;
   if (hadFailure) {
     console.log("⚠ Sync completed with warnings");
     process.exit(1);
@@ -296,12 +319,14 @@ async function pushExistingBranches(
   existing: Map<string, string>,
   preFetchTips: Map<string, string>,
   cwd: string | undefined,
+  skip: ReadonlySet<string> = new Set(),
 ): Promise<{ pushed: string[]; hadFailure: boolean }> {
   const pushed: string[] = [];
   let hadFailure = false;
   for (const unit of units) {
     const branch = branchForUnit(unit, config);
     if (!existing.has(branch)) continue;
+    if (skip.has(branch)) continue; // park failed for this branch — do not push
     const headHash = unit.commits.at(-1);
     if (!headHash) continue;
     // Skip the push when the remote tip already equals the local tip: the push
