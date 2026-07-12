@@ -261,50 +261,24 @@ describe("sp land --through", () => {
     expect(originMain).toBe(firstTip);
   });
 
-  test("retargets every off-trunk scope PR to trunk BEFORE pushing", async () => {
+  test("makes no `gh pr edit` calls: PRs keep their stacked bases, trunk still advances", async () => {
     const repo = await makeConfiguredRepo();
     const git = createRealGitRunner();
     await publishedStack(repo, git, [
       { id: "aaa11111", subject: "first" },
       { id: "bbb22222", subject: "second" },
     ]);
+    const tip = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
 
-    // Track the order of pr-edit calls relative to the ff push to trunk.
-    // The land flow only retargets PRs whose base isn't already trunk; the
-    // upper PR (#2) is stacked on the lower unit's branch, so it must be
-    // retargeted to trunk before origin/main advances.
-    let mainAdvanced = false;
-    const editsBeforePush: string[] = [];
-    const editsAfterPush: string[] = [];
-    const handler = ghPrStub({
-      "spry/test/aaa11111": { number: 1, base: "main" },
-      "spry/test/bbb22222": { number: 2, base: "spry/test/aaa11111" },
-    });
-    const realGit = createRealGitRunner();
-    const ctx: SpryContext = {
-      git: {
-        run: async (args, opts) => {
-          const res = await realGit.run(args, { ...opts, cwd: opts?.cwd ?? repo.path });
-          // Detect the ff push to trunk (refspec ends with refs/heads/main).
-          if (
-            args[0] === "push" &&
-            args.some((a) => a.endsWith(":refs/heads/main")) &&
-            res.exitCode === 0
-          ) {
-            mainAdvanced = true;
-          }
-          return res;
-        },
-      },
-      gh: {
-        async run(args, options) {
-          if (args[0] === "pr" && args[1] === "edit") {
-            (mainAdvanced ? editsAfterPush : editsBeforePush).push(args[2] ?? "");
-          }
-          return handler({ args: [...args], stdin: options?.stdin });
-        },
-      },
-    };
+    // The upper PR (#2) is stacked on the lower unit's branch. Under the old
+    // flow land would retarget it to `main` before pushing. It must not anymore.
+    const { gh, calls } = stubGh(
+      ghPrStub({
+        "spry/test/aaa11111": { number: 1, base: "main" },
+        "spry/test/bbb22222": { number: 2, base: "spry/test/aaa11111" },
+      }),
+    );
+    const ctx = makeCtx(repo, gh);
     const logs = captureLogs();
     const trap = trapExit();
     try {
@@ -314,10 +288,14 @@ describe("sp land --through", () => {
       logs.restore();
     }
 
-    // The stacked PR was retargeted to trunk before the push; no retarget
-    // happened after origin/main advanced.
-    expect(editsBeforePush).toContain("2");
-    expect(editsAfterPush).toHaveLength(0);
+    // No PR was retargeted — land emits zero `gh pr edit` calls.
+    const editCalls = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
+    expect(editCalls).toHaveLength(0);
+    // MERGED-by-reachability still holds: origin/main advanced to the tip.
+    const originMain = (
+      await git.run(["rev-parse", "origin/main"], { cwd: repo.path })
+    ).stdout.trim();
+    expect(originMain).toBe(tip);
     expect(trap.exitCode).toBeUndefined();
   });
 

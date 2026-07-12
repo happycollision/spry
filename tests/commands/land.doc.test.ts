@@ -88,9 +88,10 @@ describe("sp land docs", () => {
     { section: "commands/land", order: 10, timeout: 300000 },
     async (doc) => {
       // Record mode publishes two real stacked PRs on spry-check and captures
-      // land's full gh traffic (the embedded sync's retarget + land's own
-      // retarget-to-trunk); replay serves it offline. Same body both ways — only
-      // the git origin and the gh seam env differ.
+      // land's gh traffic (the embedded sync's stacked-base retarget + land's
+      // readiness lookups); land itself no longer retargets to trunk. Replay
+      // serves it offline. Same body both ways — only the git origin and the gh
+      // seam env differ.
       const recording = isRecording();
       const fixture = recording ? await createGitHubFixture() : undefined;
       if (fixture) await fixture.reset();
@@ -104,12 +105,8 @@ describe("sp land docs", () => {
       const tip = (await repo.git.run(["rev-parse", "HEAD"])).stdout.trim();
 
       doc.prose(
-        "`sp land --through <id>` lands the stack from the bottom **through** the unit identified by `<id>` (a group ID, unit-ID prefix, or commit-hash prefix). Spry retargets every in-scope PR onto trunk and then fast-forwards trunk to that unit's tip — it never uses the GitHub merge API. Retargeting first is what makes GitHub mark each PR `MERGED` rather than `CLOSED`. `sp land` never deletes branches (that is `sp clean`'s job):",
+        "`sp land --through <id>` lands the stack from the bottom **through** the unit identified by `<id>` (a group ID, unit-ID prefix, or commit-hash prefix). Spry fast-forwards trunk to that unit's tip — it never uses the GitHub merge API and never retargets PR bases. GitHub marks each PR `MERGED` because its commits become reachable from the default branch; leaving each PR on its stacked base keeps that PR's diff scoped to just its own unit. `sp land` never deletes branches (that is `sp clean`'s job):",
       );
-
-      // PR numbers are GitHub-minted (non-deterministic); canonicalize the one
-      // shown so the generated doc stays stable across re-recordings.
-      doc.scrub(/retargeted PR #\d+/g, "retargeted PR #11");
 
       const { command, result } = await runSp(repo.path, "land", ["--through", "bbb22222"], {
         env: cassetteEnv({ section: "commands/land", order: 10 }),
