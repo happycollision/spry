@@ -1,5 +1,11 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { syncCommand, buildOpenCandidates, checkSync } from "../../src/commands/sync.ts";
+import {
+  syncCommand,
+  buildOpenCandidates,
+  checkSync,
+  stackHasReorder,
+  parkMismatchedToTrunk,
+} from "../../src/commands/sync.ts";
 import type { PRUnit } from "../../src/parse/types.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
 import type {
@@ -11,6 +17,8 @@ import type {
 } from "../lib/index.ts";
 import { loadPRCache } from "../../src/gh/pr-cache.ts";
 import { registerBranch, loadTrackedBranches } from "../../src/git/tracked-branches.ts";
+import type { PRInfo } from "../../src/gh/pr.ts";
+import type { SpryConfig } from "../../src/git/config.ts";
 
 const repos: TestRepo[] = [];
 
@@ -1379,5 +1387,341 @@ describe("checkSync", () => {
     expect(result.units.map((u) => u.id)).toEqual(["aaa11111"]);
     expect(calls.some((c) => c.args[0] === "pr" && c.args[1] === "edit")).toBe(false);
     expect(calls.some((c) => c.args[0] === "pr" && c.args[1] === "create")).toBe(false);
+  });
+});
+
+describe("stackHasReorder", () => {
+  const config = { trunk: "main", remote: "origin", branchPrefix: "spry/test" } as SpryConfig;
+  const unit = (id: string): PRUnit =>
+    ({ id, commits: [id], subjects: ["s"], title: "t" }) as unknown as PRUnit;
+
+  test("false when every open PR base already equals its expected base", () => {
+    const units = [unit("aaa11111"), unit("bbb22222")];
+    const prMap = new Map<string, PRInfo | null>([
+      ["spry/test/aaa11111", { number: 1, state: "OPEN", baseRefName: "main" } as PRInfo],
+      [
+        "spry/test/bbb22222",
+        { number: 2, state: "OPEN", baseRefName: "spry/test/aaa11111" } as PRInfo,
+      ],
+    ]);
+    expect(stackHasReorder(units, prMap, config)).toBe(false);
+  });
+
+  test("true when an open PR base differs from its expected base", () => {
+    const units = [unit("aaa11111"), unit("bbb22222")];
+    // bbb should be based on aaa's branch but GitHub still has it on main
+    const prMap = new Map<string, PRInfo | null>([
+      ["spry/test/aaa11111", { number: 1, state: "OPEN", baseRefName: "main" } as PRInfo],
+      ["spry/test/bbb22222", { number: 2, state: "OPEN", baseRefName: "main" } as PRInfo],
+    ]);
+    expect(stackHasReorder(units, prMap, config)).toBe(true);
+  });
+
+  test("ignores closed/merged PRs and missing PRs", () => {
+    const units = [unit("aaa11111"), unit("bbb22222")];
+    const prMap = new Map<string, PRInfo | null>([
+      ["spry/test/aaa11111", { number: 1, state: "MERGED", baseRefName: "main" } as PRInfo],
+      ["spry/test/bbb22222", null],
+    ]);
+    expect(stackHasReorder(units, prMap, config)).toBe(false);
+  });
+});
+
+describe("parkMismatchedToTrunk", () => {
+  const config = { trunk: "main", remote: "origin", branchPrefix: "spry/test" } as SpryConfig;
+  const unit = (id: string): PRUnit =>
+    ({ id, commits: [id], subjects: ["s"], title: "t" }) as unknown as PRUnit;
+
+  test("retargets each mismatched open PR to trunk and returns no failures", async () => {
+    const repo = await makeRepoWithConfig();
+    const units = [unit("aaa11111"), unit("bbb22222")];
+    const prMap = new Map<string, PRInfo | null>([
+      [
+        "spry/test/aaa11111",
+        { number: 10, state: "OPEN", baseRefName: "spry/test/bbb22222" } as PRInfo,
+      ],
+      [
+        "spry/test/bbb22222",
+        { number: 11, state: "OPEN", baseRefName: "spry/test/ccc33333" } as PRInfo,
+      ],
+    ]);
+    const { gh, calls } = stubGh(() => ({ stdout: "", stderr: "", exitCode: 0 }));
+    const ctx = makeCtx(repo, gh);
+    const failed = await parkMismatchedToTrunk(
+      ctx,
+      config,
+      units,
+      ["spry/test/aaa11111", "spry/test/bbb22222"],
+      prMap,
+      repo.path,
+    );
+    const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
+    expect(edits.map((c) => c.args)).toEqual([
+      ["pr", "edit", "10", "--base", "main"],
+      ["pr", "edit", "11", "--base", "main"],
+    ]);
+    expect(failed.size).toBe(0);
+  });
+
+  test("does not park a PR already on its correct stacked base", async () => {
+    const repo = await makeRepoWithConfig();
+    const units = [unit("aaa11111"), unit("bbb22222")];
+    // bbb is already correctly based on aaa's branch — must be skipped.
+    const prMap = new Map<string, PRInfo | null>([
+      ["spry/test/aaa11111", { number: 10, state: "OPEN", baseRefName: "main" } as PRInfo],
+      [
+        "spry/test/bbb22222",
+        { number: 11, state: "OPEN", baseRefName: "spry/test/aaa11111" } as PRInfo,
+      ],
+    ]);
+    const { gh, calls } = stubGh(() => ({ stdout: "", stderr: "", exitCode: 0 }));
+    const ctx = makeCtx(repo, gh);
+    const failed = await parkMismatchedToTrunk(
+      ctx,
+      config,
+      units,
+      ["spry/test/aaa11111", "spry/test/bbb22222"],
+      prMap,
+      repo.path,
+    );
+    const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
+    expect(edits).toHaveLength(0); // aaa already on trunk, bbb already correctly stacked
+    expect(failed.size).toBe(0);
+  });
+
+  test("does not retarget a PR already based on trunk", async () => {
+    const repo = await makeRepoWithConfig();
+    const units = [unit("aaa11111")];
+    const prMap = new Map<string, PRInfo | null>([
+      ["spry/test/aaa11111", { number: 10, state: "OPEN", baseRefName: "main" } as PRInfo],
+    ]);
+    const { gh, calls } = stubGh(() => ({ stdout: "", stderr: "", exitCode: 0 }));
+    const ctx = makeCtx(repo, gh);
+    const failed = await parkMismatchedToTrunk(
+      ctx,
+      config,
+      units,
+      ["spry/test/aaa11111"],
+      prMap,
+      repo.path,
+    );
+    const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
+    expect(edits).toHaveLength(0);
+    expect(failed.size).toBe(0);
+  });
+
+  test("records a failed park and does not throw", async () => {
+    const repo = await makeRepoWithConfig();
+    const units = [unit("aaa11111")];
+    const prMap = new Map<string, PRInfo | null>([
+      [
+        "spry/test/aaa11111",
+        { number: 10, state: "OPEN", baseRefName: "spry/test/bbb22222" } as PRInfo,
+      ],
+    ]);
+    const { gh } = stubGh((call) => {
+      if (call.args[0] === "pr" && call.args[1] === "edit") {
+        return { stdout: "", stderr: "boom", exitCode: 1 };
+      }
+      return { stdout: "", stderr: "", exitCode: 0 };
+    });
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    let failed: Set<string>;
+    try {
+      failed = await parkMismatchedToTrunk(
+        ctx,
+        config,
+        units,
+        ["spry/test/aaa11111"],
+        prMap,
+        repo.path,
+      );
+    } finally {
+      logs.restore();
+    }
+    expect(failed.has("spry/test/aaa11111")).toBe(true);
+    expect(logs.err.join("\n")).toMatch(/Could not park PR #10/);
+  });
+});
+
+describe("syncCommand reorder park", () => {
+  test("parks mismatched PRs to trunk before re-stacking", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    await git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: bbb22222"], {
+      cwd: repo.path,
+    });
+    const aSha = (await git.run(["rev-parse", "HEAD~1"], { cwd: repo.path })).stdout.trim();
+    const bSha = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${aSha}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+    await git.run(["push", "origin", `${bSha}:refs/heads/spry/test/bbb22222`], {
+      cwd: repo.path,
+    });
+
+    // Simulate a prior reorder still visible on GitHub: A's PR sits on B's
+    // branch, B's PR sits on main. Expected after this sync: A->main, B->A.
+    const { gh, calls } = stubGh(
+      ghPRMap({
+        "spry/test/aaa11111": { number: 10, baseRefName: "spry/test/bbb22222" },
+        "spry/test/bbb22222": { number: 11, baseRefName: "main" },
+      }),
+    );
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    try {
+      await syncCommand(ctx, { cwd: repo.path });
+    } finally {
+      logs.restore();
+    }
+
+    const edits = calls
+      .filter((c) => c.args[0] === "pr" && c.args[1] === "edit")
+      .map((c) => c.args.join(" "));
+    // Phase 1 park: A (mismatched, base=B, not trunk, expected=main) -> main.
+    // (B is already on main and expected=A, so it is NOT parked — only re-stacked.)
+    expect(edits).toContain("pr edit 10 --base main");
+    // Phase 3 re-stack: B -> A's branch.
+    expect(edits).toContain("pr edit 11 --base spry/test/aaa11111");
+    // Park precedes the re-stack of B.
+    const parkIdx = edits.indexOf("pr edit 10 --base main");
+    const restackIdx = edits.indexOf("pr edit 11 --base spry/test/aaa11111");
+    expect(parkIdx).toBeLessThan(restackIdx);
+    // The park log line is the signal UNIQUE to Phase 1 — Phase 3 retarget
+    // reaches the same final bases from the static prMap snapshot, so without
+    // this assertion the test passes even if the park call is removed.
+    expect(logs.out.join("\n")).toContain("↻ parked PR #10 → main");
+  });
+
+  test("no park calls when the stack is not reordered", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    const aSha = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${aSha}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+
+    const { gh, calls } = stubGh(
+      ghPRMap({ "spry/test/aaa11111": { number: 10, baseRefName: "main" } }),
+    );
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    try {
+      await syncCommand(ctx, { cwd: repo.path });
+    } finally {
+      logs.restore();
+    }
+    const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
+    expect(edits).toHaveLength(0);
+    expect(logs.out.join("\n")).not.toContain("parked");
+  });
+});
+
+describe("syncCommand park failure is fail-safe", () => {
+  test("a failed park excludes that branch from the push and exits 1", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    await git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: bbb22222"], {
+      cwd: repo.path,
+    });
+    // Push A's branch at an OLDER sha (main) so a real push WOULD occur absent the skip.
+    const mainSha = (await git.run(["rev-parse", "main"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${mainSha}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+    const bSha = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${bSha}:refs/heads/spry/test/bbb22222`], {
+      cwd: repo.path,
+    });
+
+    // A's PR is mismatched (base=B, expected=main) so it will be parked; make
+    // the park (pr edit) fail so A must be skipped by the push.
+    const { gh } = stubGh((call) => {
+      if (call.args[0] === "pr" && call.args[1] === "edit") {
+        return { stdout: "", stderr: "network down", exitCode: 1 };
+      }
+      return ghPRMap({
+        "spry/test/aaa11111": { number: 10, baseRefName: "spry/test/bbb22222" },
+        "spry/test/bbb22222": { number: 11, baseRefName: "main" },
+      })(call);
+    });
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    const trap = trapExit();
+    try {
+      await syncCommand(ctx, { cwd: repo.path });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+    expect(trap.exitCode).toBe(1);
+    // A was NOT pushed (park failed → skipped). Asserting the mechanism
+    // (own-branch skipped + exit 1) rather than the outcome (PR not merged) is
+    // sufficient: a reorder rewrites A's commit to a fresh SHA, so A's stale
+    // remote head cannot be made reachable by any other branch's push. See the
+    // SHA-reachability note on `parkMismatchedToTrunk` for the full invariant.
+    expect(logs.out.join("\n")).not.toContain("pushed spry/test/aaa11111");
+    expect(logs.err.join("\n")).toMatch(/Could not park PR #10/);
+  });
+});
+
+describe("syncCommand --all reorder park", () => {
+  test("parks a reordered tracked stack to trunk before pushing", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    await git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: bbb22222"], {
+      cwd: repo.path,
+    });
+    const aSha = (await git.run(["rev-parse", "HEAD~1"], { cwd: repo.path })).stdout.trim();
+    const bSha = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${aSha}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+    await git.run(["push", "origin", `${bSha}:refs/heads/spry/test/bbb22222`], {
+      cwd: repo.path,
+    });
+    // Track this branch so --all picks it up.
+    await registerBranch(repo.git, "feature/x", { cwd: repo.path });
+
+    const { gh, calls } = stubGh(
+      ghPRMap({
+        "spry/test/aaa11111": { number: 10, baseRefName: "spry/test/bbb22222" },
+        "spry/test/bbb22222": { number: 11, baseRefName: "main" },
+      }),
+    );
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    try {
+      await syncCommand(ctx, { cwd: repo.path, all: true });
+    } finally {
+      logs.restore();
+    }
+    const edits = calls
+      .filter((c) => c.args[0] === "pr" && c.args[1] === "edit")
+      .map((c) => c.args.join(" "));
+    expect(edits).toContain("pr edit 10 --base main"); // park A
+    expect(edits).toContain("pr edit 11 --base spry/test/aaa11111"); // re-stack B
+    // The park log line is unique to Phase 1 (finishSyncAll's retarget logs "↻ retargeted").
+    expect(logs.out.join("\n")).toContain("↻ parked PR #10 → main");
   });
 });
