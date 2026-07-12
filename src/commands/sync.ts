@@ -502,6 +502,45 @@ export function stackHasReorder(
   return false;
 }
 
+/**
+ * Phase 1 of a reorder-safe sync: retarget every open, mismatched PR in
+ * `branches` to `config.trunk` BEFORE the push. Trunk never contains a stack
+ * head, so `gh pr edit --base trunk` always succeeds; parking here removes the
+ * stale base relationships that would otherwise let the force-push mark a PR
+ * MERGED. Returns the set of branches whose park FAILED — the caller must not
+ * push those (pushing with an unparked stale base risks the merge).
+ */
+export async function parkMismatchedToTrunk(
+  ctx: SpryContext,
+  config: SpryConfig,
+  units: PRUnit[],
+  branches: string[],
+  prMap: Map<string, PRInfo | null>,
+  cwd: string | undefined,
+): Promise<Set<string>> {
+  const failed = new Set<string>();
+  for (const unit of units) {
+    const branch = branchForUnit(unit, config);
+    if (!branches.includes(branch)) continue;
+    const pr = prMap.get(branch);
+    if (!pr || pr.state !== "OPEN") continue;
+    // Already on trunk (e.g. the bottom unit) — nothing to park.
+    if (pr.baseRefName === config.trunk) continue;
+    // Only park PRs whose base is actually changing; a PR already correctly
+    // stacked and staying put needs no intermediate hop.
+    if (pr.baseRefName === sharedExpectedBaseFor(unit, units, config)) continue;
+    try {
+      await retargetPR(ctx, pr.number, config.trunk, { cwd });
+      console.log(`↻ parked PR #${pr.number} → ${config.trunk}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`⚠ Could not park PR #${pr.number}: ${message}`);
+      failed.add(branch);
+    }
+  }
+  return failed;
+}
+
 async function retargetMismatched(
   ctx: SpryContext,
   config: SpryConfig,

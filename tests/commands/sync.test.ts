@@ -4,6 +4,7 @@ import {
   buildOpenCandidates,
   checkSync,
   stackHasReorder,
+  parkMismatchedToTrunk,
 } from "../../src/commands/sync.ts";
 import type { PRUnit } from "../../src/parse/types.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
@@ -1423,5 +1424,123 @@ describe("stackHasReorder", () => {
       ["spry/test/bbb22222", null],
     ]);
     expect(stackHasReorder(units, prMap, config)).toBe(false);
+  });
+});
+
+describe("parkMismatchedToTrunk", () => {
+  const config = { trunk: "main", remote: "origin", branchPrefix: "spry/test" } as SpryConfig;
+  const unit = (id: string): PRUnit =>
+    ({ id, commits: [id], subjects: ["s"], title: "t" }) as unknown as PRUnit;
+
+  test("retargets each mismatched open PR to trunk and returns no failures", async () => {
+    const repo = await makeRepoWithConfig();
+    const units = [unit("aaa11111"), unit("bbb22222")];
+    const prMap = new Map<string, PRInfo | null>([
+      [
+        "spry/test/aaa11111",
+        { number: 10, state: "OPEN", baseRefName: "spry/test/bbb22222" } as PRInfo,
+      ],
+      [
+        "spry/test/bbb22222",
+        { number: 11, state: "OPEN", baseRefName: "spry/test/ccc33333" } as PRInfo,
+      ],
+    ]);
+    const { gh, calls } = stubGh(() => ({ stdout: "", stderr: "", exitCode: 0 }));
+    const ctx = makeCtx(repo, gh);
+    const failed = await parkMismatchedToTrunk(
+      ctx,
+      config,
+      units,
+      ["spry/test/aaa11111", "spry/test/bbb22222"],
+      prMap,
+      repo.path,
+    );
+    const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
+    expect(edits.map((c) => c.args)).toEqual([
+      ["pr", "edit", "10", "--base", "main"],
+      ["pr", "edit", "11", "--base", "main"],
+    ]);
+    expect(failed.size).toBe(0);
+  });
+
+  test("does not park a PR already on its correct stacked base", async () => {
+    const repo = await makeRepoWithConfig();
+    const units = [unit("aaa11111"), unit("bbb22222")];
+    // bbb is already correctly based on aaa's branch — must be skipped.
+    const prMap = new Map<string, PRInfo | null>([
+      ["spry/test/aaa11111", { number: 10, state: "OPEN", baseRefName: "main" } as PRInfo],
+      [
+        "spry/test/bbb22222",
+        { number: 11, state: "OPEN", baseRefName: "spry/test/aaa11111" } as PRInfo,
+      ],
+    ]);
+    const { gh, calls } = stubGh(() => ({ stdout: "", stderr: "", exitCode: 0 }));
+    const ctx = makeCtx(repo, gh);
+    const failed = await parkMismatchedToTrunk(
+      ctx,
+      config,
+      units,
+      ["spry/test/aaa11111", "spry/test/bbb22222"],
+      prMap,
+      repo.path,
+    );
+    const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
+    expect(edits).toHaveLength(0); // aaa already on trunk, bbb already correctly stacked
+    expect(failed.size).toBe(0);
+  });
+
+  test("does not retarget a PR already based on trunk", async () => {
+    const repo = await makeRepoWithConfig();
+    const units = [unit("aaa11111")];
+    const prMap = new Map<string, PRInfo | null>([
+      ["spry/test/aaa11111", { number: 10, state: "OPEN", baseRefName: "main" } as PRInfo],
+    ]);
+    const { gh, calls } = stubGh(() => ({ stdout: "", stderr: "", exitCode: 0 }));
+    const ctx = makeCtx(repo, gh);
+    const failed = await parkMismatchedToTrunk(
+      ctx,
+      config,
+      units,
+      ["spry/test/aaa11111"],
+      prMap,
+      repo.path,
+    );
+    const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
+    expect(edits).toHaveLength(0);
+    expect(failed.size).toBe(0);
+  });
+
+  test("records a failed park and does not throw", async () => {
+    const repo = await makeRepoWithConfig();
+    const units = [unit("aaa11111")];
+    const prMap = new Map<string, PRInfo | null>([
+      [
+        "spry/test/aaa11111",
+        { number: 10, state: "OPEN", baseRefName: "spry/test/bbb22222" } as PRInfo,
+      ],
+    ]);
+    const { gh } = stubGh((call) => {
+      if (call.args[0] === "pr" && call.args[1] === "edit") {
+        return { stdout: "", stderr: "boom", exitCode: 1 };
+      }
+      return { stdout: "", stderr: "", exitCode: 0 };
+    });
+    const ctx = makeCtx(repo, gh);
+    const logs = captureLogs();
+    let failed: Set<string>;
+    try {
+      failed = await parkMismatchedToTrunk(
+        ctx,
+        config,
+        units,
+        ["spry/test/aaa11111"],
+        prMap,
+        repo.path,
+      );
+    } finally {
+      logs.restore();
+    }
+    expect(failed.has("spry/test/aaa11111")).toBe(true);
+    expect(logs.err.join("\n")).toMatch(/Could not park PR #10/);
   });
 });
