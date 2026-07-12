@@ -45,6 +45,14 @@ export function expectedBaseFor(unit: PRUnit, units: PRUnit[], config: SpryConfi
   return prev ? branchForUnit(prev, config) : config.trunk;
 }
 
+/**
+ * Which commits lack a Spry-Commit-Id. Pure over already-parsed trailers — the
+ * single source of "which commits need an id", shared with the inject path.
+ */
+export function missingIdHashes(commits: CommitWithTrailers[]): string[] {
+  return commits.filter((c) => !c.trailers["Spry-Commit-Id"]).map((c) => c.hash);
+}
+
 export async function analyzeStack(
   // ctx is narrowed to { git } — this module is pure/read-only and never calls gh.
   ctx: { git: GitRunner },

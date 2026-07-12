@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { analyzeStack } from "../../src/commands/stack-analysis.ts";
+import { analyzeStack, missingIdHashes } from "../../src/commands/stack-analysis.ts";
 import type { StackAnalysis } from "../../src/commands/stack-analysis.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
 import type { TestRepo } from "../lib/index.ts";
@@ -47,5 +47,14 @@ describe("analyzeStack", () => {
       config: cfg(),
     });
     expect(analysis.units).toEqual([]);
+  });
+
+  test("missingIdHashes returns hashes of commits lacking Spry-Commit-Id", () => {
+    const commits = [
+      { hash: "aaa", subject: "has id", body: "", trailers: { "Spry-Commit-Id": "id1" } },
+      { hash: "bbb", subject: "no id", body: "", trailers: {} },
+      { hash: "ccc", subject: "also no id", body: "body", trailers: {} },
+    ];
+    expect(missingIdHashes(commits)).toEqual(["bbb", "ccc"]);
   });
 });
