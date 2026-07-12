@@ -1,13 +1,15 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { analyzeStack, missingIdHashes } from "../../src/commands/stack-analysis.ts";
+import { analyzeStack, missingIdHashes, landBlockers } from "../../src/commands/stack-analysis.ts";
 import type { StackAnalysis } from "../../src/commands/stack-analysis.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
 import type { TestRepo } from "../lib/index.ts";
 import type { SpryConfig } from "../../src/git/index.ts";
 import type { PRUnit } from "../../src/parse/types.ts";
 import type { CommitWithTrailers } from "../../src/parse/index.ts";
-import type { PRCache } from "../../src/gh/pr-cache.ts";
+import type { PRCache, PRCacheEntry } from "../../src/gh/pr-cache.ts";
 import type { GitRunner } from "../../src/lib/context.ts";
+
+type UnitAnalysisLike = import("../../src/commands/stack-analysis.ts").UnitAnalysis;
 
 const repos: TestRepo[] = [];
 afterEach(async () => {
@@ -222,5 +224,49 @@ describe("analyzeStack", () => {
     expect(upper.expectedBase).toBe("spry/test/aaa11111");
     const bottom = analysis.units.find((u) => u.unit.id === "aaa11111")!;
     expect(bottom.misTargeted).toBe(false);
+  });
+
+  test("landBlockers reports each structural + readiness problem for in-scope units", () => {
+    const okUnit: UnitAnalysisLike = {
+      unit: unit("aaa11111", "t1"),
+      branch: "spry/test/aaa11111",
+      missingId: false,
+      unpushed: false,
+      misTargeted: false,
+      currentBase: "main",
+      expectedBase: "main",
+    };
+    const badUnit: UnitAnalysisLike = {
+      unit: unit("bbb22222", "t2"),
+      branch: "spry/test/bbb22222",
+      missingId: false,
+      unpushed: true,
+      misTargeted: true,
+      currentBase: "main",
+      expectedBase: "spry/test/aaa11111",
+    };
+    const prByUnit: Record<string, PRCacheEntry | null> = {
+      aaa11111: {
+        number: 1,
+        url: "u",
+        state: "OPEN",
+        title: "T",
+        baseRefName: "main",
+        checksStatus: "passing",
+        reviewDecision: "none",
+        reviewThreads: { resolved: 0, total: 0 },
+        branch: "spry/test/aaa11111",
+        cachedAt: "now",
+      },
+      bbb22222: null, // no PR
+    };
+    const result = landBlockers([okUnit, badUnit], prByUnit);
+    expect(result.blocked).toBe(true);
+    const bad = result.perUnit.find((r) => r.unit.id === "bbb22222")!;
+    expect(bad.reasons.some((r) => /not pushed/i.test(r))).toBe(true);
+    expect(bad.reasons.some((r) => /base/i.test(r))).toBe(true);
+    expect(bad.reasons.some((r) => /no open PR/i.test(r))).toBe(true);
+    expect(result.perUnit.length).toBe(1);
+    expect(result.perUnit.some((r) => r.unit.id === "aaa11111")).toBe(false);
   });
 });
