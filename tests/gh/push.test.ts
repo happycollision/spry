@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { pushBranch, listRemoteBranches } from "../../src/gh/push.ts";
+import { pushBranch, listRemoteBranches, isAlreadyGone } from "../../src/gh/push.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
 import type { TestRepo } from "../lib/index.ts";
 
@@ -190,5 +190,18 @@ describe("listRemoteBranches", () => {
     });
     const set = await listRemoteBranches(git, "origin", "spry/nope", { cwd: repo.path });
     expect(set.size).toBe(0);
+  });
+});
+
+describe("isAlreadyGone", () => {
+  test("matches git's 'remote ref does not exist' deletion error (any case)", () => {
+    expect(isAlreadyGone("error: unable to delete 'spry/x': remote ref does not exist")).toBe(true);
+    expect(isAlreadyGone("REMOTE REF DOES NOT EXIST")).toBe(true);
+  });
+
+  test("does not match a genuine (non-benign) delete failure", () => {
+    expect(isAlreadyGone("remote: Permission to owner/repo denied.")).toBe(false);
+    expect(isAlreadyGone("error: failed to push some refs")).toBe(false);
+    expect(isAlreadyGone("")).toBe(false);
   });
 });

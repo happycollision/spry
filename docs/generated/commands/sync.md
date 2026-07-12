@@ -7,8 +7,8 @@ sp sync
 ```
 
 ```
-↑ pushed spry/dondenton/aaaa1111
 PR retargeting unavailable: <hint>
+↑ pushed spry/dondenton/aaaa1111
 ✓ Sync complete
 
 ```
@@ -20,6 +20,7 @@ sp sync --open aaaa1111
 ```
 
 ```
+✓ Updated PR cache (1 PR)
 ↑ pushed spry/dondenton/aaaa1111
 ✓ Created PR #1001: Add login
   https://github.com/owner/repo/pull/1001
@@ -35,6 +36,7 @@ sp sync --open grp00001
 ```
 
 ```
+✓ Updated PR cache (1 PR)
 ↑ pushed spry/dondenton/grp00001
 ✓ Created PR #42: Auth flow
   https://github.com/owner/repo/pull/42
@@ -95,6 +97,7 @@ sp sync
 ```
 
 ```
+✓ Updated PR cache (2 PRs)
 ↑ pushed spry/dondenton/bbbb2222
 ↑ pushed spry/dondenton/aaaa1111
 ↻ retargeted PR #11 → spry/dondenton/bbbb2222

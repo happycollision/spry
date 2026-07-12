@@ -36,6 +36,9 @@ Cassettes are keyed by doc section + order, mirroring `fragmentPath`:
 Recording mutates the real `spry-check` repo (pushes branches, opens/merges
 PRs) and then cleans up after itself via `createGitHubFixture().reset()`.
 
+Recording is **non-interactive** — the agent runs it itself (do not ask the
+user) whenever `gh` is authenticated. See the AGENTS.md testing section.
+
 Prerequisites:
 
 - `gh` authenticated against an account that owns a `spry-check` repo carrying

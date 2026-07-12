@@ -14,10 +14,10 @@
         "query=\nquery($owner: String!, $repo: String!, $branch: String!) {\n  repository(owner: $owner, name: $repo) {\n    pullRequests(headRefName: $branch, first: 1, orderBy: {field: UPDATED_AT, direction: DESC}) {\n      nodes {\n        number\n        url\n        state\n        title\n        baseRefName\n        reviewDecision\n        reviewThreads(first: 100) {\n          totalCount\n          nodes { isResolved }\n        }\n        commits(last: 1) {\n          nodes {\n            commit {\n              statusCheckRollup {\n                contexts(first: 100) {\n                  nodes {\n                    __typename\n                    ... on CheckRun { status conclusion }\n                    ... on StatusContext { state }\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}"
       ],
       "options": {
-        "cwd": "/tmp/spry-test-66304-0"
+        "cwd": "/tmp/spry-test-11846-1"
       },
       "result": {
-        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1022,\"url\":\"https://github.com/happycollision/spry-check/pull/1022\",\"state\":\"OPEN\",\"title\":\"Add login\",\"baseRefName\":\"main\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}}]}}}}",
+        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1061,\"url\":\"https://github.com/happycollision/spry-check/pull/1061\",\"state\":\"OPEN\",\"title\":\"Add login\",\"baseRefName\":\"main\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}}]}}}}",
         "stderr": "",
         "exitCode": 0
       }
@@ -36,43 +36,10 @@
         "query=\nquery($owner: String!, $repo: String!, $branch: String!) {\n  repository(owner: $owner, name: $repo) {\n    pullRequests(headRefName: $branch, first: 1, orderBy: {field: UPDATED_AT, direction: DESC}) {\n      nodes {\n        number\n        url\n        state\n        title\n        baseRefName\n        reviewDecision\n        reviewThreads(first: 100) {\n          totalCount\n          nodes { isResolved }\n        }\n        commits(last: 1) {\n          nodes {\n            commit {\n              statusCheckRollup {\n                contexts(first: 100) {\n                  nodes {\n                    __typename\n                    ... on CheckRun { status conclusion }\n                    ... on StatusContext { state }\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}"
       ],
       "options": {
-        "cwd": "/tmp/spry-test-66304-0"
+        "cwd": "/tmp/spry-test-11846-1"
       },
       "result": {
-        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1023,\"url\":\"https://github.com/happycollision/spry-check/pull/1023\",\"state\":\"OPEN\",\"title\":\"Add logout\",\"baseRefName\":\"main\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}}]}}}}",
-        "stderr": "",
-        "exitCode": 0
-      }
-    },
-    {
-      "args": ["pr", "edit", "1023", "--base", "spry/dondenton/aaa11111"],
-      "options": {
-        "cwd": "/tmp/spry-test-66304-0"
-      },
-      "result": {
-        "stdout": "https://github.com/happycollision/spry-check/pull/1023\n",
-        "stderr": "",
-        "exitCode": 0
-      }
-    },
-    {
-      "args": [
-        "api",
-        "graphql",
-        "-F",
-        "owner=happycollision",
-        "-F",
-        "repo=spry-check",
-        "-F",
-        "branch=spry/dondenton/aaa11111",
-        "-f",
-        "query=\nquery($owner: String!, $repo: String!, $branch: String!) {\n  repository(owner: $owner, name: $repo) {\n    pullRequests(headRefName: $branch, first: 1, orderBy: {field: UPDATED_AT, direction: DESC}) {\n      nodes {\n        number\n        url\n        state\n        title\n        baseRefName\n        reviewDecision\n        reviewThreads(first: 100) {\n          totalCount\n          nodes { isResolved }\n        }\n        commits(last: 1) {\n          nodes {\n            commit {\n              statusCheckRollup {\n                contexts(first: 100) {\n                  nodes {\n                    __typename\n                    ... on CheckRun { status conclusion }\n                    ... on StatusContext { state }\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}"
-      ],
-      "options": {
-        "cwd": "/tmp/spry-test-66304-0"
-      },
-      "result": {
-        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1022,\"url\":\"https://github.com/happycollision/spry-check/pull/1022\",\"state\":\"OPEN\",\"title\":\"Add login\",\"baseRefName\":\"main\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}}]}}}}",
+        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1062,\"url\":\"https://github.com/happycollision/spry-check/pull/1062\",\"state\":\"OPEN\",\"title\":\"Add logout\",\"baseRefName\":\"spry/dondenton/aaa11111\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}}]}}}}",
         "stderr": "",
         "exitCode": 0
       }

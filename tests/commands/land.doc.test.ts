@@ -29,10 +29,11 @@ function repoSlug(): string {
 
 /**
  * Build a 2-unit stack on `feature/x` and publish both spry branches to the
- * origin. In record mode, open a PR for each unit (bbb deliberately mis-based on
- * `main`, like sync order 50, so land's internal sync has a PR to retarget onto
- * the stacked base) and wait for CI to pass — land's readiness gate refuses PRs
- * with pending checks. The same deterministic commits run both ways.
+ * origin. In record mode, open each PR already-stacked (bottom→`main`,
+ * upper→the bottom unit's branch), matching a synced stack, and wait for CI to
+ * pass — land's readiness gate refuses PRs with pending checks or mis-targeted
+ * bases. Because setup never changes a PR base after CI starts, there is no
+ * pending-CI re-trigger race. The same deterministic commits run both ways.
  */
 async function setupLandStack(repo: TestRepo, recording: boolean): Promise<void> {
   await repo.git.run(["config", "spry.trunk", "main"]);
@@ -43,12 +44,25 @@ async function setupLandStack(repo: TestRepo, recording: boolean): Promise<void>
   // against (defaults to the maintainer's spry-check).
   await repo.git.run(["config", "spry.repo", repoSlug()]);
 
+  // A per-run nonce makes the empty commits' SHAs unique. Without it the fixed
+  // subject + fixed Spry-Commit-Id + fixed parent produce identical SHAs every
+  // run, so GitHub accumulates ALL historical check runs on that SHA — including
+  // a freshly-QUEUED one each time the PR reopens — and land's readiness gate
+  // (correctly) reads the rollup as `pending`. Unique SHAs give each PR a clean,
+  // single-run rollup. The nonce sits in a body paragraph ABOVE the trailer, so
+  // `Spry-Commit-Id` stays the last trailer and `--through <id>` still resolves.
+  const nonce = `${process.pid}-${performance.now()}`;
   await repo.git.run(["checkout", "-b", "feature/x"]);
   for (const [subject, id] of [
     ["Add login", "aaa11111"],
     ["Add logout", "bbb22222"],
   ] as const) {
-    await repo.git.run(["commit", "--allow-empty", "-m", `${subject}\n\nSpry-Commit-Id: ${id}`]);
+    await repo.git.run([
+      "commit",
+      "--allow-empty",
+      "-m",
+      `${subject}\n\ntest-nonce: ${nonce}\n\nSpry-Commit-Id: ${id}`,
+    ]);
     const head = (await repo.git.run(["rev-parse", "HEAD"])).stdout.trim();
     await repo.git.run(["push", "origin", `${head}:refs/heads/spry/dondenton/${id}`]);
   }
@@ -58,7 +72,7 @@ async function setupLandStack(repo: TestRepo, recording: boolean): Promise<void>
     await $`gh pr create --title ${"Add login"} --head spry/dondenton/aaa11111 --base main --body ${"Login"}`
       .cwd(repo.path)
       .quiet();
-    await $`gh pr create --title ${"Add logout"} --head spry/dondenton/bbb22222 --base main --body ${"Logout"}`
+    await $`gh pr create --title ${"Add logout"} --head spry/dondenton/bbb22222 --base spry/dondenton/aaa11111 --body ${"Logout"}`
       .cwd(repo.path)
       .quiet();
     await waitForChecks(repo.path, "spry/dondenton/aaa11111");
@@ -67,16 +81,37 @@ async function setupLandStack(repo: TestRepo, recording: boolean): Promise<void>
 }
 
 /**
- * Record-mode only: poll until every check on the PR for `branch` has completed
- * successfully. `gh pr checks` exits 0 once all pass, non-zero while pending (or
- * before the workflow registers), so we loop until success or timeout.
+ * Record-mode only: poll until the PR for `branch` has at least one check that
+ * has completed successfully, and none pending or failing.
+ *
+ * We must NOT use `gh pr checks`' exit code: it exits 0 *before the workflow
+ * registers any check* (zero checks reads as success), so a naive wait can
+ * return during the window between opening the PR and CI starting — leaving
+ * land to observe a `pending` rollup moments later. Instead poll the same
+ * `statusCheckRollup` signal `sp land` reads, and require a NON-EMPTY, fully
+ * green rollup before returning.
  */
 async function waitForChecks(cwd: string, branch: string, timeoutMs = 240000): Promise<void> {
   const { $ } = await import("bun");
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const res = await $`gh pr checks ${branch}`.cwd(cwd).nothrow().quiet();
-    if (res.exitCode === 0) return;
+    const res = await $`gh pr view ${branch} --json statusCheckRollup`.cwd(cwd).nothrow().quiet();
+    if (res.exitCode === 0) {
+      try {
+        const parsed = JSON.parse(res.stdout.toString()) as {
+          statusCheckRollup?: Array<{ status?: string; conclusion?: string | null }>;
+        };
+        const rollup = parsed.statusCheckRollup ?? [];
+        const allComplete = rollup.every((c) => c.status === "COMPLETED");
+        const allPass = rollup.every(
+          (c) => c.conclusion === "SUCCESS" || c.conclusion === "SKIPPED",
+        );
+        // Require at least one check so we don't return before CI registers.
+        if (rollup.length > 0 && allComplete && allPass) return;
+      } catch {
+        // fall through and retry on malformed output
+      }
+    }
     await Bun.sleep(5000);
   }
   throw new Error(`CI checks did not pass for ${branch} within ${timeoutMs}ms`);
@@ -87,11 +122,11 @@ describe("sp land docs", () => {
     "Landing through a commit",
     { section: "commands/land", order: 10, timeout: 300000 },
     async (doc) => {
-      // Record mode publishes two real stacked PRs on spry-check and captures
-      // land's gh traffic (the embedded sync's stacked-base retarget + land's
-      // readiness lookups); land itself no longer retargets to trunk. Replay
-      // serves it offline. Same body both ways — only the git origin and the gh
-      // seam env differ.
+      // Record mode publishes two real already-stacked PRs on spry-check and
+      // captures land's gh traffic — pure readiness lookups (PR state + checks),
+      // no `gh pr edit`: land verifies and fast-forwards, it never retargets.
+      // Replay serves it offline. Same body both ways — only the git origin and
+      // the gh seam env differ.
       const recording = isRecording();
       const fixture = recording ? await createGitHubFixture() : undefined;
       if (fixture) await fixture.reset();

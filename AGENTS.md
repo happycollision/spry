@@ -191,9 +191,18 @@ binary while replaying committed recordings in `tests/fixtures/cassettes/`, so t
 default suite is offline and needs no auth. If you change code on the real-`gh`
 path and need to re-validate it against GitHub, re-record the relevant cassette
 with `SPRY_RECORD=1` (real-record mode is the validation - see
-`tests/fixtures/cassettes/README.md`). Recording needs `gh` auth and an HTTPS git
-config. (The lone live-network unit test shares the `SPRY_RECORD` gate, so it
-runs alongside cassette recording and verifies the fixture reset machinery that
+`tests/fixtures/cassettes/README.md`).
+
+**The agent should run recordings itself — do not ask the user to do it.**
+`SPRY_RECORD=1 bun test <doc-test>` is a **non-interactive** command; when `gh`
+is authenticated (it normally is — check with `gh auth status`), the agent has
+everything it needs and is authorized to record. Recording mutates the real
+`happycollision/spry-check` repo, but the fixture resets it, so this is expected
+and safe. The fixture manages its own HTTPS clone of `spry-check` internally, so
+the working repo's `origin` remote being SSH is **not** a blocker — do not
+reconfigure `origin` and do not defer to the user over the remote protocol.
+(The lone live-network unit test shares the `SPRY_RECORD` gate, so it runs
+alongside cassette recording and verifies the fixture reset machinery that
 recording depends on.)
 
 Every user-facing command or UI output must have doc-producing tests in a `tests/commands/<command>.doc.test.ts` file using the `docTest` helper from `tests/lib/index.ts`. Doc tests are the source of truth for generated documentation in `docs/generated/`. See `tests/commands/sync.doc.test.ts` or `tests/commands/view.doc.test.ts` for the pattern.

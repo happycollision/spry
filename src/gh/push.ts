@@ -6,6 +6,18 @@ export interface PushOptions {
   sha: string;
   branch: string;
   forceWithLease: boolean;
+  /**
+   * Explicit lease baseline: the SHA the local clone last knew the remote ref
+   * to be, captured BEFORE any fetch refreshed the remote-tracking ref. When
+   * provided (and `forceWithLease` is true), the push pins the lease to this
+   * value with `--force-with-lease=<branch>:<sha>`, so a concurrent force-push
+   * that moved the remote off this baseline is detected as stale even though a
+   * prior fetch already advanced the tracking ref (the explicit sha, not the
+   * tracking ref, is what git compares against). When omitted, falls back to
+   * the bare `--force-with-lease` (whose lease baseline is the current
+   * remote-tracking ref).
+   */
+  leaseExpectedSha?: string;
 }
 
 export type PushResult =
@@ -17,7 +29,17 @@ const STALE_REF_PATTERNS = [/stale info/i, /rejected.*non-fast-forward/i];
 export async function pushBranch(git: GitRunner, opts: PushOptions): Promise<PushResult> {
   const refspec = `${opts.sha}:refs/heads/${opts.branch}`;
   const args = ["push", opts.remote, refspec];
-  if (opts.forceWithLease) args.push("--force-with-lease");
+  if (opts.forceWithLease) {
+    if (opts.leaseExpectedSha) {
+      // Pin the lease to the pre-fetch baseline. Because the sha is explicit,
+      // git compares the actual remote against THIS value (not the local
+      // remote-tracking ref), so a fetch that already advanced the tracking
+      // ref cannot mask a concurrent remote force-push.
+      args.push(`--force-with-lease=refs/heads/${opts.branch}:${opts.leaseExpectedSha}`);
+    } else {
+      args.push("--force-with-lease");
+    }
+  }
   const result = await git.run(args, { cwd: opts.cwd });
   if (result.exitCode === 0) return { ok: true };
   const stderr = result.stderr;

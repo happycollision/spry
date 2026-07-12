@@ -1,36 +1,18 @@
 import kleur from "kleur";
 import type { SpryContext } from "../lib/context.ts";
-import { loadConfig, trunkRef, getStackCommits, branchForUnit } from "../git/index.ts";
+import { loadConfig, branchForUnit } from "../git/index.ts";
 import type { SpryConfig } from "../git/index.ts";
 import type { GroupRecords } from "../parse/index.ts";
-import {
-  fetchGroupRecords,
-  loadGroupRecords,
-  saveAllGroupRecords,
-  pushGroupRecords,
-  buildCommitGroupMap,
-  extractGroupTitles,
-} from "../git/group-titles.ts";
-import {
-  fetchPRCache,
-  loadPRCache,
-  savePRCache,
-  pushPRCache,
-  deletePRCacheRemote,
-} from "../gh/pr-cache.ts";
-import {
-  parseCommitTrailers,
-  parseStack,
-  resolveUpTo,
-  formatResolutionError,
-} from "../parse/index.ts";
+import { loadGroupRecords, saveAllGroupRecords, pushGroupRecords } from "../git/group-titles.ts";
+import { loadPRCache, savePRCache, pushPRCache, deletePRCacheRemote } from "../gh/pr-cache.ts";
+import type { PRCacheEntry } from "../gh/pr-cache.ts";
+import { resolveUpTo, formatResolutionError } from "../parse/index.ts";
 import type { PRUnit } from "../parse/index.ts";
-import { formatValidationError } from "../ui/format.ts";
-import { findPRsForBranches, pushBranch, deleteRemoteBranch, isAlreadyGone } from "../gh/index.ts";
-import { evaluateReadiness } from "./land-readiness.ts";
+import { pushBranch, deleteRemoteBranch, isAlreadyGone } from "../gh/index.ts";
 import { confirm as defaultConfirm, selectOne } from "../tui/index.ts";
 import { resolveUnitTitle } from "../parse/index.ts";
-import { syncCommand } from "./sync.ts";
+import { checkSync } from "./sync.ts";
+import { analyzeStack, landBlockers } from "./stack-analysis.ts";
 
 export interface LandOptions {
   through?: string;
@@ -44,31 +26,17 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
   const cwd = opts.cwd;
   const config = await loadConfig(ctx.git, { cwd });
 
-  // 1. Full sync first (publish + refresh). syncCommand process.exits on failure.
-  await syncCommand(ctx, { cwd });
-
-  // 2. Parse the stack (group-aware), same machinery as sync.
-  await fetchGroupRecords(ctx.git, config.remote, { cwd });
-  await fetchPRCache(ctx.git, config.remote, { cwd });
-  const groupRecords = await loadGroupRecords(ctx.git, { cwd });
-  const groupTitles = extractGroupTitles(groupRecords);
-  const commitGroups = buildCommitGroupMap(groupRecords);
-
-  const ref = trunkRef(config);
-  const commits = await getStackCommits(ctx.git, ref, { cwd });
-  const withTrailers = await parseCommitTrailers(commits, ctx.git, { cwd });
-  const parsed = parseStack(withTrailers, groupTitles, commitGroups);
-  if (!parsed.ok) {
-    console.error(formatValidationError(parsed));
-    process.exit(1);
-  }
-  const units = parsed.units;
+  // 1. Acquire remote state into refs (read-only; no inject, no push, no retarget).
+  const checked = await checkSync(ctx, { cwd });
+  const units = checked.units;
   if (units.length === 0) {
     console.log("✓ No commits in stack");
     return;
   }
+  const withTrailers = checked.commits;
+  const groupRecords = await loadGroupRecords(ctx.git, { cwd });
 
-  // 3. Resolve the "through" id (or pick it via TUI — later task).
+  // 2. Resolve the "through" scope (or pick via TUI).
   let throughId = opts.through;
   if (throughId === undefined) {
     const picker = opts.pickThrough ?? defaultPickThrough;
@@ -79,7 +47,6 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
     }
     throughId = picked;
   }
-
   const scope = resolveUpTo(throughId, units, withTrailers);
   if (!scope.ok) {
     console.error(formatResolutionError(scope.error));
@@ -93,44 +60,35 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
     return;
   }
 
-  // 4. Live PR status for the scope.
-  const scopeBranches = scopeUnits.map((u) => branchForUnit(u, config));
-  const prMap = await findPRsForBranches(ctx, scopeBranches, {
-    cwd,
-    owner: config.owner,
-    repo: config.repo,
-  });
+  // 3. Analyze the WHOLE stack, then gate on the in-scope units only.
+  const analysis = await analyzeStack(
+    ctx,
+    { units, commits: withTrailers, prCache: checked.prCache, config },
+    { cwd },
+  );
+  const scopeAnalysis = analysis.units.filter((a) => scope.unitIds.has(a.unit.id));
+  const prByUnit: Record<string, PRCacheEntry | null> = {};
+  for (const a of scopeAnalysis) prByUnit[a.unit.id] = checked.prCache[a.unit.id] ?? null;
 
-  // 4a. Readiness gate. Every scope unit must have an open PR, and none may be
-  //     blocked by failing/pending checks or changes-requested/review-required.
-  const readinessScope = scopeUnits.map((u) => {
-    const branch = branchForUnit(u, config);
-    return { branch, pr: prMap.get(branch) ?? null };
-  });
-  const readiness = evaluateReadiness(readinessScope);
-  if (!readiness.ok) {
-    console.error("✗ Cannot land: the following units have no open PR:");
-    for (const branch of readiness.missing) {
-      console.error(`  ${branch}`);
+  const blockers = landBlockers(scopeAnalysis, prByUnit);
+  if (blockers.blocked) {
+    console.error("✗ Cannot land: the following units are not ready:");
+    for (const b of blockers.perUnit) {
+      console.error(`  ${b.branch}:`);
+      for (const r of b.reasons) console.error(`    - ${r}`);
     }
-    console.error("  Publish them first with `sp sync --open`.");
-    process.exit(1);
-  }
-  if (readiness.verdict.blockers.length > 0) {
-    console.error("✗ Cannot land: one or more PRs are not ready:");
-    for (const blocker of readiness.verdict.blockers) {
-      console.error(`  PR #${blocker.prNumber} (${blocker.branch}):`);
-      for (const reason of blocker.reasons) {
-        console.error(`    - ${reason}`);
-      }
-    }
+    console.error("  Run `sp sync` and try again.");
     process.exit(1);
   }
 
-  // 4b. Unresolved review threads are advisory: prompt once for the whole scope.
-  if (readiness.verdict.unresolvedThreadPRs.length > 0) {
+  // 3b. Unresolved review threads are advisory: prompt once for the scope.
+  const scopePRs = scopeUnits
+    .map((u) => checked.prCache[u.id])
+    .filter((pr): pr is NonNullable<typeof pr> => !!pr);
+  const unresolved = scopePRs.filter((pr) => pr.reviewThreads.total > pr.reviewThreads.resolved);
+  if (unresolved.length > 0) {
     const confirmFn = opts.confirm ?? defaultConfirm;
-    const prs = readiness.verdict.unresolvedThreadPRs.map((n) => `#${n}`).join(", ");
+    const prs = unresolved.map((pr) => `#${pr.number}`).join(", ");
     const ok = await confirmFn(`PR(s) ${prs} have unresolved review threads. Land anyway?`);
     if (!ok) {
       console.log("Cancelled.");
@@ -138,7 +96,7 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
     }
   }
 
-  // 5. One ff push to the target tip.
+  // 4. One ff push to the target tip.
   const result = await pushBranch(ctx.git, {
     cwd,
     remote: config.remote,
@@ -158,7 +116,7 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
   const n = scopeUnits.length;
   console.log(`✓ Landed ${n} PR${n === 1 ? "" : "s"} to ${config.trunk}`);
 
-  // 6. Cleanup tail — scrub the state of the units we just landed. The land has
+  // 5. Cleanup tail — scrub the state of the units we just landed. The land has
   //    already succeeded; nothing below may abort it. Every failure here warns
   //    (dim) and continues.
   const landedIds = new Set(scopeUnits.map((u) => u.id));
@@ -168,7 +126,7 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
     await deleteSpentBranches(ctx, config, scopeUnits, cwd);
   }
 
-  // 7. Closing guidance reflects what cleanup actually did.
+  // 6. Closing guidance reflects what cleanup actually did.
   if (units.length > scopeUnits.length) {
     console.log(kleur.dim("  Run `sp sync` to retarget the remaining PRs."));
   }

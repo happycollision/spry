@@ -7,9 +7,7 @@ sp land --through aaaa1111
 ```
 
 ```
-↻ retargeted PR #1021 → spry/dondenton/bbbb2222
 ✓ Updated PR cache (2 PRs)
-✓ Sync complete
 ✓ Landed 2 PRs to main
   Run `sp clean` to delete the landed branches from the remote.
 

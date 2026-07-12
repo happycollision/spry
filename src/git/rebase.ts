@@ -47,12 +47,18 @@ async function computeIdRewrites(
   commits: CommitInfo[],
   cwd: string | undefined,
 ): Promise<{ missingIds: string[]; rewrites: Map<string, string> }> {
+  // Mirrors stack-analysis.missingIdHashes: a commit "needs an id" iff it has no
+  // Spry-Commit-Id trailer. Kept as a local test here because rebase parses the
+  // full commit message (CommitInfo has no pre-parsed trailers), whereas
+  // analyzeStack consumes already-parsed CommitWithTrailers.
+  const needsId = (trailers: Record<string, string>) => !trailers["Spry-Commit-Id"];
+
   const missingIds: string[] = [];
   for (const commit of commits) {
     // `commit.body` is body-only; interpret-trailers needs the full message.
     const fullMessage = commit.body ? `${commit.subject}\n\n${commit.body}` : commit.subject;
     const trailers = await parseTrailers(fullMessage, git);
-    if (!trailers["Spry-Commit-Id"]) missingIds.push(commit.hash);
+    if (needsId(trailers)) missingIds.push(commit.hash);
   }
 
   const rewrites = new Map<string, string>();
