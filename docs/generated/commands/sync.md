@@ -114,9 +114,27 @@ sp sync --all
 
 ```
 feature/login:
-↑ pushed spry/dondenton/aaaa1111
 feature/search:
+↑ pushed spry/dondenton/aaaa1111
 ↑ pushed spry/dondenton/bbbb2222
+✓ Updated PR cache (2 PRs)
+✓ Sync complete
+
+```
+
+Reordering commits in a stack and re-syncing must never mark an open PR as merged. `sp sync` parks every affected PR onto trunk before force-pushing the reordered branches, then re-stacks them — so a reorder is safe:
+
+```
+sp sync
+```
+
+```
+✓ Updated PR cache (2 PRs)
+↻ parked PR #42 → main
+↑ pushed spry/dondenton/bbbb2222
+↑ pushed spry/dondenton/aaaa1111
+↻ retargeted PR #42 → main
+↻ retargeted PR #42 → spry/dondenton/bbbb2222
 ✓ Updated PR cache (2 PRs)
 ✓ Sync complete
 

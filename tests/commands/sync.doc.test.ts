@@ -477,4 +477,82 @@ describe("sp sync docs", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("No commits in stack");
   });
+
+  docTest(
+    "Reordering a stack without merging PRs",
+    { section: "commands/sync", order: 70, timeout: 60000 },
+    async (doc) => {
+      const recording = isRecording();
+      const fixture = recording ? await createGitHubFixture() : undefined;
+      if (fixture) await fixture.reset();
+
+      const repo = await createRepo({ origin: recording ? "github" : "local" });
+      repos.push(repo);
+      doc.scrub(repo);
+      doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
+
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
+      const repoSlug = `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`;
+      await repo.git.run(["config", "spry.repo", repoSlug]);
+
+      // Build a 2-unit stack A(aaa)->B(bbb), open both PRs stacked.
+      await repo.git.run(["checkout", "-b", "feature/reorder"]);
+      await repo.git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"]);
+      await repo.git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: bbb22222"]);
+
+      doc.scrub(/Created PR #\d+/g, "Created PR #42");
+      doc.scrub(/pull\/\d+/g, "pull/42");
+      // Park/retarget log lines echo GitHub-minted PR numbers; canonicalize so
+      // the generated doc stays stable across re-recordings.
+      doc.scrub(/parked PR #\d+/g, "parked PR #42");
+      doc.scrub(/retargeted PR #\d+/g, "retargeted PR #42");
+
+      // Open both PRs first.
+      await runSp(repo.path, "sync", ["--open", "aaa11111,bbb22222"], {
+        env: cassetteEnv({ section: "commands/sync", order: 70 }),
+      });
+
+      // Reorder locally: swap so B is bottom, A is top (amend history).
+      await repo.git.run(["reset", "--hard", "HEAD~2"]);
+      await repo.git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: bbb22222"]);
+      await repo.git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"]);
+
+      doc.prose(
+        "Reordering commits in a stack and re-syncing must never mark an open PR as merged. `sp sync` parks every affected PR onto trunk before force-pushing the reordered branches, then re-stacks them — so a reorder is safe:",
+      );
+
+      const { command, result } = await runSp(repo.path, "sync", [], {
+        env: cassetteEnv({ section: "commands/sync", order: 70 }),
+      });
+      doc.command(command);
+      doc.output(result.stdout);
+
+      // Real-gh validation: this test's two branches must each still have an
+      // OPEN PR after the reorder sync. Query per branch with `--state open` so
+      // stale CLOSED/MERGED PRs on the SAME branch name (left by prior recording
+      // runs — the doc tests reuse the spry/dondenton/{aaa,bbb} branch names and
+      // commit ids) cannot contaminate the assertion. If the reorder had wrongly
+      // merged a PR, that branch would have no OPEN PR and this would fail.
+      if (recording) {
+        const { $ } = await import("bun");
+        const { expect } = await import("bun:test");
+        for (const branch of ["spry/dondenton/aaa11111", "spry/dondenton/bbb22222"]) {
+          const view =
+            await $`gh pr list --repo ${repoSlug} --head ${branch} --state open --json number`
+              .cwd(repo.path)
+              .quiet();
+          const open = JSON.parse(view.stdout.toString()) as Array<{ number: number }>;
+          expect(open.length).toBeGreaterThan(0); // branch still has an OPEN PR
+        }
+      }
+
+      if (fixture) await fixture.reset();
+
+      const { expect } = await import("bun:test");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Sync complete");
+    },
+  );
 });
