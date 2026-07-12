@@ -481,6 +481,27 @@ async function openPRs(
   return { branches, hadFailure };
 }
 
+/**
+ * A reorder is "detected" when at least one open PR's current on-GitHub base
+ * (from prMap) differs from the base a correctly-stacked PR would have
+ * (expectedBaseFor). When nothing is changing, sync takes the cheap path and
+ * skips the pre-push park entirely. Closed/merged PRs and units with no PR are
+ * ignored — only open PRs can be endangered by the push.
+ */
+export function stackHasReorder(
+  units: PRUnit[],
+  prMap: Map<string, PRInfo | null>,
+  config: SpryConfig,
+): boolean {
+  for (const unit of units) {
+    const branch = branchForUnit(unit, config);
+    const pr = prMap.get(branch);
+    if (!pr || pr.state !== "OPEN") continue;
+    if (pr.baseRefName !== sharedExpectedBaseFor(unit, units, config)) return true;
+  }
+  return false;
+}
+
 async function retargetMismatched(
   ctx: SpryContext,
   config: SpryConfig,

@@ -1,5 +1,10 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { syncCommand, buildOpenCandidates, checkSync } from "../../src/commands/sync.ts";
+import {
+  syncCommand,
+  buildOpenCandidates,
+  checkSync,
+  stackHasReorder,
+} from "../../src/commands/sync.ts";
 import type { PRUnit } from "../../src/parse/types.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
 import type {
@@ -11,6 +16,8 @@ import type {
 } from "../lib/index.ts";
 import { loadPRCache } from "../../src/gh/pr-cache.ts";
 import { registerBranch, loadTrackedBranches } from "../../src/git/tracked-branches.ts";
+import type { PRInfo } from "../../src/gh/pr.ts";
+import type { SpryConfig } from "../../src/git/config.ts";
 
 const repos: TestRepo[] = [];
 
@@ -1379,5 +1386,42 @@ describe("checkSync", () => {
     expect(result.units.map((u) => u.id)).toEqual(["aaa11111"]);
     expect(calls.some((c) => c.args[0] === "pr" && c.args[1] === "edit")).toBe(false);
     expect(calls.some((c) => c.args[0] === "pr" && c.args[1] === "create")).toBe(false);
+  });
+});
+
+describe("stackHasReorder", () => {
+  const config = { trunk: "main", remote: "origin", branchPrefix: "spry/test" } as SpryConfig;
+  const unit = (id: string): PRUnit =>
+    ({ id, commits: [id], subjects: ["s"], title: "t" }) as unknown as PRUnit;
+
+  test("false when every open PR base already equals its expected base", () => {
+    const units = [unit("aaa11111"), unit("bbb22222")];
+    const prMap = new Map<string, PRInfo | null>([
+      ["spry/test/aaa11111", { number: 1, state: "OPEN", baseRefName: "main" } as PRInfo],
+      [
+        "spry/test/bbb22222",
+        { number: 2, state: "OPEN", baseRefName: "spry/test/aaa11111" } as PRInfo,
+      ],
+    ]);
+    expect(stackHasReorder(units, prMap, config)).toBe(false);
+  });
+
+  test("true when an open PR base differs from its expected base", () => {
+    const units = [unit("aaa11111"), unit("bbb22222")];
+    // bbb should be based on aaa's branch but GitHub still has it on main
+    const prMap = new Map<string, PRInfo | null>([
+      ["spry/test/aaa11111", { number: 1, state: "OPEN", baseRefName: "main" } as PRInfo],
+      ["spry/test/bbb22222", { number: 2, state: "OPEN", baseRefName: "main" } as PRInfo],
+    ]);
+    expect(stackHasReorder(units, prMap, config)).toBe(true);
+  });
+
+  test("ignores closed/merged PRs and missing PRs", () => {
+    const units = [unit("aaa11111"), unit("bbb22222")];
+    const prMap = new Map<string, PRInfo | null>([
+      ["spry/test/aaa11111", { number: 1, state: "MERGED", baseRefName: "main" } as PRInfo],
+      ["spry/test/bbb22222", null],
+    ]);
+    expect(stackHasReorder(units, prMap, config)).toBe(false);
   });
 });
