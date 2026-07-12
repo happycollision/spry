@@ -1671,7 +1671,11 @@ describe("syncCommand park failure is fail-safe", () => {
       logs.restore();
     }
     expect(trap.exitCode).toBe(1);
-    // A was NOT pushed (park failed → skipped).
+    // A was NOT pushed (park failed → skipped). Asserting the mechanism
+    // (own-branch skipped + exit 1) rather than the outcome (PR not merged) is
+    // sufficient: a reorder rewrites A's commit to a fresh SHA, so A's stale
+    // remote head cannot be made reachable by any other branch's push. See the
+    // SHA-reachability note on `parkMismatchedToTrunk` for the full invariant.
     expect(logs.out.join("\n")).not.toContain("pushed spry/test/aaa11111");
     expect(logs.err.join("\n")).toMatch(/Could not park PR #10/);
   });

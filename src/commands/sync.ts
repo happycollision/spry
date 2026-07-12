@@ -534,6 +534,21 @@ export function stackHasReorder(
  * stale base relationships that would otherwise let the force-push mark a PR
  * MERGED. Returns the set of branches whose park FAILED — the caller must not
  * push those (pushing with an unparked stale base risks the merge).
+ *
+ * Why excluding just the failed PR's OWN branch from the push is sufficient
+ * (and not, as it first appears, the wrong lever): GitHub decides MERGED by
+ * commit-SHA reachability from the base branch tip, and a reorder rewrites every
+ * repositioned commit to a fresh SHA (`rebasePlumbing` → `commit-tree`). A PR is
+ * only parked when it is *mismatched* — i.e. its position relative to its base
+ * changed — which means its head commit was rewritten to a new SHA that appears
+ * in no branch's pushed history. So a PR left unparked by a failed park cannot
+ * have its (old-SHA) head made reachable by any *other* branch's push. The one
+ * way an old head SHA survives verbatim into another pushed branch is an
+ * unchanged bottom prefix, but such a PR is *matched* (base == expectedBase) and
+ * is never parked. The parked set and the surviving-old-SHA set are disjoint, so
+ * skipping the failed PR's own branch is enough. (See beads spry-8vz2 for an
+ * optional defensive hardening — abort the whole stack's push on any park
+ * failure — that would remove the reliance on this SHA-rewriting invariant.)
  */
 export async function parkMismatchedToTrunk(
   ctx: SpryContext,
