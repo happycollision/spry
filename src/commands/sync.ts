@@ -8,7 +8,9 @@ import {
   injectMissingIds,
   branchForUnit,
   registerBranch,
+  fetchRemote,
 } from "../git/index.ts";
+import { expectedBaseFor as sharedExpectedBaseFor } from "./stack-analysis.ts";
 import {
   loadGroupRecords,
   fetchGroupRecords,
@@ -37,7 +39,7 @@ import {
   formatPRBody,
   classifyGhInfraError,
 } from "../gh/index.ts";
-import { fetchPRCache, savePRCache, pushPRCache } from "../gh/pr-cache.ts";
+import { fetchPRCache, savePRCache, pushPRCache, loadPRCache } from "../gh/pr-cache.ts";
 import type { PRCache } from "../gh/pr-cache.ts";
 import type { PRInfo } from "../gh/pr.ts";
 import type { SpryConfig } from "../git/config.ts";
@@ -48,6 +50,121 @@ export interface SyncOptions {
   open?: string | null;
   cwd?: string;
   all?: boolean;
+}
+
+export interface CheckSyncResult {
+  units: PRUnit[];
+  commits: CommitWithTrailers[];
+  prMap: Map<string, PRInfo | null> | undefined;
+  prCache: PRCache;
+  config: SpryConfig;
+  /**
+   * Snapshot of remote-tracking tips (`refs/remotes/<remote>/<prefix>/*`)
+   * captured BEFORE checkSync's fetch. Keyed by branch name without the
+   * `refs/remotes/<remote>/` prefix (i.e. the `<branchPrefix>/<id>` form, same
+   * as `listRemoteBranches`). Used to pin the push lease to what the local
+   * clone knew the remote to be before the fetch refreshed it. A branch with
+   * no tracking ref (never fetched) is absent.
+   */
+  preFetchRemoteTips: Map<string, string>;
+}
+
+/**
+ * Snapshot the current remote-tracking tips for all spry branches
+ * (`refs/remotes/<remote>/<prefix>/*`) into a `Map<branch, sha>`, keyed WITHOUT
+ * the `refs/remotes/<remote>/` prefix. Must be called BEFORE any fetch so the
+ * captured SHAs reflect the pre-fetch state of the tracking refs.
+ */
+async function snapshotRemoteTips(
+  git: SpryContext["git"],
+  remote: string,
+  prefix: string,
+  cwd: string | undefined,
+): Promise<Map<string, string>> {
+  const res = await git.run(
+    ["for-each-ref", "--format=%(refname) %(objectname)", `refs/remotes/${remote}/${prefix}/`],
+    { cwd },
+  );
+  const map = new Map<string, string>();
+  if (res.exitCode !== 0) return map;
+  const stripPrefix = `refs/remotes/${remote}/`;
+  for (const line of res.stdout.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    const sp = t.indexOf(" ");
+    if (sp === -1) continue;
+    const refname = t.slice(0, sp);
+    const sha = t.slice(sp + 1).trim();
+    if (refname.startsWith(stripPrefix)) map.set(refname.slice(stripPrefix.length), sha);
+  }
+  return map;
+}
+
+/**
+ * Read-only acquisition of remote state into refs. Does a real `git fetch`
+ * (updates refs/remotes/origin/* so analyzeStack can read tips), fetches group
+ * records + PR cache, parses the stack, looks up live PR state, and refreshes
+ * refs/spry/prs to mirror GitHub. Mutates NOTHING else — no inject, no push,
+ * no createPR, no retargetPR.
+ */
+export async function checkSync(
+  ctx: SpryContext,
+  opts: { cwd?: string } = {},
+): Promise<CheckSyncResult> {
+  const cwd = opts.cwd;
+  const config = await loadConfig(ctx.git, { cwd });
+  const ref = trunkRef(config);
+
+  // Capture remote-tracking tips BEFORE the fetch. These are what the local
+  // clone last knew the remote to be; the push phase pins its lease to them so
+  // the fetch below cannot mask a concurrent remote force-push.
+  const preFetchRemoteTips = await snapshotRemoteTips(
+    ctx.git,
+    config.remote,
+    config.branchPrefix,
+    cwd,
+  );
+
+  await fetchRemote(ctx.git, config.remote, { cwd });
+
+  const commits = await getStackCommits(ctx.git, ref, { cwd });
+  const withTrailers = await parseCommitTrailers(commits, ctx.git, { cwd });
+
+  const fetchResult = await fetchGroupRecords(ctx.git, config.remote, { cwd });
+  if (!fetchResult.ok)
+    console.log(kleur.dim(`⚠ Could not fetch group records: ${fetchResult.warning}`));
+  const prCacheFetch = await fetchPRCache(ctx.git, config.remote, { cwd });
+  if (!prCacheFetch.ok)
+    console.log(kleur.dim(`⚠ Could not fetch PR cache: ${prCacheFetch.warning}`));
+
+  const groupRecords = await loadGroupRecords(ctx.git, { cwd });
+  const groupTitles = extractGroupTitles(groupRecords);
+  const commitGroups = buildCommitGroupMap(groupRecords);
+  const parsed = parseStack(withTrailers, groupTitles, commitGroups);
+  if (!parsed.ok) {
+    console.error(formatValidationError(parsed));
+    process.exit(1);
+  }
+  const units = parsed.units;
+
+  let prMap: Map<string, PRInfo | null> | undefined;
+  if (units.length > 0) {
+    const allBranches = units.map((u) => branchForUnit(u, config));
+    try {
+      prMap = await findPRsForBranches(ctx, allBranches, {
+        cwd,
+        owner: config.owner,
+        repo: config.repo,
+      });
+    } catch (err) {
+      const hint = retargetingFallbackHint(err);
+      console.log(kleur.dim(`${hint} (branches still updated)`));
+    }
+    if (prMap) await writePRCache(ctx, config, units, prMap, cwd);
+  }
+
+  const prCache = await loadPRCache(ctx.git, { cwd });
+  return { units, commits: withTrailers, prMap, prCache, config, preFetchRemoteTips };
 }
 
 export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Promise<void> {
@@ -79,26 +196,10 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   const currentBranch = await getCurrentBranch(ctx.git, { cwd });
   await registerBranch(ctx.git, currentBranch, { cwd });
 
-  // 2. Re-read commits + parse stack
-  const commits = await getStackCommits(ctx.git, ref, { cwd });
-  const withTrailers = await parseCommitTrailers(commits, ctx.git, { cwd });
-  const fetchResult = await fetchGroupRecords(ctx.git, config.remote, { cwd });
-  if (!fetchResult.ok) {
-    console.log(kleur.dim(`⚠ Could not fetch group records: ${fetchResult.warning}`));
-  }
-  const prCacheFetch = await fetchPRCache(ctx.git, config.remote, { cwd });
-  if (!prCacheFetch.ok) {
-    console.log(kleur.dim(`⚠ Could not fetch PR cache: ${prCacheFetch.warning}`));
-  }
-  const groupRecords = await loadGroupRecords(ctx.git, { cwd });
-  const groupTitles = extractGroupTitles(groupRecords);
-  const commitGroups = buildCommitGroupMap(groupRecords);
-  const result = parseStack(withTrailers, groupTitles, commitGroups);
-  if (!result.ok) {
-    console.error(formatValidationError(result));
-    process.exit(1);
-  }
-  const units = result.units;
+  // 2. Acquire remote state (fetch + parse + PR lookup + PR-cache refresh).
+  const checked = await checkSync(ctx, { cwd });
+  const units = checked.units;
+  const withTrailers = checked.commits;
   if (units.length === 0) {
     console.log("✓ No commits in stack");
     return;
@@ -108,7 +209,14 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   const existing = await listRemoteBranches(ctx.git, config.remote, config.branchPrefix, { cwd });
 
   // 4. Push phase — only branches that already exist remotely
-  const pushResult = await pushExistingBranches(ctx, config, units, existing, cwd);
+  const pushResult = await pushExistingBranches(
+    ctx,
+    config,
+    units,
+    existing,
+    checked.preFetchRemoteTips,
+    cwd,
+  );
 
   // 5. --open: open new PRs (with their own pushes)
   let openedBranches: string[] = [];
@@ -125,7 +233,15 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
         console.log("(no units selected)");
         // fall through — retarget still runs on push-phase output
       } else {
-        opened = await openPRs(ctx, config, units, result.selectedIds, withTrailers, cwd);
+        opened = await openPRs(
+          ctx,
+          config,
+          units,
+          result.selectedIds,
+          withTrailers,
+          checked.preFetchRemoteTips,
+          cwd,
+        );
       }
     } else {
       const targets = resolveOpenTargets(opts.open, units, withTrailers, existing, config);
@@ -133,7 +249,15 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
         console.error(targets.error);
         process.exit(1);
       }
-      opened = await openPRs(ctx, config, units, targets.unitIds, withTrailers, cwd);
+      opened = await openPRs(
+        ctx,
+        config,
+        units,
+        targets.unitIds,
+        withTrailers,
+        checked.preFetchRemoteTips,
+        cwd,
+      );
     }
     if (opened) {
       openedBranches = opened.branches;
@@ -141,26 +265,19 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
     }
   }
 
-  // 6. Fetch PR info for all branches once; use for both retarget and cache
-  const allBranches = units.map((u) => branchForUnit(u, config));
-  let prMap: Map<string, PRInfo | null> | undefined;
-  try {
-    prMap = await findPRsForBranches(ctx, allBranches, {
-      cwd,
-      owner: config.owner,
-      repo: config.repo,
-    });
-  } catch (err) {
-    const hint = retargetingFallbackHint(err);
-    console.log(kleur.dim(`${hint} (branches still updated)`));
-  }
+  // 6. Reuse the PR info checkSync already fetched (and cached) for retarget.
+  const prMap = checked.prMap;
 
   const retargetBranches = [...pushResult.pushed, ...openedBranches];
   const retargetHadFailure = prMap
     ? await retargetMismatched(ctx, config, units, retargetBranches, prMap, cwd)
     : false;
 
-  if (prMap) {
+  // checkSync already wrote the PR cache once from the same prMap. Only rewrite
+  // it when a retarget pass ran (branches were pushed/opened) — otherwise the
+  // first write already reflects reality and a second savePRCache + pushPRCache
+  // would be a redundant ref push and a duplicate console line.
+  if (prMap && retargetBranches.length > 0) {
     await writePRCache(ctx, config, units, prMap, cwd);
   }
 
@@ -177,6 +294,7 @@ async function pushExistingBranches(
   config: SpryConfig,
   units: PRUnit[],
   existing: Map<string, string>,
+  preFetchTips: Map<string, string>,
   cwd: string | undefined,
 ): Promise<{ pushed: string[]; hadFailure: boolean }> {
   const pushed: string[] = [];
@@ -200,6 +318,10 @@ async function pushExistingBranches(
       sha: headHash,
       branch,
       forceWithLease: true,
+      // Pin the lease to what the clone knew the remote to be BEFORE
+      // checkSync's fetch. Undefined (branch never fetched) falls back to the
+      // bare lease.
+      leaseExpectedSha: preFetchTips.get(branch),
     });
     if (result.ok) {
       console.log(`↑ pushed ${branch}`);
@@ -291,6 +413,7 @@ async function openPRs(
   units: PRUnit[],
   targetIds: string[],
   commits: CommitWithTrailers[],
+  preFetchTips: Map<string, string>,
   cwd: string | undefined,
 ): Promise<OpenPRsResult> {
   const targetSet = new Set(targetIds);
@@ -326,6 +449,9 @@ async function openPRs(
       sha: headHash,
       branch,
       forceWithLease: true,
+      // First-publish branches have no remote ref yet → undefined → bare lease
+      // (effectively create-only, today's behavior).
+      leaseExpectedSha: preFetchTips.get(branch),
     });
     if (!pushResult.ok) {
       console.error(`⚠ Failed to push ${branch}: ${pushResult.stderr.trim()}`);
@@ -355,13 +481,6 @@ async function openPRs(
   return { branches, hadFailure };
 }
 
-function expectedBaseFor(unit: PRUnit, units: PRUnit[], config: SpryConfig): string {
-  const idx = units.findIndex((u) => u.id === unit.id);
-  if (idx <= 0) return config.trunk;
-  const prev = units[idx - 1];
-  return prev ? branchForUnit(prev, config) : config.trunk;
-}
-
 async function retargetMismatched(
   ctx: SpryContext,
   config: SpryConfig,
@@ -378,7 +497,7 @@ async function retargetMismatched(
     if (!branches.includes(branch)) continue;
     const pr = prMap.get(branch);
     if (!pr || pr.state !== "OPEN") continue;
-    const expected = expectedBaseFor(unit, units, config);
+    const expected = sharedExpectedBaseFor(unit, units, config);
     if (pr.baseRefName === expected) continue;
     try {
       await retargetPR(ctx, pr.number, expected, { cwd });
@@ -506,7 +625,17 @@ async function syncAllCommand(
     }
 
     // 3. Push the branches that already exist on the remote.
-    const pushResult = await pushExistingBranches(ctx, config, result.units, existing, cwd);
+    //    `sp sync --all` does not run checkSync's fetch, so there is no
+    //    pre-fetch snapshot to pin against — pass an empty map, which falls
+    //    back to the bare `--force-with-lease` (today's behavior).
+    const pushResult = await pushExistingBranches(
+      ctx,
+      config,
+      result.units,
+      existing,
+      new Map(),
+      cwd,
+    );
     if (pushResult.hadFailure) hadFailure = true;
 
     stacks.push({ branch, units: result.units, pushed: pushResult.pushed });

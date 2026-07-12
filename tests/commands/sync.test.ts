@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { syncCommand, buildOpenCandidates } from "../../src/commands/sync.ts";
+import { syncCommand, buildOpenCandidates, checkSync } from "../../src/commands/sync.ts";
 import type { PRUnit } from "../../src/parse/types.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
 import type {
@@ -1356,5 +1356,28 @@ describe("PR cache", () => {
     // Cache should be empty — gh unavailable, so no PR info fetched
     const cache = await loadPRCache(git, { cwd: repo.path });
     expect(Object.keys(cache)).toHaveLength(0);
+  });
+});
+
+describe("checkSync", () => {
+  test("checkSync performs no gh pr edit/create calls", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${head}:refs/heads/spry/test/aaa11111`], { cwd: repo.path });
+
+    const { gh, calls } = stubGh(
+      ghPRMap({ "spry/test/aaa11111": { number: 1, baseRefName: "main" } }),
+    );
+    const ctx = makeCtx(repo, gh);
+
+    const result = await checkSync(ctx, { cwd: repo.path });
+    expect(result.units.map((u) => u.id)).toEqual(["aaa11111"]);
+    expect(calls.some((c) => c.args[0] === "pr" && c.args[1] === "edit")).toBe(false);
+    expect(calls.some((c) => c.args[0] === "pr" && c.args[1] === "create")).toBe(false);
   });
 });
