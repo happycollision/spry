@@ -27,6 +27,20 @@ const PR_NUMBER_PATTERN = /(pull\/|"number":)(\d+)/g;
  *   `pr edit <n>` by parsing an earlier entry's (normalized) stdout, so a
  *   recorded bare-numeric arg that names a seen PR must be rewritten in step;
  * - stdin — the other match key, same reasoning, via the anchored patterns.
+ *
+ * Accepted limits (each fails LOUD, never silently):
+ *
+ * - A whole-numeric arg unrelated to any PR (e.g. `--limit 1084`) is
+ *   rewritten if it happens to equal a seen PR number. The replay-time call
+ *   still carries the real value, so the args-keyed replayer throws
+ *   "No matching recorded entry" — a visible failure, not a silent mismatch.
+ * - The map is per-cassette: PR numbers are assumed never to cross cassette
+ *   files. Each doc fragment records its own cassette from a reset repo
+ *   state; a cross-cassette reference would surface as a loud replay miss.
+ * - `"number":<n>` matches gh's compact JSON only (no space after the
+ *   colon). If gh ever pretty-prints, those numbers stop being normalized
+ *   and re-record churn returns — caught by the pre-merge gate's
+ *   clean-status check.
  */
 export function normalizePRNumbers(entries: CassetteEntry[]): CassetteEntry[] {
   const normalized = new Map<string, string>();

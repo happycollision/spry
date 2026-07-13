@@ -121,6 +121,27 @@ test("normalizes a shared PR number to the same value across entries", async () 
   expect(stdout1).toContain('"totalCount":4242');
 });
 
+test("seeds the normalization map from stderr", async () => {
+  // gh writes some URLs to stderr; a number seen ONLY there must still be
+  // discovered, normalized in place, and applied to later stdout mentions.
+  const inner = scriptedInner([
+    ok("", "Creating PR... https://github.com/o/r/pull/4242\n"),
+    ok("https://github.com/o/r/pull/4242\n"),
+  ]);
+  const cassettePath = join(tmpDir, "normalize-stderr.json");
+  const recording = createRecordingClient(inner, cassettePath);
+
+  await recording.run(["pr", "create", "--title", "x"]);
+  await recording.run(["pr", "view", "--json", "url"]);
+  await recording.flush();
+
+  const cassette = await readCassette(cassettePath);
+  expect(cassette.entries[0]!.result.stderr).toBe(
+    "Creating PR... https://github.com/o/r/pull/1001\n",
+  );
+  expect(cassette.entries[1]!.result.stdout).toBe("https://github.com/o/r/pull/1001\n");
+});
+
 test("assigns normalized numbers first-seen without cascading collisions", async () => {
   // Real numbers overlap the normalized range (1001+): the rewrite must be a
   // single simultaneous pass, not sequential replacements that cascade.
