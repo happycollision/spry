@@ -207,6 +207,34 @@ recording depends on.)
 
 Every user-facing command or UI output must have doc-producing tests in a `tests/commands/<command>.doc.test.ts` file using the `docTest` helper from `tests/lib/index.ts`. Doc tests are the source of truth for generated documentation in `docs/generated/`. See `tests/commands/sync.doc.test.ts` or `tests/commands/view.doc.test.ts` for the pattern.
 
+### Pre-merge record + playback check
+
+Before merging any branch, prove that record mode still works end-to-end and
+that the generated docs are stable. Run this gate and expect it to pass:
+
+1. **Record the whole suite once, regenerating docs from scratch:**
+   ```bash
+   bun run docs:clean            # wipe .test-tmp/doc-fragments + docs/generated
+   SPRY_RECORD=1 bun test        # full suite in record mode (mutates spry-check)
+   bun run docs:build            # regenerate docs/generated from the fresh fragments
+   ```
+2. **Play the suite back twice** (the normal offline path):
+   ```bash
+   bun test
+   bun run docs:build
+   bun test
+   bun run docs:build
+   ```
+
+**Expected churn: cassettes only.** After all of the above, the ONLY files that
+may differ in `git status` are `tests/fixtures/cassettes/*.json` — and that
+churn is noise (GitHub-minted PR numbers, temp `cwd` paths) that should be
+**dropped** (`git checkout -- tests/fixtures/cassettes/`). Any diff in
+`docs/generated/` is a real failure: it means the docs are non-deterministic or
+a fragment changed — investigate and fix before merging, do not commit the
+churn. (A recorded-then-replayed run that leaves docs unchanged is the proof
+the cassettes faithfully reproduce the live behavior.)
+
 ```ts#index.test.ts
 import { test, expect } from "bun:test";
 
