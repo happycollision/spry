@@ -12,6 +12,8 @@ export interface CleanupReport {
   branchesDeleted: number;
   prsClosed: number;
   spryRefsDeleted: number;
+  /** True when the default branch was ahead of baseline and got rolled back. */
+  mainRestored: boolean;
   errors: string[];
 }
 
@@ -33,7 +35,16 @@ export interface GitHubFixture {
    */
   purgeSpryRefs(): Promise<number>;
 
-  /** Reset repository to a clean state (close PRs, delete branches, purge spry refs). */
+  /**
+   * Force the default branch back to its single-commit baseline (the initial
+   * commit setup-spry-check.ts establishes). `sp land`'s job is to fast-forward
+   * origin/main past the baseline, so recording it advances main — and branch
+   * cleanup deliberately skips the default branch, so nothing else rolls it
+   * back. Returns true when main was moved (was ahead of baseline).
+   */
+  restoreMainToBaseline(): Promise<boolean>;
+
+  /** Reset repository to a clean state (close PRs, delete branches, purge spry refs, restore main). */
   reset(): Promise<CleanupReport>;
 
   /** Merge a PR via gh (simulating a merge via the GitHub UI). */
@@ -231,6 +242,46 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     return deleted;
   }
 
+  async function restoreMainToBaseline(): Promise<boolean> {
+    await assertSafeToMutate(owner, repo);
+
+    // Determine the default branch (never assume "main").
+    const defaultResult =
+      await $`gh repo view ${owner}/${repo} --json defaultBranchRef --jq .defaultBranchRef.name`
+        .quiet()
+        .nothrow();
+    const defaultBranch =
+      defaultResult.exitCode === 0 ? defaultResult.stdout.toString().trim() || "main" : "main";
+
+    // Current tip of the default branch.
+    const tipResult =
+      await $`gh api repos/${owner}/${repo}/git/refs/heads/${defaultBranch} --jq .object.sha`
+        .quiet()
+        .nothrow();
+    const tip = tipResult.stdout.toString().trim();
+
+    // The baseline is the single root commit (setup-spry-check.ts force-pushes
+    // exactly one commit). Find the commit with no parents on the branch.
+    const rootResult =
+      await $`gh api ${`repos/${owner}/${repo}/commits?sha=${defaultBranch}&per_page=100`} --jq 'map(select(.parents | length == 0)) | .[0].sha'`
+        .quiet()
+        .nothrow();
+    const root = rootResult.stdout.toString().trim();
+
+    if (!root || root === "null") {
+      throw new Error(`Could not find a root commit on ${defaultBranch} of ${owner}/${repo}`);
+    }
+
+    // Already at baseline — nothing to roll back.
+    if (tip === root) return false;
+
+    // Force the default branch ref back to the root commit.
+    await $`gh api -X PATCH repos/${owner}/${repo}/git/refs/heads/${defaultBranch} -f sha=${root} -F force=true`
+      .quiet()
+      .nothrow();
+    return true;
+  }
+
   async function reset(): Promise<CleanupReport> {
     await assertSafeToMutate(owner, repo);
 
@@ -238,6 +289,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
       branchesDeleted: 0,
       prsClosed: 0,
       spryRefsDeleted: 0,
+      mainRestored: false,
       errors: [],
     };
 
@@ -267,6 +319,18 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     } catch (err: unknown) {
       report.errors.push(
         `Failed to purge spry refs: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    // Roll the default branch back to its baseline. `sp land` fast-forwards
+    // origin/main past baseline, and nothing above rolls it back (branch
+    // cleanup skips the default branch), so without this a prior land recording
+    // leaves main advanced and the next record run parses a corrupted stack.
+    try {
+      report.mainRestored = await restoreMainToBaseline();
+    } catch (err: unknown) {
+      report.errors.push(
+        `Failed to restore main to baseline: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
 
@@ -311,6 +375,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     closeAllPRs,
     deleteAllBranches,
     purgeSpryRefs,
+    restoreMainToBaseline,
     reset,
     mergePR,
   };

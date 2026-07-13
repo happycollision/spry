@@ -23,6 +23,15 @@ async function waitForSpryRef(owner: string, repo: string, ref: string): Promise
   throw new Error(`Seeded ref ${ref} never became visible under refs/spry/`);
 }
 
+/** Count of commits reachable from the default branch tip. */
+async function mainCommitCount(owner: string, repo: string): Promise<number> {
+  const result =
+    await $`gh api ${`repos/${owner}/${repo}/commits?sha=main&per_page=100`} --jq length`
+      .quiet()
+      .nothrow();
+  return Number(result.stdout.toString().trim());
+}
+
 // These tests drive real `gh` against the live spry-check test repo. They
 // require gh auth + network, so they share the SPRY_RECORD gate with cassette
 // recording (the one moment we're already online with gh auth) and skip
@@ -44,16 +53,22 @@ test.skipIf(SKIP)("verifyTestRepo passes against the real spry-check repo", asyn
   expect(isTestRepo).toBe(true);
 });
 
-test.skipIf(SKIP)("reset leaves zero open PRs", async () => {
-  const fixture = await createGitHubFixture();
+test.skipIf(SKIP)(
+  "reset leaves zero open PRs",
+  async () => {
+    const fixture = await createGitHubFixture();
 
-  const report = await fixture.reset();
-  expect(report.errors).toEqual([]);
+    const report = await fixture.reset();
+    expect(report.errors).toEqual([]);
 
-  // After reset, no PRs should be open.
-  const remaining = await fixture.closeAllPRs();
-  expect(remaining).toBe(0);
-});
+    // After reset, no PRs should be open.
+    const remaining = await fixture.closeAllPRs();
+    expect(remaining).toBe(0);
+  },
+  // Real gh round-trips (close PRs + delete branches + purge refs + restore
+  // main) exceed the 5s default, like the other reset-driving tests.
+  60000,
+);
 
 test.skipIf(SKIP)(
   "reset purges all refs/spry/* custom refs",
@@ -86,5 +101,44 @@ test.skipIf(SKIP)(
     expect(refs).toBe("");
   },
   // Real gh round-trips (seed + list + delete + verify) exceed the 5s default.
+  60000,
+);
+
+test.skipIf(SKIP)(
+  "reset restores main to the single-commit baseline",
+  async () => {
+    const fixture = await createGitHubFixture();
+    const { owner, repo } = fixture;
+
+    // Start clean so the seeded advance is the only thing above baseline.
+    await fixture.reset();
+
+    // Simulate the residue a prior `sp land` recording leaves behind: land's
+    // whole job is to fast-forward origin/main past the baseline, and neither
+    // closeAllPRs nor deleteAllBranches (which skips the default branch) rolls
+    // main back. Advance main by one empty commit to stand in for that.
+    const baseTip = await headSha(owner, repo);
+    const treeSha = (
+      await $`gh api repos/${owner}/${repo}/git/commits/${baseTip} --jq .tree.sha`.quiet().nothrow()
+    ).stdout
+      .toString()
+      .trim();
+    const commit =
+      await $`gh api -X POST repos/${owner}/${repo}/git/commits -f message=${"stale land residue"} -f tree=${treeSha} -f parents[]=${baseTip} --jq .sha`
+        .quiet()
+        .nothrow();
+    const advancedSha = commit.stdout.toString().trim();
+    await $`gh api -X PATCH repos/${owner}/${repo}/git/refs/heads/main -f sha=${advancedSha} -F force=true`
+      .quiet()
+      .nothrow();
+    expect(await mainCommitCount(owner, repo)).toBeGreaterThan(1);
+
+    const report = await fixture.reset();
+    expect(report.errors).toEqual([]);
+
+    // Baseline is the single initial commit setup-spry-check.ts force-pushes.
+    expect(await mainCommitCount(owner, repo)).toBe(1);
+  },
+  // Real gh round-trips (advance + reset + verify) exceed the 5s default.
   60000,
 );
