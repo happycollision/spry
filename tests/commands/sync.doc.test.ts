@@ -311,7 +311,12 @@ describe("sp sync docs", () => {
         // network. On replay the cassette makes it instant, so the larger cap is
         // never approached. If this times out, the harness likely hit an error
         // path — print driver.capture().text to diagnose.
-        await driver.waitForText("Sync complete", { timeout: 20000 });
+        // Wait for the harness process to exit rather than the "Sync complete"
+        // sentinel + close(): sync-tui-harness exits right after syncCommand
+        // resolves and flush() runs, so waiting for exit avoids racing any
+        // trailing work with a hard kill (see
+        // docs/investigations/2026-07-07-group-reflog-nondeterminism.md).
+        await driver.waitForExit({ timeout: 20000 });
 
         const snap = driver.capture();
         const syncLines = snap.lines

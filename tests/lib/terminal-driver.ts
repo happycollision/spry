@@ -12,6 +12,7 @@ export interface TerminalDriver {
   type(text: string): void;
   press(key: string): void;
   waitForText(text: string, options?: { timeout?: number }): Promise<void>;
+  waitForExit(options?: { timeout?: number }): Promise<number>;
   capture(): ScreenSnapshot;
   close(): Promise<void>;
 }
@@ -106,19 +107,54 @@ export async function createTerminalDriver(
     return screen.capture();
   }
 
+  async function waitForExit(opts?: { timeout?: number }): Promise<number> {
+    const timeout = opts?.timeout ?? 5000;
+
+    const result = await Promise.race([
+      proc.exited.then((code) => ({ exited: true as const, code })),
+      Bun.sleep(timeout).then(() => ({ exited: false as const, code: -1 })),
+    ]);
+
+    if (!result.exited) {
+      const snapshot = screen.capture();
+      throw new Error(
+        `Timeout waiting for process exit after ${timeout}ms.\n` +
+          `Screen at timeout:\n${snapshot.text}`,
+      );
+    }
+
+    return result.code;
+  }
+
   async function close(): Promise<void> {
     try {
       proc.terminal?.close();
     } catch {
       /* may have exited */
     }
-    try {
-      proc.kill();
-    } catch {
-      /* may have exited */
+
+    // Graceful: give the process a short grace window to exit on its own
+    // (closing the pty typically triggers a natural exit) before resorting to
+    // a hard kill. This avoids killing mid-write — see
+    // docs/investigations/2026-07-07-group-reflog-nondeterminism.md, where a
+    // hard kill raced a post-message persistence step and made the doc
+    // fragment's commit count nondeterministic.
+    const graceMs = 2000;
+    const exitedGracefully = await Promise.race([
+      proc.exited.then(() => true),
+      Bun.sleep(graceMs).then(() => false),
+    ]);
+
+    if (!exitedGracefully) {
+      try {
+        proc.kill();
+      } catch {
+        /* may have exited */
+      }
     }
+
     await proc.exited;
   }
 
-  return { type, press, waitForText, capture, close };
+  return { type, press, waitForText, waitForExit, capture, close };
 }

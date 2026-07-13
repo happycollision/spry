@@ -69,8 +69,7 @@ describe("sp group docs", () => {
 
     // Save
     term.press("Enter");
-    await term.waitForText("Groups updated", { timeout: 10000 });
-    await term.close();
+    await term.waitForExit({ timeout: 10000 });
 
     expect(snapshot.text).toContain("Auth Flow");
   });
@@ -116,14 +115,12 @@ describe("sp group docs", () => {
     term.press(" "); // drop
     await Bun.sleep(100);
     term.press("Enter"); // save
-    // Wait for the FINAL message, not the mid-command "Reordered": the
-    // group-records save/push runs after "Reordered" prints, and close() kills
-    // the process — waiting on the early sentinel raced that write, making the
-    // repo's reflog commit count (and thus the doc-scrubber's SHA registry)
-    // flip between runs. See
+    // Wait for the process to exit rather than a mid-command sentinel +
+    // close(): the group-records save/push runs after "Reordered" prints, and
+    // a hard kill used to race that write, making the repo's reflog commit
+    // count (and thus the doc-scrubber's SHA registry) flip between runs. See
     // docs/investigations/2026-07-07-group-reflog-nondeterminism.md.
-    await term.waitForText("Groups updated", { timeout: 10000 });
-    await term.close();
+    await term.waitForExit({ timeout: 10000 });
   });
 
   docTest(
@@ -162,8 +159,7 @@ describe("sp group docs", () => {
       expect(snapshot.text).toContain("Space disabled");
 
       term.type("q");
-      await term.waitForText("Cancelled", { timeout: 5000 });
-      await term.close();
+      await term.waitForExit({ timeout: 5000 });
     },
   );
 
@@ -218,8 +214,7 @@ describe("sp group docs", () => {
     term.press("Enter"); // confirm rename
     await Bun.sleep(150);
     term.press("Enter"); // save editor
-    await term.waitForText("Groups updated", { timeout: 10000 });
-    await term.close();
+    await term.waitForExit({ timeout: 10000 });
   });
 
   docTest("Conflict prediction", { section: "commands/group", order: 30 }, async (doc) => {
@@ -271,8 +266,7 @@ describe("sp group docs", () => {
     term.press("Escape"); // cancel move
     await Bun.sleep(100);
     term.press("q"); // quit without saving
-    await term.waitForText("Cancelled", { timeout: 5000 });
-    await term.close();
+    await term.waitForExit({ timeout: 5000 });
   });
 
   docTest(
@@ -346,17 +340,17 @@ describe("sp group docs", () => {
         term.press("ArrowRight");
         await Bun.sleep(150);
 
-        // Save — adoption runs on the way out, before "Groups updated".
+        // Save — adoption runs on the way out, before "Groups updated" (the
+        // harness's final message, printed right before groupCommand
+        // returns and the process exits).
         term.press("Enter");
-        await term.waitForText("Groups updated", { timeout: 15000 });
+        await term.waitForExit({ timeout: 15000 });
 
         const snap = term.capture();
         const lines = snap.lines
           .map((l) => l.trimEnd())
           .filter((l) => l.includes("adopted PR") || l.includes("Groups updated"));
         doc.output(lines.join("\n") + "\n");
-
-        await term.close();
 
         const { expect } = await import("bun:test");
         expect(snap.text).toContain("adopted PR");

@@ -192,8 +192,12 @@ describe("sp land docs", () => {
         // Select the cursor row (the bottom unit) and land it.
         driver.press("Enter");
 
-        // Wait for the land to complete.
-        await driver.waitForText("Landed", { timeout: 20000 });
+        // Wait for the harness process to exit rather than the "Landed"
+        // sentinel + close(): land-tui-harness exits right after landCommand
+        // resolves and flush() runs, so waiting for exit avoids racing any
+        // trailing work with a hard kill (see
+        // docs/investigations/2026-07-07-group-reflog-nondeterminism.md).
+        await driver.waitForExit({ timeout: 20000 });
 
         const { expect } = await import("bun:test");
         const snap = driver.capture();
