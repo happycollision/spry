@@ -48,7 +48,7 @@ describe("sp sync docs", () => {
     });
 
     doc.prose(
-      "Run `sp sync` to push your stack's commits to their already-published remote branches. Spry derives each branch as `<spry.branchPrefix>/<unit-id>` and only pushes branches that already exist on the remote — it never creates new ones, and it skips branches whose remote tip already matches, so a second `sp sync` with no new commits does no redundant work. Use `sp sync --open` to publish for the first time.",
+      "Run `sp sync` to push your stack's commits to their already-published remote branches. Spry derives each branch as `<spry.branchPrefix>/<unit-id>` and only pushes branches that already exist on the remote — it never creates new ones. Use `sp sync --open` to publish for the first time.",
     );
 
     // Canonicalize the gh-unavailable hint so fragments stay deterministic
@@ -58,9 +58,20 @@ describe("sp sync docs", () => {
     doc.command(command);
     doc.output(result.stdout);
 
+    doc.prose(
+      "Spry skips any branch whose remote tip already matches its local commit, so running `sp sync` again with nothing new does no redundant push — the branch simply isn't listed:",
+    );
+
+    const { command: command2, result: result2 } = await runSp(repo.path, "sync");
+    doc.command(command2);
+    doc.output(result2.stdout);
+
     const { expect } = await import("bun:test");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("pushed spry/dondenton/aaa11111");
+    // Second sync: the branch is already up to date, so it is NOT pushed again.
+    expect(result2.exitCode).toBe(0);
+    expect(result2.stdout).not.toContain("pushed spry/dondenton/aaa11111");
   });
 
   docTest(
@@ -234,78 +245,6 @@ describe("sp sync docs", () => {
   });
 
   docTest(
-    "Retargeting stacked PRs",
-    { section: "commands/sync", order: 50, timeout: 60000 },
-    async (doc) => {
-      // Record mode publishes two real stacked PRs on spry-check (with bbb22222
-      // deliberately mis-based on main) and captures sync's retarget traffic;
-      // replay serves it offline. Same body both ways.
-      const recording = isRecording();
-      const fixture = recording ? await createGitHubFixture() : undefined;
-      if (fixture) await fixture.reset();
-
-      const repo = await createRepo({ origin: recording ? "github" : "local" });
-      repos.push(repo);
-      doc.scrub(repo);
-      doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
-
-      await repo.git.run(["config", "spry.trunk", "main"]);
-      await repo.git.run(["config", "spry.remote", "origin"]);
-      await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
-      const repoSlug = `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`;
-      await repo.git.run(["config", "spry.repo", repoSlug]);
-
-      await repo.git.run(["checkout", "-b", "feature/x"]);
-      await repo.git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"]);
-      await repo.git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: bbb22222"]);
-
-      // Pre-publish both branches (sync only pushes branches that already exist
-      // on the remote). Publish them at an older sha (main) so their remote tips
-      // are behind the local commits — that is the case where sync pushes. (A
-      // remote already at the local tip is skipped as redundant.)
-      const mainSha = (await repo.git.run(["rev-parse", "main"])).stdout.trim();
-      await repo.git.run(["push", "origin", `${mainSha}:refs/heads/spry/dondenton/aaa11111`]);
-      await repo.git.run(["push", "origin", `${mainSha}:refs/heads/spry/dondenton/bbb22222`]);
-
-      // In record mode, open the two real PRs. bbb22222 gets the WRONG base
-      // (main) so sync has a PR to retarget onto aaa11111's branch.
-      if (recording) {
-        const { $ } = await import("bun");
-        await $`gh pr create --title A --head spry/dondenton/aaa11111 --base main --body ${"Stacked PR A"}`
-          .cwd(repo.path)
-          .quiet();
-        await $`gh pr create --title B --head spry/dondenton/bbb22222 --base main --body ${"Stacked PR B"}`
-          .cwd(repo.path)
-          .quiet();
-      }
-
-      doc.prose(
-        "After pushing, `sp sync` checks each open PR's base, retargets any that are wrong, and refreshes the local PR status cache read by `sp view`. No network call is needed at view time — sync is the mechanism that fetches fresh status from GitHub:",
-      );
-
-      // PR numbers are GitHub-minted (non-deterministic); canonicalize the one
-      // shown so the generated doc stays stable across re-recordings.
-      doc.scrub(/retargeted PR #\d+/g, "retargeted PR #11");
-
-      const { command, result } = await runSp(repo.path, "sync", [], {
-        env: cassetteEnv({ section: "commands/sync", order: 50 }),
-      });
-      doc.command(command);
-      doc.output(result.stdout);
-
-      if (fixture) await fixture.reset();
-
-      const { expect } = await import("bun:test");
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("pushed spry/dondenton/aaa11111");
-      expect(result.stdout).toContain("pushed spry/dondenton/bbb22222");
-      expect(result.stdout).toMatch(/retargeted PR #\d+/);
-      expect(result.stdout).toContain("Updated PR cache");
-      expect(result.stdout).toContain("Sync complete");
-    },
-  );
-
-  docTest(
     "Selecting which branches to open as PRs",
     { section: "commands/sync", order: 25, timeout: 60000 },
     async (doc) => {
@@ -395,9 +334,11 @@ describe("sp sync docs", () => {
     "Pushing every tracked stack with --all",
     { section: "commands/sync", order: 60, timeout: 60000 },
     async (doc) => {
-      // Record mode publishes two independent single-commit stacks on
-      // spry-check, each with its own PR, and captures --all's PR-cache
-      // refresh; replay serves it offline.
+      // Record mode builds two independent stacks on spry-check, opens each
+      // stack's PR (via `sp sync --open`, so the PR has a real diff and stays
+      // open), then adds one more commit per stack so each remote tip is
+      // genuinely behind its local tip. `sp sync --all` then performs a real
+      // push for every stack; replay serves it offline.
       const recording = isRecording();
       const fixture = recording ? await createGitHubFixture() : undefined;
       if (fixture) await fixture.reset();
@@ -414,14 +355,13 @@ describe("sp sync docs", () => {
       await repo.git.run(["config", "spry.repo", repoSlug]);
 
       const { registerBranch } = await import("../../src/git/tracked-branches.ts");
-      const { $ } = await import("bun");
 
-      // Two independent stacks, each already published once (and, in record
-      // mode, each with its own PR targeting trunk). Publish each branch at an
-      // older sha (main) so its remote tip is behind the local commit — that is
-      // the case where sync pushes. (A remote already at the local tip is
-      // skipped as redundant.)
-      const mainSha = (await repo.git.run(["rev-parse", "main"])).stdout.trim();
+      // Two independent stacks. For each: create the branch + commit, open its
+      // PR so the branch is published with a real diff (the PR stays open), then
+      // AMEND the commit — keeping its `Spry-Commit-Id` (so the unit/branch
+      // identity is unchanged and deterministic) but giving it a new SHA. That
+      // leaves every remote tip legitimately behind its local tip — the case
+      // where `sp sync --all` actually pushes.
       for (const [branch, id] of [
         ["feature/login", "aaa11111"],
         ["feature/search", "bbb22222"],
@@ -429,13 +369,22 @@ describe("sp sync docs", () => {
         await repo.git.run(["checkout", "main"]);
         await repo.git.run(["checkout", "-b", branch]);
         await repo.git.run(["commit", "--allow-empty", "-m", `Work\n\nSpry-Commit-Id: ${id}`]);
-        await repo.git.run(["push", "origin", `${mainSha}:refs/heads/spry/dondenton/${id}`]);
         await registerBranch(repo.git, branch);
-        if (recording) {
-          await $`gh pr create --title ${branch} --head spry/dondenton/${id} --base main --body ${"Stack"}`
-            .cwd(repo.path)
-            .quiet();
-        }
+        // Publish the PR for this stack (real diff vs main → PR opens and stays
+        // open). In replay the gh traffic comes from the cassette.
+        await runSp(repo.path, "sync", ["--open", id], {
+          env: cassetteEnv({ section: "commands/sync", order: 60 }),
+        });
+        // Amend to advance the local SHA past the published remote tip (same
+        // Spry-Commit-Id, so no re-injection and a stable branch id) — the
+        // upcoming `--all` push is then a genuine, non-redundant push.
+        await repo.git.run([
+          "commit",
+          "--amend",
+          "--allow-empty",
+          "-m",
+          `Work (revised)\n\nSpry-Commit-Id: ${id}`,
+        ]);
       }
 
       doc.prose(

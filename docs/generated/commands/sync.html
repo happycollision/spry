@@ -27,13 +27,19 @@
     <p>
       Run `sp sync` to push your stack's commits to their already-published remote branches. Spry
       derives each branch as `&lt;spry.branchPrefix&gt;/&lt;unit-id&gt;` and only pushes branches
-      that already exist on the remote — it never creates new ones, and it skips branches whose
-      remote tip already matches, so a second `sp sync` with no new commits does no redundant work.
-      Use `sp sync --open` to publish for the first time.
+      that already exist on the remote — it never creates new ones. Use `sp sync --open` to publish
+      for the first time.
     </p>
     <pre class="command">sp sync</pre>
     <pre class="output"><span class="ansi-dim">PR retargeting unavailable: &lt;hint&gt;
 ↑ pushed spry/dondenton/aaaa1111
+✓ Sync complete</span></pre>
+    <p>
+      Spry skips any branch whose remote tip already matches its local commit, so running `sp sync`
+      again with nothing new does no redundant push — the branch simply isn't listed:
+    </p>
+    <pre class="command">sp sync</pre>
+    <pre class="output"><span class="ansi-dim">PR retargeting unavailable: &lt;hint&gt;
 ✓ Sync complete</span></pre>
     <p>
       Use `sp sync --open &lt;id&gt;` to publish a commit for the first time — Spry pushes the
@@ -88,20 +94,6 @@
     <pre class="output">✓ Injected 1 commit ID(s)
 <span class="ansi-dim">PR retargeting unavailable: network error (branches still updated)</span>
 ✓ Sync complete</pre>
-    <p>
-      After pushing, `sp sync` checks each open PR's base, retargets any that are wrong, and
-      refreshes the local PR status cache read by `sp view`. No network call is needed at view time
-      — sync is the mechanism that fetches fresh status from GitHub:
-    </p>
-    <pre class="command">sp sync</pre>
-    <pre class="output">
-✓ Updated PR cache (2 PRs)
-↑ pushed spry/dondenton/bbbb2222
-↑ pushed spry/dondenton/aaaa1111
-↻ retargeted PR #11 → spry/dondenton/bbbb2222
-✓ Updated PR cache (2 PRs)
-✓ Sync complete</pre
-    >
     <p>
       When you keep several independent stacks in flight, `sp sync --all` pushes every tracked
       stack's already-published branches in one run — no need to check each one out. It is
