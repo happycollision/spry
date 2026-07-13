@@ -11,7 +11,7 @@ import { mkdir, writeFile, readFile, rm, stat } from "node:fs/promises";
  * test B's repo-wide `fixture.reset()` deletes A's branch/PR, and A fails.
  *
  * The critical section is a test's ENTIRE body — the opening `reset()`, the
- * `sp` invocation, the assertions, and the closing `reset()`. A lock held only
+ * `sp` invocation, and the assertions. A lock held only
  * during `reset()` does NOT help, because tests interleave between reset and
  * their PR work. So callers wrap their whole body in {@link withRecordLock}.
  *

@@ -116,11 +116,12 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
   }
 
   // Safety check: verify this is actually a spry test repo before handing back
-  // a fixture that can mutate it. This is the ONE network read of the safety
-  // marker: owner/repo are fixed for the fixture's lifetime, so the verdict is
-  // cached and every destructive method asserts the cached flag instead of
-  // re-reading the README (which, right after a reset moved main, is exactly
-  // the eventually-consistent read that used to flake).
+  // a fixture that can mutate it. This is the one network read of the safety
+  // marker per fixture instance: owner/repo are fixed for the instance's
+  // lifetime, so the verdict is cached and every destructive method asserts
+  // the cached flag instead of re-reading the README (which, right after a
+  // reset moved main, is exactly the eventually-consistent read that used to
+  // flake).
   const safetyVerified = await verifyTestRepo(owner, repo);
   if (!safetyVerified) {
     throw new Error(

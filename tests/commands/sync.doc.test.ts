@@ -200,7 +200,7 @@ describe("sp sync docs", () => {
         doc.output(result.stdout);
 
         // Recording is the real-gh validation: confirm the live PR was opened with
-        // the group title and an empty body before the fixture tears it down.
+        // the group title and an empty body before a later reset tears it down.
         if (recording) {
           const { $ } = await import("bun");
           const view =
