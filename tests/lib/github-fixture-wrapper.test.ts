@@ -54,7 +54,7 @@ test(
 );
 
 test(
-  "record mode: resets before and after the body",
+  "record mode: resets before the body, with no trailing reset",
   serial(async () => {
     const log: string[] = [];
     __setFixtureFactoryForTest(async () => makeFakeFixture(log));
@@ -66,7 +66,9 @@ test(
           log.push("body");
         },
       );
-      expect(log).toEqual(["reset", "body", "reset"]);
+      // No trailing reset: the next record-mode test's leading reset (or the
+      // next recording session's) cleans up, so each test pays one reset.
+      expect(log).toEqual(["reset", "body"]);
     } finally {
       __setFixtureFactoryForTest(undefined);
     }
@@ -74,7 +76,7 @@ test(
 );
 
 test(
-  "record mode: still resets (cleanup) when the body throws",
+  "record mode: no trailing reset even when the body throws",
   serial(async () => {
     const log: string[] = [];
     __setFixtureFactoryForTest(async () => makeFakeFixture(log));
@@ -88,7 +90,9 @@ test(
           },
         ),
       ).rejects.toThrow("boom");
-      expect(log).toEqual(["reset", "body", "reset"]);
+      // A thrown body leaves the repo dirty by design — the next test's
+      // leading reset is the cleanup path.
+      expect(log).toEqual(["reset", "body"]);
     } finally {
       __setFixtureFactoryForTest(undefined);
     }

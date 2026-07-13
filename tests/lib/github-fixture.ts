@@ -90,21 +90,6 @@ async function verifyTestRepo(owner: string, repo: string): Promise<boolean> {
   }
 }
 
-/**
- * Defensive re-check used by every destructive method. Throws if the target
- * repo is missing the safety marker, so a destructive op can never run against
- * a non-test repo even if the constructor-time check is somehow bypassed.
- */
-async function assertSafeToMutate(owner: string, repo: string): Promise<void> {
-  const isTestRepo = await verifyTestRepo(owner, repo);
-  if (!isTestRepo) {
-    throw new Error(
-      `Refusing to mutate ${owner}/${repo}: it is missing the safety marker ` +
-        `"${SAFETY_MARKER}".\n${SETUP_HINT}`,
-    );
-  }
-}
-
 export async function createGitHubFixture(): Promise<GitHubFixture> {
   // Resolve owner from env or the authenticated user.
   let owner: string;
@@ -131,17 +116,36 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
   }
 
   // Safety check: verify this is actually a spry test repo before handing back
-  // a fixture that can mutate it.
-  const isTestRepo = await verifyTestRepo(owner, repo);
-  if (!isTestRepo) {
+  // a fixture that can mutate it. This is the ONE network read of the safety
+  // marker: owner/repo are fixed for the fixture's lifetime, so the verdict is
+  // cached and every destructive method asserts the cached flag instead of
+  // re-reading the README (which, right after a reset moved main, is exactly
+  // the eventually-consistent read that used to flake).
+  const safetyVerified = await verifyTestRepo(owner, repo);
+  if (!safetyVerified) {
     throw new Error(
       `Repository ${fullRepoName} exists but does not appear to be a spry test repo.\n` +
         `The README is missing the safety marker "${SAFETY_MARKER}".\n${SETUP_HINT}`,
     );
   }
 
+  /**
+   * Defensive re-check used by every destructive method: asserts the cached
+   * constructor-time verdict, so a destructive op can never run if the check
+   * above is somehow bypassed. No network — the target repo cannot change
+   * identity mid-fixture.
+   */
+  function assertSafeToMutate(): void {
+    if (!safetyVerified) {
+      throw new Error(
+        `Refusing to mutate ${owner}/${repo}: it is missing the safety marker ` +
+          `"${SAFETY_MARKER}".\n${SETUP_HINT}`,
+      );
+    }
+  }
+
   async function closeAllPRs(): Promise<number> {
-    await assertSafeToMutate(owner, repo);
+    assertSafeToMutate();
 
     const listResult =
       await $`gh pr list --repo ${owner}/${repo} --state open --json number --jq '.[].number'`
@@ -172,7 +176,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
   }
 
   async function deleteAllBranches(): Promise<number> {
-    await assertSafeToMutate(owner, repo);
+    assertSafeToMutate();
 
     // Determine the default branch so we never delete it.
     const defaultResult =
@@ -226,7 +230,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
   }
 
   async function purgeSpryRefs(): Promise<number> {
-    await assertSafeToMutate(owner, repo);
+    assertSafeToMutate();
 
     // GitHub's git-refs API is eventually consistent, and `gh api -X DELETE`
     // exits 0 even on a 422 "reference does not exist" — so a delete can appear
@@ -264,7 +268,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
   }
 
   async function restoreMainToBaseline(): Promise<boolean> {
-    await assertSafeToMutate(owner, repo);
+    assertSafeToMutate();
 
     // Determine the default branch (never assume "main").
     const defaultResult =
@@ -304,7 +308,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
   }
 
   async function reset(): Promise<CleanupReport> {
-    await assertSafeToMutate(owner, repo);
+    assertSafeToMutate();
 
     const report: CleanupReport = {
       branchesDeleted: 0,
@@ -362,7 +366,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     prNumber: number,
     opts?: { deleteBranch?: boolean; squash?: boolean },
   ): Promise<void> {
-    await assertSafeToMutate(owner, repo);
+    assertSafeToMutate();
 
     // Merge the PR via gh CLI (simulates merging via the GitHub UI).
     const mergeMethod = opts?.squash ? "--squash" : "--merge";
@@ -456,14 +460,20 @@ export interface WithGitHubFixtureOptions {
  *   NO lock and NO fixture — replay is offline and must stay fully parallel.
  * - **Record (`recording: true`)**: acquires a cross-process advisory lock on
  *   the shared `spry-check` repo (see {@link withRecordLock}), creates the
- *   fixture, `reset()`s it, runs `body(fixture)`, then `reset()`s again in a
- *   `finally` (so a thrown body still tidies up) — all inside the lock. The
- *   entire body is the critical section, which is why the reset-run-reset
+ *   fixture, `reset()`s it, then runs `body(fixture)` — all inside the lock.
+ *   The entire body is the critical section, which is why the reset-then-run
  *   sequence lives here rather than in each test.
+ *
+ * There is deliberately NO trailing reset: every record-mode body starts with
+ * its own reset, so a leading reset alone guarantees each test a clean repo
+ * (including after a previous body threw). The trade-off is that `spry-check`
+ * is left dirty after the last record-mode test of a session — that residue is
+ * harmless because the next recording session's first reset clears it, and
+ * nothing else reads the repo between sessions.
  *
  * This is the single uniform entry point the three live-fixture doc-test files
  * (`sync`, `land`, `group`) use, replacing the hand-rolled
- * `isRecording()` + `createGitHubFixture()` + double-`reset()` boilerplate.
+ * `isRecording()` + `createGitHubFixture()` + `reset()` boilerplate.
  */
 export async function withGitHubFixture<T>(
   options: WithGitHubFixtureOptions,
@@ -477,11 +487,7 @@ export async function withGitHubFixture<T>(
   return withSpryCheckRecordLock(async () => {
     const fixture = await fixtureFactory();
     await fixture.reset();
-    try {
-      return await body(fixture);
-    } finally {
-      await fixture.reset();
-    }
+    return body(fixture);
   }, lockOpts);
 }
 

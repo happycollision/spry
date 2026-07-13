@@ -34,7 +34,12 @@ Cassettes are keyed by doc section + order, mirroring `fragmentPath`:
 ## Re-recording
 
 Recording mutates the real `spry-check` repo (pushes branches, opens/merges
-PRs) and then cleans up after itself via `createGitHubFixture().reset()`.
+PRs). Each record-mode test `reset()`s the repo (via `withGitHubFixture`)
+**before** its body runs — there is no trailing reset, so `spry-check` is left
+dirty (leftover branches/PRs, possibly an advanced `main`) after the last test
+of a recording session. That residue is expected and harmless: the next
+recording session's first reset clears it, and nothing reads the repo between
+sessions.
 
 Recording is **non-interactive** — the agent runs it itself (do not ask the
 user) whenever `gh` is authenticated. See the AGENTS.md testing section.

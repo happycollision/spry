@@ -84,7 +84,7 @@ describe("sp sync docs", () => {
       // gh seam env differ. See docs/plans/2026-06-13-gh-cassettes-real-recording.md.
       // withGitHubFixture serializes record-mode bodies (which all mutate the
       // one shared spry-check repo) via a cross-process lock and resets the
-      // fixture before/after; replay runs unlocked with fixture === undefined.
+      // fixture before the body; replay runs unlocked with fixture === undefined.
       const recording = isRecording();
       await withGitHubFixture({ recording }, async () => {
         const repo = await createRepo({ origin: recording ? "github" : "local" });
