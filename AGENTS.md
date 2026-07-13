@@ -235,14 +235,20 @@ that the generated docs are stable. Run this gate and expect it to pass:
    bun run docs:build
    ```
 
-**Expected churn: cassettes only.** After all of the above, the ONLY files that
-may differ in `git status` are `tests/fixtures/cassettes/*.json` — and that
-churn is noise (GitHub-minted PR numbers, temp `cwd` paths) that should be
-**dropped** (`git checkout -- tests/fixtures/cassettes/`). Any diff in
-`docs/generated/` is a real failure: it means the docs are non-deterministic or
-a fragment changed — investigate and fix before merging, do not commit the
-churn. (A recorded-then-replayed run that leaves docs unchanged is the proof
-the cassettes faithfully reproduce the live behavior.)
+**Expected churn: at most CI check-run state inside cassettes.** Recording
+normalizes cassettes as it writes them (`src/lib/recording-client.ts`):
+GitHub-minted PR numbers are rewritten to a deterministic 1001, 1002, ...
+sequence (consistently across stdout, args, and stdin) and recorded options
+are stripped to `stdin` (the only option the replayer matches on), so
+PR-number and temp-`cwd` churn no longer exist. The one remaining
+nondeterminism is GitHub Actions check-run state (the `statusCheckRollup`
+arrays) captured mid-flight in some cassettes — that residue is noise and
+should be **dropped** (`git checkout -- tests/fixtures/cassettes/`). Any
+OTHER cassette diff (a PR number, a `cwd` path, changed args) and any diff in
+`docs/generated/` is a real failure: it means the recording or the docs are
+non-deterministic or a fragment changed — investigate and fix before merging,
+do not commit the churn. (A recorded-then-replayed run that leaves docs
+unchanged is the proof the cassettes faithfully reproduce the live behavior.)
 
 ```ts#index.test.ts
 import { test, expect } from "bun:test";

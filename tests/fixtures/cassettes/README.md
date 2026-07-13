@@ -73,15 +73,35 @@ bun test tests/commands/sync.doc.test.ts -t "Opening a new PR"   # offline
 bun run docs:build
 ```
 
-Review the JSON diff — it must contain genuine GitHub fields (real node IDs,
-URLs, PR numbers), not anything you typed.
+Review the JSON diff — it must contain genuine GitHub fields (real URLs,
+titles, check-run payloads), not anything you typed. (PR numbers are the one
+exception: they are normalized at record time, see below.)
+
+## Normalization at record time
+
+The recording client (`src/lib/recording-client.ts`) normalizes every cassette
+as it writes it, so re-recording is deterministic:
+
+- **PR numbers** are rewritten to 1001, 1002, ... in first-seen order, via
+  anchored patterns only (`pull/<n>` in URLs, `"number":<n>` in JSON) — never a
+  bare numeric replace, which would collide with fields like `totalCount`. The
+  same map is applied to recorded **args** and **stdin** (both replay match
+  keys): the CLI derives tokens like `pr edit <n>` by parsing an earlier
+  entry's stdout, so the rewrite must stay consistent across all three or the
+  args-keyed replayer could never match.
+- **Options are stripped to `stdin`** — the only option the replayer matches
+  on. Recorded `cwd` temp paths were pure churn and are dropped.
+
+The remaining nondeterminism across re-recordings is GitHub Actions check-run
+state (`statusCheckRollup` arrays) captured while CI is still settling; see the
+pre-merge gate section in AGENTS.md for how to treat that churn.
+
+The cassette JSONs are excluded from oxfmt (`.oxfmtrc.json`): the recorder's
+`JSON.stringify` output is the canonical format, so a formatter pass would
+guarantee churn on the next re-record. Never reformat them.
 
 ## Notes
 
-- **PR numbers/URLs are GitHub-minted** and captured raw, so re-recording can
-  change them. Fragments scrub the volatile bits (PR number, repo slug) for
-  stable docs. If churn ever becomes painful, normalize-on-record is the
-  follow-up (see the design doc's "Decisions").
 - `spry.repo` currently defaults to `happycollision/spry-check` to match the
   committed cassettes; override with `SPRY_TEST_REPO_OWNER`/`SPRY_TEST_REPO_NAME`
   when recording under a different account (and commit that account's cassettes).
