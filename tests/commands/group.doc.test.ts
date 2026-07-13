@@ -69,7 +69,7 @@ describe("sp group docs", () => {
 
     // Save
     term.press("Enter");
-    await term.waitForExit({ timeout: 10000 });
+    expect(await term.waitForExit({ timeout: 10000 })).toBe(0);
 
     expect(snapshot.text).toContain("Auth Flow");
   });
@@ -120,7 +120,7 @@ describe("sp group docs", () => {
     // a hard kill used to race that write, making the repo's reflog commit
     // count (and thus the doc-scrubber's SHA registry) flip between runs. See
     // docs/investigations/2026-07-07-group-reflog-nondeterminism.md.
-    await term.waitForExit({ timeout: 10000 });
+    expect(await term.waitForExit({ timeout: 10000 })).toBe(0);
   });
 
   docTest(
@@ -159,7 +159,7 @@ describe("sp group docs", () => {
       expect(snapshot.text).toContain("Space disabled");
 
       term.type("q");
-      await term.waitForExit({ timeout: 5000 });
+      expect(await term.waitForExit({ timeout: 5000 })).toBe(0);
     },
   );
 
@@ -214,7 +214,7 @@ describe("sp group docs", () => {
     term.press("Enter"); // confirm rename
     await Bun.sleep(150);
     term.press("Enter"); // save editor
-    await term.waitForExit({ timeout: 10000 });
+    expect(await term.waitForExit({ timeout: 10000 })).toBe(0);
   });
 
   docTest("Conflict prediction", { section: "commands/group", order: 30 }, async (doc) => {
@@ -266,7 +266,7 @@ describe("sp group docs", () => {
     term.press("Escape"); // cancel move
     await Bun.sleep(100);
     term.press("q"); // quit without saving
-    await term.waitForExit({ timeout: 5000 });
+    expect(await term.waitForExit({ timeout: 5000 })).toBe(0);
   });
 
   docTest(

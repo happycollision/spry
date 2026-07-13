@@ -123,6 +123,15 @@ export async function createTerminalDriver(
       );
     }
 
+    // Bun does not close the pty master when the child exits, so a
+    // waitForExit-only caller would leak an open pty fd. Close it here; the
+    // screen buffer is in-process, so capture() keeps working afterwards.
+    try {
+      proc.terminal?.close();
+    } catch {
+      /* may already be closed */
+    }
+
     return result.code;
   }
 
