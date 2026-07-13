@@ -1,13 +1,15 @@
-import { test, expect, afterEach } from "bun:test";
+import { test, expect, afterAll } from "bun:test";
 import { $ } from "bun";
 import { stat } from "node:fs/promises";
 import { createRepo } from "./repo.ts";
 import type { TestRepo } from "./repo.ts";
-import { seedUniqueId, resetUniqueIdSeed } from "./unique-id.ts";
+import { createSeededRng } from "./unique-id.ts";
 
 const repos: TestRepo[] = [];
 
-afterEach(async () => {
+// afterAll, not afterEach: under --concurrent an afterEach would delete repos
+// out from under still-running sibling tests.
+afterAll(async () => {
   for (const repo of repos) await repo.cleanup();
   repos.length = 0;
 });
@@ -64,33 +66,25 @@ test("branch creates and checks out new branch", async () => {
 });
 
 test("deterministic commits produce identical SHAs across repos", async () => {
-  seedUniqueId("sha-stability");
-  const r1 = await createRepo();
+  const r1 = await tracked(await createRepo({ uniqueIdRng: createSeededRng("sha-stability") }));
   const s1 = await r1.commit("Add login");
-  seedUniqueId("sha-stability");
-  const r2 = await createRepo();
+  const r2 = await tracked(await createRepo({ uniqueIdRng: createSeededRng("sha-stability") }));
   const s2 = await r2.commit("Add login");
+  expect(r1.uniqueId).toBe(r2.uniqueId);
   expect(s1).toBe(s2);
-  await r1.cleanup();
-  await r2.cleanup();
-  resetUniqueIdSeed();
 });
 
 test("repo.git produces identical SHAs across seeded repos", async () => {
-  seedUniqueId("git-runner-stability");
-  const r1 = await createRepo();
+  const rng = () => createSeededRng("git-runner-stability");
+  const r1 = await tracked(await createRepo({ uniqueIdRng: rng() }));
   await r1.git.run(["commit", "--allow-empty", "-m", "Pinned commit"]);
   const s1 = (await r1.git.run(["rev-parse", "HEAD"])).stdout.trim();
 
-  seedUniqueId("git-runner-stability");
-  const r2 = await createRepo();
+  const r2 = await tracked(await createRepo({ uniqueIdRng: rng() }));
   await r2.git.run(["commit", "--allow-empty", "-m", "Pinned commit"]);
   const s2 = (await r2.git.run(["rev-parse", "HEAD"])).stdout.trim();
 
   expect(s1).toBe(s2);
-  await r1.cleanup();
-  await r2.cleanup();
-  resetUniqueIdSeed();
 });
 
 test("cleanup removes temp directories", async () => {
@@ -99,6 +93,6 @@ test("cleanup removes temp directories", async () => {
 
   await repo.cleanup();
 
-  expect(stat(path)).rejects.toThrow();
-  expect(stat(originPath)).rejects.toThrow();
+  await expect(stat(path)).rejects.toThrow();
+  await expect(stat(originPath)).rejects.toThrow();
 });

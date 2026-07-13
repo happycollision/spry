@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { generateUniqueId, seedUniqueId, resetUniqueIdSeed } from "./unique-id.ts";
+import { generateUniqueId, createSeededRng } from "./unique-id.ts";
 
 test("generates string in adjective-noun-suffix format", () => {
   const id = generateUniqueId();
@@ -16,19 +16,15 @@ test("generates unique IDs across 100 calls", () => {
 });
 
 test("seeded generator is deterministic across runs", () => {
-  seedUniqueId("my-test-title");
-  const a = [generateUniqueId(), generateUniqueId(), generateUniqueId()];
-  seedUniqueId("my-test-title");
-  const b = [generateUniqueId(), generateUniqueId(), generateUniqueId()];
+  const rngA = createSeededRng("my-test-title");
+  const a = [generateUniqueId(rngA), generateUniqueId(rngA), generateUniqueId(rngA)];
+  const rngB = createSeededRng("my-test-title");
+  const b = [generateUniqueId(rngB), generateUniqueId(rngB), generateUniqueId(rngB)];
   expect(a).toEqual(b);
-  resetUniqueIdSeed();
 });
 
 test("different seeds produce different sequences", () => {
-  seedUniqueId("title-a");
-  const a = generateUniqueId();
-  seedUniqueId("title-b");
-  const b = generateUniqueId();
+  const a = generateUniqueId(createSeededRng("title-a"));
+  const b = generateUniqueId(createSeededRng("title-b"));
   expect(a).not.toBe(b);
-  resetUniqueIdSeed();
 });

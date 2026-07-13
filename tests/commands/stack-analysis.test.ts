@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterAll } from "bun:test";
 import { analyzeStack, missingIdHashes, landBlockers } from "../../src/commands/stack-analysis.ts";
 import type { StackAnalysis } from "../../src/commands/stack-analysis.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
@@ -12,7 +12,9 @@ import type { GitRunner } from "../../src/lib/context.ts";
 type UnitAnalysisLike = import("../../src/commands/stack-analysis.ts").UnitAnalysis;
 
 const repos: TestRepo[] = [];
-afterEach(async () => {
+// afterAll, not afterEach: under --concurrent a per-test cleanup hook would delete
+// repos out from under still-running sibling tests.
+afterAll(async () => {
   while (repos.length > 0) {
     const r = repos.pop();
     if (r) await r.cleanup();

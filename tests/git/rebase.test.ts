@@ -1,6 +1,5 @@
-import { test, expect, describe, afterAll } from "bun:test";
-import { createRealGitRunner, createRepo } from "../../tests/lib/index.ts";
-import type { TestRepo } from "../../tests/lib/index.ts";
+import { test, expect, describe } from "bun:test";
+import { createRealGitRunner, createRepo, repoManager } from "../../tests/lib/index.ts";
 import {
   injectMissingIds,
   injectMissingIdsForBranch,
@@ -14,18 +13,15 @@ import { parseTrailers } from "../../src/parse/trailers.ts";
 import type { SpryConfig } from "../../src/git/config.ts";
 
 const git = createRealGitRunner();
+// Shared manager: repos are cleaned up in afterAll, which is safe under
+// --concurrent (each test owns a local `const repo`).
+const repos = repoManager();
 
 // --- Task 16: injectMissingIds ---
 
 describe("injectMissingIds", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("injects IDs into 2 commits missing them", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     // Set spry config
     await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
     await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
@@ -61,7 +57,7 @@ describe("injectMissingIds", () => {
   });
 
   test("returns modifiedCount=0 when all already have IDs", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
     await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
     await repo.fetch();
@@ -86,7 +82,7 @@ describe("injectMissingIds", () => {
   });
 
   test("returns error for detached HEAD", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const sha = await getFullSha(git, "HEAD", { cwd: repo.path });
     await repo.checkout(sha);
 
@@ -99,7 +95,7 @@ describe("injectMissingIds", () => {
   });
 
   test("returns ok for empty stack", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     await repo.fetch();
 
     const result = await injectMissingIds(git, "origin/main", {
@@ -172,14 +168,8 @@ describe("injectMissingIdsForBranch", () => {
 // --- Task 17: rebaseOntoTrunk ---
 
 describe("rebaseOntoTrunk", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("rebases stack onto updated trunk", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const config: SpryConfig = {
       trunk: "main",
       remote: "origin",
@@ -209,7 +199,7 @@ describe("rebaseOntoTrunk", () => {
   });
 
   test("returns ok with commitCount 0 for empty stack", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const config: SpryConfig = {
       trunk: "main",
       remote: "origin",
@@ -227,7 +217,7 @@ describe("rebaseOntoTrunk", () => {
   });
 
   test("returns error for detached HEAD", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const config: SpryConfig = {
       trunk: "main",
       remote: "origin",
@@ -245,7 +235,7 @@ describe("rebaseOntoTrunk", () => {
   });
 
   test("detects conflict", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const config: SpryConfig = {
       trunk: "main",
       remote: "origin",
@@ -281,14 +271,8 @@ describe("rebaseOntoTrunk", () => {
 // --- Task 18: getConflictInfo, formatConflictError ---
 
 describe("getConflictInfo", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("returns null when not in rebase", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const result = await getConflictInfo(git, { cwd: repo.path });
     expect(result).toBeNull();
   });

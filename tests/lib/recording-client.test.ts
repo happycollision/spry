@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, afterEach } from "bun:test";
+import { test, expect, beforeAll, afterAll } from "bun:test";
 import { join } from "node:path";
 import { rm } from "node:fs/promises";
 import { createRecordingClient } from "./recording-client.ts";
@@ -7,11 +7,13 @@ import type { GitRunner } from "./context.ts";
 
 const tmpDir = join(import.meta.dir, "../../.test-tmp/cassettes");
 
-beforeEach(async () => {
+// Wipe the shared tmp dir once per file (not per test): per-test hooks race
+// under --concurrent. Each test uses a unique cassette filename within it.
+beforeAll(async () => {
   await rm(tmpDir, { recursive: true, force: true });
 });
 
-afterEach(async () => {
+afterAll(async () => {
   await rm(tmpDir, { recursive: true, force: true });
 });
 

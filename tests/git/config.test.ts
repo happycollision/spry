@@ -1,10 +1,21 @@
-import { test, expect, describe, afterAll } from "bun:test";
+import { test, expect, describe } from "bun:test";
 import { trunkRef, checkGitVersion, readConfig, loadConfig } from "../../src/git/config.ts";
 import type { SpryConfig } from "../../src/git/config.ts";
-import { createRealGitRunner, createRepo } from "../../tests/lib/index.ts";
+import { createRealGitRunner, repoManager } from "../../tests/lib/index.ts";
+import { serialChain } from "../lib/serial.ts";
 import type { GitRunner } from "../../tests/lib/context.ts";
 
 const git = createRealGitRunner();
+// Shared manager: repos are cleaned up in afterAll, which is safe under
+// --concurrent (each test owns a local `const repo`).
+const repos = repoManager();
+
+// Serialize every async test body in this file: under --concurrent, Bun
+// 1.3.11 flakily loses a subprocess completion when this file runs its tests
+// concurrently (reproduced with both Bun.$ and Bun.spawn, at low
+// --max-concurrency, and with describe.serial — which the runner ignores).
+// Chaining the bodies (spry-ojjj) sidesteps the hang; the file runs ~3s.
+const serial = serialChain();
 
 describe("trunkRef", () => {
   test("combines remote and trunk into ref", () => {
@@ -29,237 +40,271 @@ describe("trunkRef", () => {
 });
 
 describe("checkGitVersion", () => {
-  test("returns version string when git >= 2.40", async () => {
-    const version = await checkGitVersion(git);
-    expect(version).toMatch(/^\d+\.\d+\.\d+/);
-  });
+  test(
+    "returns version string when git >= 2.40",
+    serial(async () => {
+      const version = await checkGitVersion(git);
+      expect(version).toMatch(/^\d+\.\d+\.\d+/);
+    }),
+  );
 
-  test("throws for git < 2.40", async () => {
-    const fakeGit: GitRunner = {
-      async run() {
-        return { stdout: "git version 2.39.0\n", stderr: "", exitCode: 0 };
-      },
-    };
-    await expect(checkGitVersion(fakeGit)).rejects.toThrow("2.40");
-  });
+  test(
+    "throws for git < 2.40",
+    serial(async () => {
+      const fakeGit: GitRunner = {
+        async run() {
+          return { stdout: "git version 2.39.0\n", stderr: "", exitCode: 0 };
+        },
+      };
+      await expect(checkGitVersion(fakeGit)).rejects.toThrow("2.40");
+    }),
+  );
 
-  test("throws for unparseable version", async () => {
-    const fakeGit: GitRunner = {
-      async run() {
-        return { stdout: "not a version\n", stderr: "", exitCode: 0 };
-      },
-    };
-    await expect(checkGitVersion(fakeGit)).rejects.toThrow();
-  });
+  test(
+    "throws for unparseable version",
+    serial(async () => {
+      const fakeGit: GitRunner = {
+        async run() {
+          return { stdout: "not a version\n", stderr: "", exitCode: 0 };
+        },
+      };
+      await expect(checkGitVersion(fakeGit)).rejects.toThrow();
+    }),
+  );
 });
 
 describe("readConfig", () => {
-  let repo: Awaited<ReturnType<typeof createRepo>>;
+  test(
+    "reads trunk and remote and branchPrefix when set",
+    serial(async () => {
+      const repo = await repos.create();
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      await repo.git.run(["config", "spry.branchPrefix", "spry/test"]);
 
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
+      const config = await readConfig(git, { cwd: repo.path });
+      expect(config.trunk).toBe("main");
+      expect(config.remote).toBe("origin");
+      expect(config.branchPrefix).toBe("spry/test");
+    }),
+  );
 
-  test("reads trunk and remote and branchPrefix when set", async () => {
-    repo = await createRepo();
-    const { $ } = await import("bun");
-    await $`git config spry.trunk main`.cwd(repo.path).quiet();
-    await $`git config spry.remote origin`.cwd(repo.path).quiet();
-    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
+  test(
+    "autoDeleteOnLand defaults to false when unset",
+    serial(async () => {
+      const repo = await repos.create();
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      await repo.git.run(["config", "spry.branchPrefix", "spry/test"]);
 
-    const config = await readConfig(git, { cwd: repo.path });
-    expect(config.trunk).toBe("main");
-    expect(config.remote).toBe("origin");
-    expect(config.branchPrefix).toBe("spry/test");
-  });
+      const config = await readConfig(git, { cwd: repo.path });
+      expect(config.autoDeleteOnLand).toBe(false);
+    }),
+  );
 
-  test("autoDeleteOnLand defaults to false when unset", async () => {
-    repo = await createRepo();
-    const { $ } = await import("bun");
-    await $`git config spry.trunk main`.cwd(repo.path).quiet();
-    await $`git config spry.remote origin`.cwd(repo.path).quiet();
-    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
+  test(
+    "autoDeleteOnLand is true when set to true",
+    serial(async () => {
+      const repo = await repos.create();
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      await repo.git.run(["config", "spry.branchPrefix", "spry/test"]);
+      await repo.git.run(["config", "spry.autoDeleteOnLand", "true"]);
 
-    const config = await readConfig(git, { cwd: repo.path });
-    expect(config.autoDeleteOnLand).toBe(false);
-  });
+      const config = await readConfig(git, { cwd: repo.path });
+      expect(config.autoDeleteOnLand).toBe(true);
+    }),
+  );
 
-  test("autoDeleteOnLand is true when set to true", async () => {
-    repo = await createRepo();
-    const { $ } = await import("bun");
-    await $`git config spry.trunk main`.cwd(repo.path).quiet();
-    await $`git config spry.remote origin`.cwd(repo.path).quiet();
-    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
-    await $`git config spry.autoDeleteOnLand true`.cwd(repo.path).quiet();
+  test(
+    "autoDeleteOnLand is false when set to false",
+    serial(async () => {
+      const repo = await repos.create();
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      await repo.git.run(["config", "spry.branchPrefix", "spry/test"]);
+      await repo.git.run(["config", "spry.autoDeleteOnLand", "false"]);
 
-    const config = await readConfig(git, { cwd: repo.path });
-    expect(config.autoDeleteOnLand).toBe(true);
-  });
+      const config = await readConfig(git, { cwd: repo.path });
+      expect(config.autoDeleteOnLand).toBe(false);
+    }),
+  );
 
-  test("autoDeleteOnLand is false when set to false", async () => {
-    repo = await createRepo();
-    const { $ } = await import("bun");
-    await $`git config spry.trunk main`.cwd(repo.path).quiet();
-    await $`git config spry.remote origin`.cwd(repo.path).quiet();
-    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
-    await $`git config spry.autoDeleteOnLand false`.cwd(repo.path).quiet();
+  test(
+    "autoDeleteOnLand is false (not throwing) for a garbage value",
+    serial(async () => {
+      const repo = await repos.create();
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      await repo.git.run(["config", "spry.branchPrefix", "spry/test"]);
+      await repo.git.run(["config", "spry.autoDeleteOnLand", "notabool"]);
 
-    const config = await readConfig(git, { cwd: repo.path });
-    expect(config.autoDeleteOnLand).toBe(false);
-  });
+      const config = await readConfig(git, { cwd: repo.path });
+      expect(config.autoDeleteOnLand).toBe(false);
+    }),
+  );
 
-  test("autoDeleteOnLand is false (not throwing) for a garbage value", async () => {
-    repo = await createRepo();
-    const { $ } = await import("bun");
-    await $`git config spry.trunk main`.cwd(repo.path).quiet();
-    await $`git config spry.remote origin`.cwd(repo.path).quiet();
-    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
-    await $`git config spry.autoDeleteOnLand notabool`.cwd(repo.path).quiet();
+  test(
+    "resolves owner/repo from the spry.repo override",
+    serial(async () => {
+      const repo = await repos.create();
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      await repo.git.run(["config", "spry.branchPrefix", "spry/test"]);
+      await repo.git.run(["config", "spry.repo", "acme/widgets"]);
 
-    const config = await readConfig(git, { cwd: repo.path });
-    expect(config.autoDeleteOnLand).toBe(false);
-  });
+      const config = await readConfig(git, { cwd: repo.path });
+      expect(config.owner).toBe("acme");
+      expect(config.repo).toBe("widgets");
+    }),
+  );
 
-  test("resolves owner/repo from the spry.repo override", async () => {
-    repo = await createRepo();
-    const { $ } = await import("bun");
-    await $`git config spry.trunk main`.cwd(repo.path).quiet();
-    await $`git config spry.remote origin`.cwd(repo.path).quiet();
-    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
-    await $`git config spry.repo acme/widgets`.cwd(repo.path).quiet();
+  test(
+    "parses owner/repo from a GitHub remote URL when no override",
+    serial(async () => {
+      const repo = await repos.create();
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      await repo.git.run(["config", "spry.branchPrefix", "spry/test"]);
+      await repo.git.run(["remote", "set-url", "origin", "https://github.com/acme/widgets.git"]);
 
-    const config = await readConfig(git, { cwd: repo.path });
-    expect(config.owner).toBe("acme");
-    expect(config.repo).toBe("widgets");
-  });
+      const config = await readConfig(git, { cwd: repo.path });
+      expect(config.owner).toBe("acme");
+      expect(config.repo).toBe("widgets");
+    }),
+  );
 
-  test("parses owner/repo from a GitHub remote URL when no override", async () => {
-    repo = await createRepo();
-    const { $ } = await import("bun");
-    await $`git config spry.trunk main`.cwd(repo.path).quiet();
-    await $`git config spry.remote origin`.cwd(repo.path).quiet();
-    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
-    await $`git remote set-url origin https://github.com/acme/widgets.git`.cwd(repo.path).quiet();
+  test(
+    "leaves owner/repo undefined for a non-GitHub remote with no override",
+    serial(async () => {
+      const repo = await repos.create();
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      await repo.git.run(["config", "spry.branchPrefix", "spry/test"]);
+      // origin is a local /tmp bare path — not parseable as owner/repo.
 
-    const config = await readConfig(git, { cwd: repo.path });
-    expect(config.owner).toBe("acme");
-    expect(config.repo).toBe("widgets");
-  });
+      const config = await readConfig(git, { cwd: repo.path });
+      expect(config.owner).toBeUndefined();
+      expect(config.repo).toBeUndefined();
+    }),
+  );
 
-  test("leaves owner/repo undefined for a non-GitHub remote with no override", async () => {
-    repo = await createRepo();
-    const { $ } = await import("bun");
-    await $`git config spry.trunk main`.cwd(repo.path).quiet();
-    await $`git config spry.remote origin`.cwd(repo.path).quiet();
-    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
-    // origin is a local /tmp bare path — not parseable as owner/repo.
+  test(
+    "reads branchPrefix when set",
+    serial(async () => {
+      const repo = await repos.create();
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
 
-    const config = await readConfig(git, { cwd: repo.path });
-    expect(config.owner).toBeUndefined();
-    expect(config.repo).toBeUndefined();
-  });
+      const config = await readConfig(git, { cwd: repo.path });
+      expect(config.branchPrefix).toBe("spry/dondenton");
+    }),
+  );
 
-  test("reads branchPrefix when set", async () => {
-    repo = await createRepo();
-    const { $ } = await import("bun");
-    await $`git config spry.trunk main`.cwd(repo.path).quiet();
-    await $`git config spry.remote origin`.cwd(repo.path).quiet();
-    await $`git config spry.branchPrefix spry/dondenton`.cwd(repo.path).quiet();
+  test(
+    'throws mentioning "spry.branchPrefix" when not set',
+    serial(async () => {
+      const repo = await repos.create();
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
 
-    const config = await readConfig(git, { cwd: repo.path });
-    expect(config.branchPrefix).toBe("spry/dondenton");
-  });
+      await expect(readConfig(git, { cwd: repo.path })).rejects.toThrow("spry.branchPrefix");
+    }),
+  );
 
-  test('throws mentioning "spry.branchPrefix" when not set', async () => {
-    repo = await createRepo();
-    const { $ } = await import("bun");
-    await $`git config spry.trunk main`.cwd(repo.path).quiet();
-    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+  test(
+    "error suggests prefix format with username",
+    serial(async () => {
+      const repo = await repos.create();
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
 
-    await expect(readConfig(git, { cwd: repo.path })).rejects.toThrow("spry.branchPrefix");
-  });
+      try {
+        await readConfig(git, { cwd: repo.path });
+        expect(true).toBe(false);
+      } catch (e: any) {
+        expect(e.message).toContain("spry.branchPrefix");
+        expect(e.message).toContain("git config spry.branchPrefix");
+      }
+    }),
+  );
 
-  test("error suggests prefix format with username", async () => {
-    repo = await createRepo();
-    const { $ } = await import("bun");
-    await $`git config spry.trunk main`.cwd(repo.path).quiet();
-    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+  test(
+    'throws mentioning "spry.trunk" when trunk not set',
+    serial(async () => {
+      const repo = await repos.create();
+      await repo.git.run(["config", "spry.remote", "origin"]);
 
-    try {
-      await readConfig(git, { cwd: repo.path });
-      expect(true).toBe(false);
-    } catch (e: any) {
-      expect(e.message).toContain("spry.branchPrefix");
-      expect(e.message).toContain("git config spry.branchPrefix");
-    }
-  });
+      await expect(readConfig(git, { cwd: repo.path })).rejects.toThrow("spry.trunk");
+    }),
+  );
 
-  test('throws mentioning "spry.trunk" when trunk not set', async () => {
-    repo = await createRepo();
-    const { $ } = await import("bun");
-    await $`git config spry.remote origin`.cwd(repo.path).quiet();
+  test(
+    'throws mentioning "spry.remote" when remote not set',
+    serial(async () => {
+      const repo = await repos.create();
+      await expect(readConfig(git, { cwd: repo.path })).rejects.toThrow("spry.remote");
+    }),
+  );
 
-    await expect(readConfig(git, { cwd: repo.path })).rejects.toThrow("spry.trunk");
-  });
+  test(
+    'error suggests "main" when origin/main exists and trunk missing',
+    serial(async () => {
+      const repo = await repos.create();
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      // Fetch so remote branches are visible
+      await repo.fetch();
 
-  test('throws mentioning "spry.remote" when remote not set', async () => {
-    repo = await createRepo();
-    await expect(readConfig(git, { cwd: repo.path })).rejects.toThrow("spry.remote");
-  });
-
-  test('error suggests "main" when origin/main exists and trunk missing', async () => {
-    repo = await createRepo();
-    const { $ } = await import("bun");
-    await $`git config spry.remote origin`.cwd(repo.path).quiet();
-    // Fetch so remote branches are visible
-    await repo.fetch();
-
-    try {
-      await readConfig(git, { cwd: repo.path });
-      expect(true).toBe(false); // should not reach here
-    } catch (e: any) {
-      expect(e.message).toContain("spry.trunk");
-      expect(e.message).toContain("main");
-    }
-  });
+      try {
+        await readConfig(git, { cwd: repo.path });
+        expect(true).toBe(false); // should not reach here
+      } catch (e: any) {
+        expect(e.message).toContain("spry.trunk");
+        expect(e.message).toContain("main");
+      }
+    }),
+  );
 });
 
 describe("loadConfig", () => {
-  let repo: Awaited<ReturnType<typeof createRepo>>;
+  test(
+    "returns config when all three set",
+    serial(async () => {
+      const repo = await repos.create();
+      await repo.git.run(["config", "spry.trunk", "main"]);
+      await repo.git.run(["config", "spry.remote", "origin"]);
+      await repo.git.run(["config", "spry.branchPrefix", "spry/test"]);
 
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
+      const config = await loadConfig(git, { cwd: repo.path });
+      expect(config.trunk).toBe("main");
+      expect(config.remote).toBe("origin");
+      expect(config.branchPrefix).toBe("spry/test");
+    }),
+  );
 
-  test("returns config when all three set", async () => {
-    repo = await createRepo();
-    const { $ } = await import("bun");
-    await $`git config spry.trunk main`.cwd(repo.path).quiet();
-    await $`git config spry.remote origin`.cwd(repo.path).quiet();
-    await $`git config spry.branchPrefix spry/test`.cwd(repo.path).quiet();
+  test(
+    "throws about version for old git",
+    serial(async () => {
+      const callLog: string[][] = [];
+      const fakeGit: GitRunner = {
+        async run(args) {
+          callLog.push(args);
+          if (args[0] === "--version") {
+            return { stdout: "git version 2.39.0\n", stderr: "", exitCode: 0 };
+          }
+          return { stdout: "", stderr: "", exitCode: 1 };
+        },
+      };
+      await expect(loadConfig(fakeGit)).rejects.toThrow("2.40");
+    }),
+  );
 
-    const config = await loadConfig(git, { cwd: repo.path });
-    expect(config.trunk).toBe("main");
-    expect(config.remote).toBe("origin");
-    expect(config.branchPrefix).toBe("spry/test");
-  });
-
-  test("throws about version for old git", async () => {
-    const callLog: string[][] = [];
-    const fakeGit: GitRunner = {
-      async run(args) {
-        callLog.push(args);
-        if (args[0] === "--version") {
-          return { stdout: "git version 2.39.0\n", stderr: "", exitCode: 0 };
-        }
-        return { stdout: "", stderr: "", exitCode: 1 };
-      },
-    };
-    await expect(loadConfig(fakeGit)).rejects.toThrow("2.40");
-  });
-
-  test("throws about config when config missing", async () => {
-    repo = await createRepo();
-    await expect(loadConfig(git, { cwd: repo.path })).rejects.toThrow("spry.remote");
-  });
+  test(
+    "throws about config when config missing",
+    serial(async () => {
+      const repo = await repos.create();
+      await expect(loadConfig(git, { cwd: repo.path })).rejects.toThrow("spry.remote");
+    }),
+  );
 });

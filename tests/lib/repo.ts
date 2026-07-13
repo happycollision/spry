@@ -30,6 +30,12 @@ export interface CreateRepoOptions {
    * repo so pushes hit real GitHub (record mode; needs auth).
    */
   origin?: "local" | "github";
+  /**
+   * Random source for the generated uniqueId (default: Math.random). Pass a
+   * seeded rng (`createSeededRng`) when a test needs deterministic ids —
+   * per-call, so seeding never mutates shared state across concurrent tests.
+   */
+  uniqueIdRng?: () => number;
 }
 
 // Pinned author/committer identity + dates so that, given the same tree,
@@ -52,7 +58,7 @@ const commitEnv = { ...process.env, ...DETERMINISTIC_GIT_ENV };
 let pathCounter = 0;
 
 export async function createRepo(options?: CreateRepoOptions): Promise<TestRepo> {
-  const uniqueId = generateUniqueId();
+  const uniqueId = generateUniqueId(options?.uniqueIdRng);
   const defaultBranch = options?.defaultBranch ?? "main";
   const origin = options?.origin ?? "local";
   // Path suffix is independent of uniqueId so seeded (identical-uniqueId)

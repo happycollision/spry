@@ -186,6 +186,15 @@ Default to using Bun instead of Node.js.
 
 Use `bun test` to run tests ONLY after you have checked the version of Git that is installed. If it is less than 2.40, use the `<command>:docker` alias for all `bun run` commands that have a docker alias. (See package.json).
 
+**Fast path:** `bun run test:concurrent` runs the suite with `--concurrent`
+(~2.5x faster wall clock). It is the recommended local loop; plain `bun test`
+remains the canonical serial run. Always use the script rather than a bare
+`bun test --concurrent`: the script raises the per-test timeout, which
+concurrent runs need because tests that capture console output serialize on a
+shared lock (`tests/lib/capture.ts`) and the queue wait counts against each
+test's own timeout. Record mode stays serial for now (`SPRY_RECORD=1 bun test`,
+no `--concurrent`).
+
 GitHub integration is tested via **gh cassettes**: doc tests run the real `sp`
 binary while replaying committed recordings in `tests/fixtures/cassettes/`, so the
 default suite is offline and needs no auth. If you change code on the real-`gh`

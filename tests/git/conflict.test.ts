@@ -1,6 +1,5 @@
-import { test, expect, describe, afterAll } from "bun:test";
-import { createRealGitRunner, createRepo } from "../../tests/lib/index.ts";
-import type { TestRepo } from "../../tests/lib/index.ts";
+import { test, expect, describe } from "bun:test";
+import { createRealGitRunner, repoManager } from "../../tests/lib/index.ts";
 import { getFullSha } from "../../src/git/queries.ts";
 import {
   getCommitFiles,
@@ -12,25 +11,22 @@ import {
 } from "../../src/git/conflict.ts";
 
 const git = createRealGitRunner();
+// Shared manager: repos are cleaned up in afterAll, which is safe under
+// --concurrent (each test owns a local `const repo`).
+const repos = repoManager();
 
 // --- Task 14: getCommitFiles, checkFileOverlap, parseConflictOutput ---
 
 describe("getCommitFiles", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("returns files from a commit with 2 files", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const sha = await repo.commitFiles({ "a.txt": "hello\n", "b.txt": "world\n" }, "two files");
     const files = await getCommitFiles(git, sha, { cwd: repo.path });
     expect(files.sort()).toEqual(["a.txt", "b.txt"]);
   });
 
   test("returns [] for empty commit", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     // Create an empty commit using git directly
     await git.run(["commit", "--allow-empty", "-m", "empty commit"], { cwd: repo.path });
     const sha = await getFullSha(git, "HEAD", { cwd: repo.path });
@@ -40,14 +36,8 @@ describe("getCommitFiles", () => {
 });
 
 describe("checkFileOverlap", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("returns [] for non-overlapping files", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const base = await getFullSha(git, "HEAD", { cwd: repo.path });
 
     const shaA = await repo.commitFiles({ "a.txt": "aaa\n" }, "commit A");
@@ -61,7 +51,7 @@ describe("checkFileOverlap", () => {
   });
 
   test("returns overlapping file names", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const base = await getFullSha(git, "HEAD", { cwd: repo.path });
 
     const shaA = await repo.commitFiles(
@@ -113,14 +103,8 @@ CONFLICT (content): Merge conflict in file.ts`;
 // --- Task 15: simulateMerge, predictConflict, checkReorderConflicts ---
 
 describe("simulateMerge", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("non-conflicting changes to same file returns clean or warning", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     // Create base with multi-line file
     const baseCommit = await repo.commitFiles(
       { "shared.txt": "line1\nline2\nline3\nline4\nline5\nline6\n" },
@@ -147,7 +131,7 @@ describe("simulateMerge", () => {
   });
 
   test("conflicting changes returns conflict with file in result", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const baseCommit = await repo.commitFiles({ "shared.txt": "original content\n" }, "base file");
     const base = await getFullSha(git, baseCommit, { cwd: repo.path });
 
@@ -164,14 +148,8 @@ describe("simulateMerge", () => {
 });
 
 describe("predictConflict", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("different files returns clean", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const base = await getFullSha(git, "HEAD", { cwd: repo.path });
 
     const shaA = await repo.commitFiles({ "a.txt": "aaa\n" }, "commit A");
@@ -185,7 +163,7 @@ describe("predictConflict", () => {
   });
 
   test("conflicting same file returns conflict", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const baseCommit = await repo.commitFiles({ "shared.txt": "original\n" }, "base");
     const base = await getFullSha(git, baseCommit, { cwd: repo.path });
 
@@ -201,14 +179,8 @@ describe("predictConflict", () => {
 });
 
 describe("checkReorderConflicts", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("same order returns empty map", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const base = await getFullSha(git, "HEAD", { cwd: repo.path });
 
     const sha1 = await repo.commitFiles({ "a.txt": "aaa\n" }, "commit 1");
@@ -221,7 +193,7 @@ describe("checkReorderConflicts", () => {
   });
 
   test("reversed order with conflicting file changes returns map with entries", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const baseCommit = await repo.commitFiles({ "shared.txt": "original\n" }, "base");
     const base = await getFullSha(git, baseCommit, { cwd: repo.path });
 

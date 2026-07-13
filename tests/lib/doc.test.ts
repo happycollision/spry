@@ -25,6 +25,22 @@ afterAll(async () => {
   await Promise.all(cleanupPaths.map((p) => rm(join(fragmentsDir, p), { force: true })));
 });
 
+// Each verification test below reads the fragment its paired docTest writes.
+// Under `bun test --concurrent` the pair may run in either order, so wait for
+// the fragment to appear instead of assuming the docTest already finished.
+// (beforeAll removed any stale copy, so an existing file is from this run.)
+async function waitForFragment(path: string, timeoutMs = 10_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      return await readFile(path, "utf8");
+    } catch {
+      if (Date.now() > deadline) throw new Error(`fragment never appeared: ${path}`);
+      await Bun.sleep(20);
+    }
+  }
+}
+
 docTest(
   "writes fragment to disk on pass",
   { section: "doc/disk_bridge/unit", order: 900 },
@@ -35,7 +51,7 @@ docTest(
 
 test("docTest wrote the fragment JSON after running", async () => {
   const path = fragmentPath({ section: "doc/disk_bridge/unit", order: 900 });
-  const raw = await readFile(path, "utf8");
+  const raw = await waitForFragment(path);
   const parsed = JSON.parse(raw);
   expect(parsed.section).toBe("doc/disk_bridge/unit");
   expect(parsed.order).toBe(900);
@@ -66,7 +82,7 @@ docTest(
 
 test("scrub literal: command/output/screen are scrubbed, prose is not", async () => {
   const path = fragmentPath({ section: "doc/scrub/literal", order: 901 });
-  const parsed = JSON.parse(await readFile(path, "utf8"));
+  const parsed = JSON.parse(await waitForFragment(path));
   expect(parsed.entries).toEqual([
     { type: "command", content: "echo <redacted>" },
     { type: "output", content: "value=<redacted>" },
@@ -82,7 +98,7 @@ docTest("scrub accepts regex patterns", { section: "doc/scrub/regex", order: 902
 
 test("scrub regex: replaces all matches", async () => {
   const path = fragmentPath({ section: "doc/scrub/regex", order: 902 });
-  const parsed = JSON.parse(await readFile(path, "utf8"));
+  const parsed = JSON.parse(await waitForFragment(path));
   expect(parsed.entries).toEqual([{ type: "output", content: "port=N retries=N" }]);
 });
 
@@ -104,7 +120,7 @@ docTest(
 
 test("scrub(repo): paths replaced as a unit, dashed uniqueId collapses, bare uniqueId stripped", async () => {
   const path = fragmentPath({ section: "doc/scrub/repo", order: 903 });
-  const parsed = JSON.parse(await readFile(path, "utf8"));
+  const parsed = JSON.parse(await waitForFragment(path));
   expect(parsed.entries).toEqual([
     {
       type: "output",
@@ -123,7 +139,7 @@ docTest(
 
 test("output_ansi: content is stripped, ansiContent is raw", async () => {
   const path = fragmentPath({ section: "doc/output_ansi/unit", order: 911 });
-  const parsed = JSON.parse(await readFile(path, "utf8"));
+  const parsed = JSON.parse(await waitForFragment(path));
   expect(parsed.entries[0].content).toBe("hello world\n");
   expect(parsed.entries[0].ansiContent).toBe("\x1b[32mhello\x1b[0m world\n");
 });
@@ -138,7 +154,7 @@ docTest(
 
 test("output_plain: no ansiContent field when no ANSI", async () => {
   const path = fragmentPath({ section: "doc/output_ansi/unit", order: 912 });
-  const parsed = JSON.parse(await readFile(path, "utf8"));
+  const parsed = JSON.parse(await waitForFragment(path));
   expect(parsed.entries[0].content).toBe("plain text\n");
   expect(parsed.entries[0].ansiContent).toBeUndefined();
 });
@@ -159,7 +175,7 @@ docTest(
 
 test("screen_ansi: trailing blank rows trimmed, ansiContent stored", async () => {
   const path = fragmentPath({ section: "doc/screen_ansi/unit", order: 913 });
-  const parsed = JSON.parse(await readFile(path, "utf8"));
+  const parsed = JSON.parse(await waitForFragment(path));
   expect(parsed.entries[0].content).toBe("hello world\nsecond line\n");
   expect(parsed.entries[0].ansiContent).toBe("\x1b[32mhello\x1b[0m world\nsecond line\n");
 });

@@ -1,6 +1,7 @@
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterAll } from "bun:test";
 import { landCommand } from "../../src/commands/land.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
+import { captureLogs, trapExit } from "../lib/capture.ts";
 import type {
   CommandOptions,
   CommandResult,
@@ -13,7 +14,9 @@ import { loadPRCache } from "../../src/gh/pr-cache.ts";
 
 const repos: TestRepo[] = [];
 
-afterEach(async () => {
+// afterAll, not afterEach: under --concurrent a per-test cleanup hook would delete
+// repos out from under still-running sibling tests.
+afterAll(async () => {
   while (repos.length > 0) {
     const r = repos.pop();
     if (r) await r.cleanup();
@@ -57,42 +60,6 @@ function makeCtx(repo: TestRepo, gh: GhClient): SpryContext {
       run: (args, opts) => realGit.run(args, { ...opts, cwd: opts?.cwd ?? repo.path }),
     },
     gh,
-  };
-}
-
-function captureLogs(): { restore: () => void; out: string[]; err: string[] } {
-  const out: string[] = [];
-  const err: string[] = [];
-  const origLog = console.log;
-  const origErr = console.error;
-  console.log = (...args: unknown[]) => out.push(args.map(String).join(" "));
-  console.error = (...args: unknown[]) => err.push(args.map(String).join(" "));
-  return {
-    restore: () => {
-      console.log = origLog;
-      console.error = origErr;
-    },
-    out,
-    err,
-  };
-}
-
-function trapExit(): { exitCode: number | undefined; restore: () => void } {
-  const state: { exitCode: number | undefined } = { exitCode: undefined };
-  const origExit = process.exit;
-  // @ts-ignore
-  process.exit = (code: number) => {
-    state.exitCode = code;
-    throw new Error("process.exit");
-  };
-  return {
-    get exitCode() {
-      return state.exitCode;
-    },
-    restore: () => {
-      // @ts-ignore
-      process.exit = origExit;
-    },
   };
 }
 
@@ -215,7 +182,7 @@ describe("sp land --through", () => {
       }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, { cwd: repo.path, through: "bbb22222" });
@@ -248,7 +215,7 @@ describe("sp land --through", () => {
       }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, { cwd: repo.path, through: "aaa11111" });
@@ -281,7 +248,7 @@ describe("sp land --through", () => {
       }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, { cwd: repo.path, through: "bbb22222" });
@@ -322,7 +289,7 @@ describe("sp land --through", () => {
     );
     const ctx = makeCtx(repo, gh);
 
-    const { err, restore } = captureLogs();
+    const { err, restore } = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, { through: "bbb22222", cwd: repo.path });
@@ -345,7 +312,7 @@ describe("sp land --through", () => {
 
     const { gh } = stubGh(ghPrStub({ "spry/test/aaa11111": { number: 1 } }));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, { cwd: repo.path, through: "zzz99999" });
@@ -387,7 +354,7 @@ describe("sp land --through", () => {
 
       const { gh } = stubGh(ghPrStub({ "spry/test/grp00001": { number: 1 } }));
       const ctx = makeCtx(repo, gh);
-      const logs = captureLogs();
+      const logs = await captureLogs();
       const trap = trapExit();
       try {
         await runLand(ctx, { cwd: repo.path, through: pickThrough({ memberHash }) });
@@ -426,7 +393,7 @@ describe("sp land --through", () => {
 
     const { gh } = stubGh(ghPrStub({ "spry/test/aaa11111": { number: 1 } }));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, { cwd: repo.path, through: "aaa11111" });
@@ -468,7 +435,7 @@ describe("sp land readiness", () => {
 
       const { gh } = stubGh(ghPrStub({ "spry/test/aaa11111": prState }));
       const ctx = makeCtx(repo, gh);
-      const logs = captureLogs();
+      const logs = await captureLogs();
       const trap = trapExit();
       try {
         await runLand(ctx, { cwd: repo.path, through: "aaa11111" });
@@ -493,7 +460,7 @@ describe("sp land readiness", () => {
     // gh returns no PR (nodes: []) for the unit's branch.
     const { gh } = stubGh(ghPrStub({}));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, { cwd: repo.path, through: "aaa11111" });
@@ -530,7 +497,7 @@ describe("sp land no-arg picker", () => {
       }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, {
@@ -558,7 +525,7 @@ describe("sp land no-arg picker", () => {
 
     const { gh } = stubGh(ghPrStub({ "spry/test/aaa11111": { number: 1 } }));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, { cwd: repo.path, pickThrough: async () => null });
@@ -588,7 +555,7 @@ describe("sp land unresolved review threads", () => {
 
     const { gh } = stubGh(ghPrStub({ "spry/test/aaa11111": unresolved }));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, { cwd: repo.path, through: "aaa11111", confirm: async () => false });
@@ -611,7 +578,7 @@ describe("sp land unresolved review threads", () => {
 
     const { gh } = stubGh(ghPrStub({ "spry/test/aaa11111": unresolved }));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     let prompted = false;
     try {
@@ -680,7 +647,7 @@ describe("sp land cleanup tail", () => {
       }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, { cwd: repo.path, through: "bbb22222" });
@@ -715,7 +682,7 @@ describe("sp land cleanup tail", () => {
       }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, { cwd: repo.path, through: "aaa11111" });
@@ -756,7 +723,7 @@ describe("sp land cleanup tail", () => {
       }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, { cwd: repo.path, through: "grp00001" });
@@ -799,7 +766,7 @@ describe("sp land cleanup tail", () => {
       }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       // Land through the TOP group → the whole stack lands.
@@ -840,7 +807,7 @@ describe("sp land cleanup tail", () => {
       }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, { cwd: repo.path, through: "bbb22222" });
@@ -874,7 +841,7 @@ describe("sp land cleanup tail", () => {
       }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, { cwd: repo.path, through: "bbb22222" });
@@ -918,7 +885,7 @@ describe("sp land cleanup tail", () => {
       }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, { cwd: repo.path, through: "bbb22222" });

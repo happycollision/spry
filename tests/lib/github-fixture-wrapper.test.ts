@@ -1,6 +1,11 @@
 import { test, expect } from "bun:test";
 import { withGitHubFixture, __setFixtureFactoryForTest } from "./github-fixture.ts";
 import type { GitHubFixture } from "./github-fixture.ts";
+import { serialChain } from "./serial.ts";
+
+// These tests swap the module-global fixture factory (and the record-mode ones
+// share a lock dir), so they must not interleave under `bun test --concurrent`.
+const serial = serialChain();
 
 function makeFakeFixture(log: string[]): GitHubFixture {
   return {
@@ -25,58 +30,67 @@ function makeFakeFixture(log: string[]): GitHubFixture {
   };
 }
 
-test("replay mode: body runs with undefined fixture, no factory call", async () => {
-  let factoryCalls = 0;
-  __setFixtureFactoryForTest(async () => {
-    factoryCalls++;
-    return makeFakeFixture([]);
-  });
-  try {
-    let seen: unknown = "unset";
-    const result = await withGitHubFixture({ recording: false }, async (fixture) => {
-      seen = fixture;
-      return "ok";
+test(
+  "replay mode: body runs with undefined fixture, no factory call",
+  serial(async () => {
+    let factoryCalls = 0;
+    __setFixtureFactoryForTest(async () => {
+      factoryCalls++;
+      return makeFakeFixture([]);
     });
-    expect(result).toBe("ok");
-    expect(seen).toBeUndefined();
-    expect(factoryCalls).toBe(0);
-  } finally {
-    __setFixtureFactoryForTest(undefined);
-  }
-});
+    try {
+      let seen: unknown = "unset";
+      const result = await withGitHubFixture({ recording: false }, async (fixture) => {
+        seen = fixture;
+        return "ok";
+      });
+      expect(result).toBe("ok");
+      expect(seen).toBeUndefined();
+      expect(factoryCalls).toBe(0);
+    } finally {
+      __setFixtureFactoryForTest(undefined);
+    }
+  }),
+);
 
-test("record mode: resets before and after the body", async () => {
-  const log: string[] = [];
-  __setFixtureFactoryForTest(async () => makeFakeFixture(log));
-  try {
-    await withGitHubFixture(
-      { recording: true, lockDir: `${import.meta.dir}/../../.test-tmp/wrapper-lock` },
-      async (fixture) => {
-        expect(fixture).toBeDefined();
-        log.push("body");
-      },
-    );
-    expect(log).toEqual(["reset", "body", "reset"]);
-  } finally {
-    __setFixtureFactoryForTest(undefined);
-  }
-});
-
-test("record mode: still resets (cleanup) when the body throws", async () => {
-  const log: string[] = [];
-  __setFixtureFactoryForTest(async () => makeFakeFixture(log));
-  try {
-    await expect(
-      withGitHubFixture(
+test(
+  "record mode: resets before and after the body",
+  serial(async () => {
+    const log: string[] = [];
+    __setFixtureFactoryForTest(async () => makeFakeFixture(log));
+    try {
+      await withGitHubFixture(
         { recording: true, lockDir: `${import.meta.dir}/../../.test-tmp/wrapper-lock` },
-        async () => {
+        async (fixture) => {
+          expect(fixture).toBeDefined();
           log.push("body");
-          throw new Error("boom");
         },
-      ),
-    ).rejects.toThrow("boom");
-    expect(log).toEqual(["reset", "body", "reset"]);
-  } finally {
-    __setFixtureFactoryForTest(undefined);
-  }
-});
+      );
+      expect(log).toEqual(["reset", "body", "reset"]);
+    } finally {
+      __setFixtureFactoryForTest(undefined);
+    }
+  }),
+);
+
+test(
+  "record mode: still resets (cleanup) when the body throws",
+  serial(async () => {
+    const log: string[] = [];
+    __setFixtureFactoryForTest(async () => makeFakeFixture(log));
+    try {
+      await expect(
+        withGitHubFixture(
+          { recording: true, lockDir: `${import.meta.dir}/../../.test-tmp/wrapper-lock` },
+          async () => {
+            log.push("body");
+            throw new Error("boom");
+          },
+        ),
+      ).rejects.toThrow("boom");
+      expect(log).toEqual(["reset", "body", "reset"]);
+    } finally {
+      __setFixtureFactoryForTest(undefined);
+    }
+  }),
+);

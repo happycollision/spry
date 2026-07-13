@@ -1,6 +1,5 @@
-import { test, expect, describe, afterAll } from "bun:test";
-import { createRealGitRunner, createRepo } from "../../tests/lib/index.ts";
-import type { TestRepo } from "../../tests/lib/index.ts";
+import { test, expect, describe } from "bun:test";
+import { createRealGitRunner, repoManager } from "../../tests/lib/index.ts";
 import { join } from "node:path";
 import {
   getTree,
@@ -19,24 +18,21 @@ import {
 import { getFullSha, getCommitMessage } from "../../src/git/queries.ts";
 
 const git = createRealGitRunner();
+// Shared manager: repos are cleaned up in afterAll, which is safe under
+// --concurrent (each test owns a local `const repo`).
+const repos = repoManager();
 
 // --- Task 8: getTree, getParent, getParents ---
 
 describe("getTree", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("returns 40-char hex SHA from HEAD", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const tree = await getTree(git, "HEAD", { cwd: repo.path });
     expect(tree).toMatch(/^[0-9a-f]{40}$/);
   });
 
   test("returns 40-char hex SHA from specific commit", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const sha = await repo.commit("for tree test");
     const tree = await getTree(git, sha, { cwd: repo.path });
     expect(tree).toMatch(/^[0-9a-f]{40}$/);
@@ -44,14 +40,8 @@ describe("getTree", () => {
 });
 
 describe("getParent", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("returns parent SHA different from child", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const child = await repo.commit("child commit");
     const parent = await getParent(git, child, { cwd: repo.path });
     expect(parent).toMatch(/^[0-9a-f]{40}$/);
@@ -60,14 +50,8 @@ describe("getParent", () => {
 });
 
 describe("getParents", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("returns single parent for normal commit", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const sha = await repo.commit("normal commit");
     const parents = await getParents(git, sha, { cwd: repo.path });
     expect(parents).toHaveLength(1);
@@ -75,7 +59,7 @@ describe("getParents", () => {
   });
 
   test("returns empty array for root commit", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const result = await git.run(["rev-list", "--max-parents=0", "HEAD"], { cwd: repo.path });
     const root = result.stdout.trim();
     const parents = await getParents(git, root, { cwd: repo.path });
@@ -86,14 +70,8 @@ describe("getParents", () => {
 // --- Task 9: getAuthorEnv, getAuthorAndCommitterEnv, createCommit ---
 
 describe("getAuthorEnv", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("returns name, email, and date", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     await repo.commit("author test");
     const env = await getAuthorEnv(git, "HEAD", { cwd: repo.path });
     expect(env.GIT_AUTHOR_NAME).toBe("Test User");
@@ -104,14 +82,8 @@ describe("getAuthorEnv", () => {
 });
 
 describe("getAuthorAndCommitterEnv", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("returns all 6 fields", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     await repo.commit("committer test");
     const env = await getAuthorAndCommitterEnv(git, "HEAD", { cwd: repo.path });
     expect(env.GIT_AUTHOR_NAME).toBe("Test User");
@@ -124,14 +96,8 @@ describe("getAuthorAndCommitterEnv", () => {
 });
 
 describe("createCommit", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("creates new commit with correct message", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const parentSha = await getFullSha(git, "HEAD", { cwd: repo.path });
     const tree = await getTree(git, "HEAD", { cwd: repo.path });
     const env = await getAuthorAndCommitterEnv(git, "HEAD", { cwd: repo.path });
@@ -151,14 +117,8 @@ describe("createCommit", () => {
 // --- Task 10: mergeTree, updateRef, resetToCommit ---
 
 describe("mergeTree", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("clean merge with non-overlapping files", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     // Base commit is initial commit (HEAD after createRepo)
     const base = await getFullSha(git, "HEAD", { cwd: repo.path });
 
@@ -179,7 +139,7 @@ describe("mergeTree", () => {
   });
 
   test("conflict with overlapping changes", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     // Create base with shared file
     const baseSha = await repo.commitFiles({ "shared.txt": "base content" }, "base");
 
@@ -200,14 +160,8 @@ describe("mergeTree", () => {
 });
 
 describe("updateRef", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("updates branch ref to new SHA", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     await repo.commit("first");
     const sha2 = await repo.commit("second");
 
@@ -228,14 +182,8 @@ describe("updateRef", () => {
 });
 
 describe("resetToCommit", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("resets working directory to earlier commit", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const earlyCommit = await getFullSha(git, "HEAD", { cwd: repo.path });
 
     // Add a file on a new commit
@@ -256,14 +204,8 @@ describe("resetToCommit", () => {
 // --- Task 11: rewriteCommitChain ---
 
 describe("rewriteCommitChain", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("rewrites message for single commit", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const sha = await repo.commit("original message");
     const rewrites = new Map<string, string>();
     rewrites.set(sha, "rewritten message");
@@ -281,7 +223,7 @@ describe("rewriteCommitChain", () => {
   });
 
   test("rewrites only specified commits in 3-commit chain", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const sha1 = await repo.commit("first");
     const sha2 = await repo.commit("second");
     const sha3 = await repo.commit("third");
@@ -317,7 +259,7 @@ describe("rewriteCommitChain", () => {
   });
 
   test("preserves tree contents across rewrite", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const sha = await repo.commitFiles({ "keep.txt": "preserved" }, "keep tree");
     const treeBefore = await getTree(git, sha, { cwd: repo.path });
 
@@ -336,14 +278,8 @@ describe("rewriteCommitChain", () => {
 // --- Task 12: rebasePlumbing, finalizeRewrite ---
 
 describe("rebasePlumbing", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("rebases commits onto new base", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     // Create a diverge point
     const base = await getFullSha(git, "HEAD", { cwd: repo.path });
 
@@ -370,7 +306,7 @@ describe("rebasePlumbing", () => {
   });
 
   test("empty commits returns onto as newTip", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const onto = await getFullSha(git, "HEAD", { cwd: repo.path });
 
     const result = await rebasePlumbing(git, onto, [], { cwd: repo.path });
@@ -382,7 +318,7 @@ describe("rebasePlumbing", () => {
   });
 
   test("detects conflicts", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     // Create base with shared file
     const baseSha = await repo.commitFiles({ "conflict.txt": "base content" }, "conflict base");
 
@@ -410,14 +346,8 @@ describe("rebasePlumbing", () => {
 });
 
 describe("finalizeRewrite", () => {
-  let repo: TestRepo;
-
-  afterAll(async () => {
-    if (repo) await repo.cleanup();
-  });
-
   test("updates branch ref after message-only rewrite", async () => {
-    repo = await createRepo();
+    const repo = await repos.create();
     const branchName = await repo.branch("finalize-test");
     await repo.commit("original");
     const oldTip = await getFullSha(git, "HEAD", { cwd: repo.path });

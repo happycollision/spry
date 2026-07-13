@@ -1,4 +1,4 @@
-export { generateUniqueId } from "./unique-id.ts";
+export { generateUniqueId, createSeededRng } from "./unique-id.ts";
 export { createRealGitRunner } from "./git-runner.ts";
 export { createRealGhClient } from "./gh-client.ts";
 export { createRecordingClient } from "./recording-client.ts";
