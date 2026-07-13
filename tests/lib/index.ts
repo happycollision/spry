@@ -12,6 +12,8 @@ export { createTerminalDriver } from "./terminal-driver.ts";
 export { docTest, fragmentPath } from "./doc.ts";
 export { createRunner } from "./run.ts";
 export { cassettePath, cassetteEnv, isRecording } from "./cassette-harness.ts";
+export { withGitHubFixture } from "./github-fixture.ts";
+export type { GitHubFixture, WithGitHubFixtureOptions } from "./github-fixture.ts";
 
 export type { SpryContext, GitRunner, GhClient, CommandResult, CommandOptions } from "./context.ts";
 export type { TestRepo, CreateRepoOptions } from "./repo.ts";

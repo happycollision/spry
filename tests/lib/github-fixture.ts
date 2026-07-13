@@ -1,4 +1,5 @@
 import { $ } from "bun";
+import { withRecordLock } from "./record-lock.ts";
 
 // Safety marker - must match the one in scripts/setup-spry-check.ts
 const SAFETY_MARKER = "<!-- spry-test-repo:v1 -->";
@@ -379,6 +380,70 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     reset,
     mergePR,
   };
+}
+
+/**
+ * Factory used by {@link withGitHubFixture}. Overridable in unit tests via
+ * {@link __setFixtureFactoryForTest} so the wrapper's control flow can be
+ * exercised without touching real GitHub.
+ */
+let fixtureFactory: () => Promise<GitHubFixture> = createGitHubFixture;
+
+/** Test-only: swap the fixture factory (pass `undefined` to restore the real one). */
+export function __setFixtureFactoryForTest(
+  factory: (() => Promise<GitHubFixture>) | undefined,
+): void {
+  fixtureFactory = factory ?? createGitHubFixture;
+}
+
+/**
+ * The record-lock key. Every live-fixture doc test contends on the SAME shared
+ * `spry-check` repo, so they must share one lock key — the value is arbitrary
+ * as long as it's identical across all callers.
+ */
+const SPRY_CHECK_LOCK_KEY = "spry-check-record";
+
+export interface WithGitHubFixtureOptions {
+  /** True under `SPRY_RECORD=1` (pass `isRecording()`). */
+  recording: boolean;
+  /** Override the lock directory (test-only). */
+  lockDir?: string;
+}
+
+/**
+ * Run a live-fixture doc-test body with correct record/replay behavior.
+ *
+ * - **Replay (`recording: false`)**: calls `body(undefined)` immediately, with
+ *   NO lock and NO fixture — replay is offline and must stay fully parallel.
+ * - **Record (`recording: true`)**: acquires a cross-process advisory lock on
+ *   the shared `spry-check` repo (see {@link withRecordLock}), creates the
+ *   fixture, `reset()`s it, runs `body(fixture)`, then `reset()`s again in a
+ *   `finally` (so a thrown body still tidies up) — all inside the lock. The
+ *   entire body is the critical section, which is why the reset-run-reset
+ *   sequence lives here rather than in each test.
+ *
+ * This is the single uniform entry point the three live-fixture doc-test files
+ * (`sync`, `land`, `group`) use, replacing the hand-rolled
+ * `isRecording()` + `createGitHubFixture()` + double-`reset()` boilerplate.
+ */
+export async function withGitHubFixture<T>(
+  options: WithGitHubFixtureOptions,
+  body: (fixture: GitHubFixture | undefined) => Promise<T>,
+): Promise<T> {
+  if (!options.recording) {
+    return body(undefined);
+  }
+
+  const lockOpts = options.lockDir ? { dir: options.lockDir } : {};
+  return withRecordLock(SPRY_CHECK_LOCK_KEY, lockOpts, async () => {
+    const fixture = await fixtureFactory();
+    await fixture.reset();
+    try {
+      return await body(fixture);
+    } finally {
+      await fixture.reset();
+    }
+  });
 }
 
 // Exported for tests so they can assert the marker check independently.
