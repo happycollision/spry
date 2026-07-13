@@ -15,7 +15,7 @@
       ],
       "options": {},
       "result": {
-        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1004,\"url\":\"https://github.com/happycollision/spry-check/pull/1004\",\"state\":\"OPEN\",\"title\":\"feature/login\",\"baseRefName\":\"main\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"QUEUED\",\"conclusion\":null}]}}}}]}}]}}}}",
+        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1122,\"url\":\"https://github.com/happycollision/spry-check/pull/1122\",\"state\":\"OPEN\",\"title\":\"Work\",\"baseRefName\":\"main\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"},{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"},{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}}]}}}}",
         "stderr": "",
         "exitCode": 0
       }
@@ -35,7 +35,7 @@
       ],
       "options": {},
       "result": {
-        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1005,\"url\":\"https://github.com/happycollision/spry-check/pull/1005\",\"state\":\"OPEN\",\"title\":\"feature/search\",\"baseRefName\":\"main\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"QUEUED\",\"conclusion\":null}]}}}}]}}]}}}}",
+        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1123,\"url\":\"https://github.com/happycollision/spry-check/pull/1123\",\"state\":\"OPEN\",\"title\":\"Work\",\"baseRefName\":\"main\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"QUEUED\",\"conclusion\":null},{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"},{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}}]}}}}",
         "stderr": "",
         "exitCode": 0
       }

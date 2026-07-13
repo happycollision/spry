@@ -7,9 +7,9 @@ import {
   createTerminalDriver,
   cassetteEnv,
   isRecording,
+  withGitHubFixture,
 } from "../lib/index.ts";
 import type { TestRepo } from "../lib/index.ts";
-import { createGitHubFixture } from "../lib/github-fixture.ts";
 
 const cliPath = join(import.meta.dir, "../../src/cli/index.ts");
 const harnessPath = join(import.meta.dir, "../fixtures/land-tui-harness.ts");
@@ -128,34 +128,31 @@ describe("sp land docs", () => {
       // Replay serves it offline. Same body both ways — only the git origin and
       // the gh seam env differ.
       const recording = isRecording();
-      const fixture = recording ? await createGitHubFixture() : undefined;
-      if (fixture) await fixture.reset();
+      await withGitHubFixture({ recording }, async () => {
+        const repo = await createRepo({ origin: recording ? "github" : "local" });
+        repos.push(repo);
+        doc.scrub(repo);
+        doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
 
-      const repo = await createRepo({ origin: recording ? "github" : "local" });
-      repos.push(repo);
-      doc.scrub(repo);
-      doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
+        await setupLandStack(repo, recording);
+        const tip = (await repo.git.run(["rev-parse", "HEAD"])).stdout.trim();
 
-      await setupLandStack(repo, recording);
-      const tip = (await repo.git.run(["rev-parse", "HEAD"])).stdout.trim();
+        doc.prose(
+          "`sp land --through <id>` lands the stack from the bottom **through** the unit identified by `<id>` (a group ID, unit-ID prefix, or commit-hash prefix). Spry fast-forwards trunk to that unit's tip — it never uses the GitHub merge API and never retargets PR bases. GitHub marks each PR `MERGED` because its commits become reachable from the default branch; leaving each PR on its stacked base keeps that PR's diff scoped to just its own unit. `sp land` never deletes branches (that is `sp clean`'s job):",
+        );
 
-      doc.prose(
-        "`sp land --through <id>` lands the stack from the bottom **through** the unit identified by `<id>` (a group ID, unit-ID prefix, or commit-hash prefix). Spry fast-forwards trunk to that unit's tip — it never uses the GitHub merge API and never retargets PR bases. GitHub marks each PR `MERGED` because its commits become reachable from the default branch; leaving each PR on its stacked base keeps that PR's diff scoped to just its own unit. `sp land` never deletes branches (that is `sp clean`'s job):",
-      );
+        const { command, result } = await runSp(repo.path, "land", ["--through", "bbb22222"], {
+          env: cassetteEnv({ section: "commands/land", order: 10 }),
+        });
+        doc.command(command);
+        doc.output(result.stdout);
 
-      const { command, result } = await runSp(repo.path, "land", ["--through", "bbb22222"], {
-        env: cassetteEnv({ section: "commands/land", order: 10 }),
+        const { expect } = await import("bun:test");
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout).toContain("Landed");
+        const originMain = (await repo.git.run(["rev-parse", "origin/main"])).stdout.trim();
+        expect(originMain).toBe(tip);
       });
-      doc.command(command);
-      doc.output(result.stdout);
-
-      if (fixture) await fixture.reset();
-
-      const { expect } = await import("bun:test");
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("Landed");
-      const originMain = (await repo.git.run(["rev-parse", "origin/main"])).stdout.trim();
-      expect(originMain).toBe(tip);
     },
   );
 
@@ -164,47 +161,44 @@ describe("sp land docs", () => {
     { section: "commands/land", order: 20, timeout: 300000 },
     async (doc) => {
       const recording = isRecording();
-      const fixture = recording ? await createGitHubFixture() : undefined;
-      if (fixture) await fixture.reset();
+      await withGitHubFixture({ recording }, async () => {
+        const repo = await createRepo({ origin: recording ? "github" : "local" });
+        repos.push(repo);
+        doc.scrub(repo);
+        doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
 
-      const repo = await createRepo({ origin: recording ? "github" : "local" });
-      repos.push(repo);
-      doc.scrub(repo);
-      doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
+        await setupLandStack(repo, recording);
 
-      await setupLandStack(repo, recording);
+        doc.prose(
+          "Run `sp land` with no arguments to choose the land point interactively. Spry shows a single-select menu of the stack's units (bottom→top) — use ↑/↓ to move, Enter to select. The chosen unit becomes the `--through` target:",
+        );
+        doc.command("sp land");
 
-      doc.prose(
-        "Run `sp land` with no arguments to choose the land point interactively. Spry shows a single-select menu of the stack's units (bottom→top) — use ↑/↓ to move, Enter to select. The chosen unit becomes the `--through` target:",
-      );
-      doc.command("sp land");
+        // Spawn the harness in a real PTY. The gh seam (cassetteEnv) records/replays
+        // the land traffic; the TUI picker runs for real.
+        const driver = await createTerminalDriver("bun", [harnessPath, repo.path], {
+          cols: 80,
+          rows: 24,
+          env: cassetteEnv({ section: "commands/land", order: 20 }),
+        });
+        repos.push({ cleanup: () => driver.close() });
 
-      // Spawn the harness in a real PTY. The gh seam (cassetteEnv) records/replays
-      // the land traffic; the TUI picker runs for real.
-      const driver = await createTerminalDriver("bun", [harnessPath, repo.path], {
-        cols: 80,
-        rows: 24,
-        env: cassetteEnv({ section: "commands/land", order: 20 }),
+        // Wait for the picker to render (labels are "<id>  <subject>").
+        await driver.waitForText("Add login", { timeout: 15000 });
+
+        // Capture the menu before any selection.
+        doc.screen(driver.capture());
+
+        // Select the cursor row (the bottom unit) and land it.
+        driver.press("Enter");
+
+        // Wait for the land to complete.
+        await driver.waitForText("Landed", { timeout: 20000 });
+
+        const { expect } = await import("bun:test");
+        const snap = driver.capture();
+        expect(snap.text).toContain("Landed");
       });
-      repos.push({ cleanup: () => driver.close() });
-
-      // Wait for the picker to render (labels are "<id>  <subject>").
-      await driver.waitForText("Add login", { timeout: 15000 });
-
-      // Capture the menu before any selection.
-      doc.screen(driver.capture());
-
-      // Select the cursor row (the bottom unit) and land it.
-      driver.press("Enter");
-
-      // Wait for the land to complete.
-      await driver.waitForText("Landed", { timeout: 20000 });
-
-      if (fixture) await fixture.reset();
-
-      const { expect } = await import("bun:test");
-      const snap = driver.capture();
-      expect(snap.text).toContain("Landed");
     },
   );
 });

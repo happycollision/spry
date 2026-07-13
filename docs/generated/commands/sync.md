@@ -1,6 +1,6 @@
 # sync
 
-Run `sp sync` to push your stack's commits to their already-published remote branches. Spry derives each branch as `<spry.branchPrefix>/<unit-id>` and only pushes branches that already exist on the remote — it never creates new ones, and it skips branches whose remote tip already matches, so a second `sp sync` with no new commits does no redundant work. Use `sp sync --open` to publish for the first time.
+Run `sp sync` to push your stack's commits to their already-published remote branches. Spry derives each branch as `<spry.branchPrefix>/<unit-id>` and only pushes branches that already exist on the remote — it never creates new ones. Use `sp sync --open` to publish for the first time.
 
 ```
 sp sync
@@ -9,6 +9,18 @@ sp sync
 ```
 PR retargeting unavailable: <hint>
 ↑ pushed spry/dondenton/aaaa1111
+✓ Sync complete
+
+```
+
+Spry skips any branch whose remote tip already matches its local commit, so running `sp sync` again with nothing new does no redundant push — the branch simply isn't listed:
+
+```
+sp sync
+```
+
+```
+PR retargeting unavailable: <hint>
 ✓ Sync complete
 
 ```
@@ -22,8 +34,8 @@ sp sync --open aaaa1111
 ```
 ✓ Updated PR cache (1 PR)
 ↑ pushed spry/dondenton/aaaa1111
-✓ Created PR #1001: Add login
-  https://github.com/owner/repo/pull/1001
+✓ Created PR #42: Add login
+  https://github.com/owner/repo/pull/42
 ✓ Updated PR cache (1 PR)
 ✓ Sync complete
 
@@ -86,22 +98,6 @@ sp sync
 ```
 ✓ Injected 1 commit ID(s)
 PR retargeting unavailable: network error (branches still updated)
-✓ Sync complete
-
-```
-
-After pushing, `sp sync` checks each open PR's base, retargets any that are wrong, and refreshes the local PR status cache read by `sp view`. No network call is needed at view time — sync is the mechanism that fetches fresh status from GitHub:
-
-```
-sp sync
-```
-
-```
-✓ Updated PR cache (2 PRs)
-↑ pushed spry/dondenton/bbbb2222
-↑ pushed spry/dondenton/aaaa1111
-↻ retargeted PR #11 → spry/dondenton/bbbb2222
-✓ Updated PR cache (2 PRs)
 ✓ Sync complete
 
 ```

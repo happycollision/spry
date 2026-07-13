@@ -1,4 +1,6 @@
 import { $ } from "bun";
+import { withRecordLock } from "./record-lock.ts";
+import { waitForValue } from "./wait-for.ts";
 
 // Safety marker - must match the one in scripts/setup-spry-check.ts
 const SAFETY_MARKER = "<!-- spry-test-repo:v1 -->";
@@ -12,6 +14,8 @@ export interface CleanupReport {
   branchesDeleted: number;
   prsClosed: number;
   spryRefsDeleted: number;
+  /** True when the default branch was ahead of baseline and got rolled back. */
+  mainRestored: boolean;
   errors: string[];
 }
 
@@ -33,7 +37,16 @@ export interface GitHubFixture {
    */
   purgeSpryRefs(): Promise<number>;
 
-  /** Reset repository to a clean state (close PRs, delete branches, purge spry refs). */
+  /**
+   * Force the default branch back to its single-commit baseline (the initial
+   * commit setup-spry-check.ts establishes). `sp land`'s job is to fast-forward
+   * origin/main past the baseline, so recording it advances main — and branch
+   * cleanup deliberately skips the default branch, so nothing else rolls it
+   * back. Returns true when main was moved (was ahead of baseline).
+   */
+  restoreMainToBaseline(): Promise<boolean>;
+
+  /** Reset repository to a clean state (close PRs, delete branches, purge spry refs, restore main). */
   reset(): Promise<CleanupReport>;
 
   /** Merge a PR via gh (simulating a merge via the GitHub UI). */
@@ -46,16 +59,35 @@ export interface GitHubFixture {
  * that is not a dedicated spry test repo.
  */
 async function verifyTestRepo(owner: string, repo: string): Promise<boolean> {
-  const result = await $`gh api repos/${owner}/${repo}/contents/README.md --jq .content`
-    .quiet()
-    .nothrow();
+  // Read the README once and report whether it contains the safety marker.
+  // Returns `undefined` (as opposed to false) when the read is *inconclusive* —
+  // a gh error or empty body — so the caller can retry that case without
+  // conflating it with a definitive "content present but marker absent".
+  const readMarker = async (): Promise<boolean | undefined> => {
+    const result = await $`gh api repos/${owner}/${repo}/contents/README.md --jq .content`
+      .quiet()
+      .nothrow();
+    if (result.exitCode !== 0) return undefined;
+    const raw = result.stdout.toString().trim();
+    if (raw === "") return undefined;
+    const content = Buffer.from(raw, "base64").toString("utf-8");
+    return content.includes(SAFETY_MARKER);
+  };
 
-  if (result.exitCode !== 0) {
+  // GitHub's Contents API lags a main rewrite: right after `sp land`/reset
+  // moves the default branch, a read can transiently error or return an empty
+  // body, spuriously reporting the marker missing. Retry only those
+  // inconclusive reads (undefined); a decisive true/false returns immediately.
+  try {
+    const conclusive = await waitForValue(readMarker, (v) => v !== undefined, {
+      description: `README of ${owner}/${repo} to be readable for the safety-marker check`,
+    });
+    return conclusive === true;
+  } catch {
+    // Read never became conclusive within the poll window — treat as not a test
+    // repo (safe default: refuse to mutate).
     return false;
   }
-
-  const content = Buffer.from(result.stdout.toString().trim(), "base64").toString("utf-8");
-  return content.includes(SAFETY_MARKER);
 }
 
 /**
@@ -231,6 +263,46 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     return deleted;
   }
 
+  async function restoreMainToBaseline(): Promise<boolean> {
+    await assertSafeToMutate(owner, repo);
+
+    // Determine the default branch (never assume "main").
+    const defaultResult =
+      await $`gh repo view ${owner}/${repo} --json defaultBranchRef --jq .defaultBranchRef.name`
+        .quiet()
+        .nothrow();
+    const defaultBranch =
+      defaultResult.exitCode === 0 ? defaultResult.stdout.toString().trim() || "main" : "main";
+
+    // Current tip of the default branch.
+    const tipResult =
+      await $`gh api repos/${owner}/${repo}/git/refs/heads/${defaultBranch} --jq .object.sha`
+        .quiet()
+        .nothrow();
+    const tip = tipResult.stdout.toString().trim();
+
+    // The baseline is the single root commit (setup-spry-check.ts force-pushes
+    // exactly one commit). Find the commit with no parents on the branch.
+    const rootResult =
+      await $`gh api ${`repos/${owner}/${repo}/commits?sha=${defaultBranch}&per_page=100`} --jq 'map(select(.parents | length == 0)) | .[0].sha'`
+        .quiet()
+        .nothrow();
+    const root = rootResult.stdout.toString().trim();
+
+    if (!root || root === "null") {
+      throw new Error(`Could not find a root commit on ${defaultBranch} of ${owner}/${repo}`);
+    }
+
+    // Already at baseline — nothing to roll back.
+    if (tip === root) return false;
+
+    // Force the default branch ref back to the root commit.
+    await $`gh api -X PATCH repos/${owner}/${repo}/git/refs/heads/${defaultBranch} -f sha=${root} -F force=true`
+      .quiet()
+      .nothrow();
+    return true;
+  }
+
   async function reset(): Promise<CleanupReport> {
     await assertSafeToMutate(owner, repo);
 
@@ -238,6 +310,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
       branchesDeleted: 0,
       prsClosed: 0,
       spryRefsDeleted: 0,
+      mainRestored: false,
       errors: [],
     };
 
@@ -267,6 +340,18 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     } catch (err: unknown) {
       report.errors.push(
         `Failed to purge spry refs: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    // Roll the default branch back to its baseline. `sp land` fast-forwards
+    // origin/main past baseline, and nothing above rolls it back (branch
+    // cleanup skips the default branch), so without this a prior land recording
+    // leaves main advanced and the next record run parses a corrupted stack.
+    try {
+      report.mainRestored = await restoreMainToBaseline();
+    } catch (err: unknown) {
+      report.errors.push(
+        `Failed to restore main to baseline: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
 
@@ -311,9 +396,93 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     closeAllPRs,
     deleteAllBranches,
     purgeSpryRefs,
+    restoreMainToBaseline,
     reset,
     mergePR,
   };
+}
+
+/**
+ * Factory used by {@link withGitHubFixture}. Overridable in unit tests via
+ * {@link __setFixtureFactoryForTest} so the wrapper's control flow can be
+ * exercised without touching real GitHub.
+ */
+let fixtureFactory: () => Promise<GitHubFixture> = createGitHubFixture;
+
+/** Test-only: swap the fixture factory (pass `undefined` to restore the real one). */
+export function __setFixtureFactoryForTest(
+  factory: (() => Promise<GitHubFixture>) | undefined,
+): void {
+  fixtureFactory = factory ?? createGitHubFixture;
+}
+
+/**
+ * The record-lock key. Every live-fixture doc test contends on the SAME shared
+ * `spry-check` repo, so they must share one lock key — the value is arbitrary
+ * as long as it's identical across all callers.
+ */
+const SPRY_CHECK_LOCK_KEY = "spry-check-record";
+
+/**
+ * Run `body` under the shared `spry-check` record lock. This is the mutual
+ * exclusion primitive that keeps every live-fixture actor — the doc tests via
+ * {@link withGitHubFixture} AND the fixture's own unit tests
+ * (`github-fixture.test.ts`) — from mutating the one shared repo concurrently.
+ * They MUST all contend on the same key, or an unlocked actor's `main` rewrite
+ * or `reset()` races a locked one (the class of bug this whole module fights).
+ *
+ * Unlike {@link withGitHubFixture} this adds no reset/fixture wrapper — it is
+ * pure serialization, for callers that manage their own fixture and assertions.
+ */
+export async function withSpryCheckRecordLock<T>(
+  body: () => Promise<T>,
+  options?: { lockDir?: string },
+): Promise<T> {
+  const lockOpts = options?.lockDir ? { dir: options.lockDir } : {};
+  return withRecordLock(SPRY_CHECK_LOCK_KEY, lockOpts, body);
+}
+
+export interface WithGitHubFixtureOptions {
+  /** True under `SPRY_RECORD=1` (pass `isRecording()`). */
+  recording: boolean;
+  /** Override the lock directory (test-only). */
+  lockDir?: string;
+}
+
+/**
+ * Run a live-fixture doc-test body with correct record/replay behavior.
+ *
+ * - **Replay (`recording: false`)**: calls `body(undefined)` immediately, with
+ *   NO lock and NO fixture — replay is offline and must stay fully parallel.
+ * - **Record (`recording: true`)**: acquires a cross-process advisory lock on
+ *   the shared `spry-check` repo (see {@link withRecordLock}), creates the
+ *   fixture, `reset()`s it, runs `body(fixture)`, then `reset()`s again in a
+ *   `finally` (so a thrown body still tidies up) — all inside the lock. The
+ *   entire body is the critical section, which is why the reset-run-reset
+ *   sequence lives here rather than in each test.
+ *
+ * This is the single uniform entry point the three live-fixture doc-test files
+ * (`sync`, `land`, `group`) use, replacing the hand-rolled
+ * `isRecording()` + `createGitHubFixture()` + double-`reset()` boilerplate.
+ */
+export async function withGitHubFixture<T>(
+  options: WithGitHubFixtureOptions,
+  body: (fixture: GitHubFixture | undefined) => Promise<T>,
+): Promise<T> {
+  if (!options.recording) {
+    return body(undefined);
+  }
+
+  const lockOpts = options.lockDir ? { lockDir: options.lockDir } : undefined;
+  return withSpryCheckRecordLock(async () => {
+    const fixture = await fixtureFactory();
+    await fixture.reset();
+    try {
+      return await body(fixture);
+    } finally {
+      await fixture.reset();
+    }
+  }, lockOpts);
 }
 
 // Exported for tests so they can assert the marker check independently.
