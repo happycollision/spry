@@ -1,5 +1,6 @@
 import { $ } from "bun";
 import { withRecordLock } from "./record-lock.ts";
+import { waitForValue } from "./wait-for.ts";
 
 // Safety marker - must match the one in scripts/setup-spry-check.ts
 const SAFETY_MARKER = "<!-- spry-test-repo:v1 -->";
@@ -58,16 +59,35 @@ export interface GitHubFixture {
  * that is not a dedicated spry test repo.
  */
 async function verifyTestRepo(owner: string, repo: string): Promise<boolean> {
-  const result = await $`gh api repos/${owner}/${repo}/contents/README.md --jq .content`
-    .quiet()
-    .nothrow();
+  // Read the README once and report whether it contains the safety marker.
+  // Returns `undefined` (as opposed to false) when the read is *inconclusive* —
+  // a gh error or empty body — so the caller can retry that case without
+  // conflating it with a definitive "content present but marker absent".
+  const readMarker = async (): Promise<boolean | undefined> => {
+    const result = await $`gh api repos/${owner}/${repo}/contents/README.md --jq .content`
+      .quiet()
+      .nothrow();
+    if (result.exitCode !== 0) return undefined;
+    const raw = result.stdout.toString().trim();
+    if (raw === "") return undefined;
+    const content = Buffer.from(raw, "base64").toString("utf-8");
+    return content.includes(SAFETY_MARKER);
+  };
 
-  if (result.exitCode !== 0) {
+  // GitHub's Contents API lags a main rewrite: right after `sp land`/reset
+  // moves the default branch, a read can transiently error or return an empty
+  // body, spuriously reporting the marker missing. Retry only those
+  // inconclusive reads (undefined); a decisive true/false returns immediately.
+  try {
+    const conclusive = await waitForValue(readMarker, (v) => v !== undefined, {
+      description: `README of ${owner}/${repo} to be readable for the safety-marker check`,
+    });
+    return conclusive === true;
+  } catch {
+    // Read never became conclusive within the poll window — treat as not a test
+    // repo (safe default: refuse to mutate).
     return false;
   }
-
-  const content = Buffer.from(result.stdout.toString().trim(), "base64").toString("utf-8");
-  return content.includes(SAFETY_MARKER);
 }
 
 /**
@@ -403,6 +423,25 @@ export function __setFixtureFactoryForTest(
  */
 const SPRY_CHECK_LOCK_KEY = "spry-check-record";
 
+/**
+ * Run `body` under the shared `spry-check` record lock. This is the mutual
+ * exclusion primitive that keeps every live-fixture actor — the doc tests via
+ * {@link withGitHubFixture} AND the fixture's own unit tests
+ * (`github-fixture.test.ts`) — from mutating the one shared repo concurrently.
+ * They MUST all contend on the same key, or an unlocked actor's `main` rewrite
+ * or `reset()` races a locked one (the class of bug this whole module fights).
+ *
+ * Unlike {@link withGitHubFixture} this adds no reset/fixture wrapper — it is
+ * pure serialization, for callers that manage their own fixture and assertions.
+ */
+export async function withSpryCheckRecordLock<T>(
+  body: () => Promise<T>,
+  options?: { lockDir?: string },
+): Promise<T> {
+  const lockOpts = options?.lockDir ? { dir: options.lockDir } : {};
+  return withRecordLock(SPRY_CHECK_LOCK_KEY, lockOpts, body);
+}
+
 export interface WithGitHubFixtureOptions {
   /** True under `SPRY_RECORD=1` (pass `isRecording()`). */
   recording: boolean;
@@ -434,8 +473,8 @@ export async function withGitHubFixture<T>(
     return body(undefined);
   }
 
-  const lockOpts = options.lockDir ? { dir: options.lockDir } : {};
-  return withRecordLock(SPRY_CHECK_LOCK_KEY, lockOpts, async () => {
+  const lockOpts = options.lockDir ? { lockDir: options.lockDir } : undefined;
+  return withSpryCheckRecordLock(async () => {
     const fixture = await fixtureFactory();
     await fixture.reset();
     try {
@@ -443,7 +482,7 @@ export async function withGitHubFixture<T>(
     } finally {
       await fixture.reset();
     }
-  });
+  }, lockOpts);
 }
 
 // Exported for tests so they can assert the marker check independently.

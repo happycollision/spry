@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { $ } from "bun";
-import { createGitHubFixture, verifyTestRepo } from "./github-fixture.ts";
+import { createGitHubFixture, verifyTestRepo, withSpryCheckRecordLock } from "./github-fixture.ts";
+import { waitForValue } from "./wait-for.ts";
 
 /** Resolve the default branch's tip SHA — a valid target for a new ref. */
 async function headSha(owner: string, repo: string): Promise<string> {
@@ -13,14 +14,16 @@ async function headSha(owner: string, repo: string): Promise<string> {
  * consistent, so a freshly-created ref may not be immediately listable).
  */
 async function waitForSpryRef(owner: string, repo: string, ref: string): Promise<void> {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const result = await $`gh api repos/${owner}/${repo}/git/matching-refs/spry/ --jq '.[].ref'`
-      .quiet()
-      .nothrow();
-    if (result.stdout.toString().includes(ref)) return;
-    await Bun.sleep(500);
-  }
-  throw new Error(`Seeded ref ${ref} never became visible under refs/spry/`);
+  await waitForValue(
+    async () => {
+      const result = await $`gh api repos/${owner}/${repo}/git/matching-refs/spry/ --jq '.[].ref'`
+        .quiet()
+        .nothrow();
+      return result.stdout.toString();
+    },
+    (refs) => refs.includes(ref),
+    { description: `seeded ref ${ref} to become visible under refs/spry/` },
+  );
 }
 
 /** Count of commits reachable from the default branch tip. */
@@ -30,6 +33,26 @@ async function mainCommitCount(owner: string, repo: string): Promise<number> {
       .quiet()
       .nothrow();
   return Number(result.stdout.toString().trim());
+}
+
+/**
+ * Poll until the default branch reports exactly `expected` commits. GitHub's
+ * commits endpoint lags behind a ref PATCH, so a single read right after
+ * `reset()` can still see the pre-restore listing. This waits for the endpoint
+ * to converge rather than asserting one racy read.
+ */
+async function waitForMainCommitCount(
+  owner: string,
+  repo: string,
+  expected: number,
+): Promise<number> {
+  return waitForValue(
+    () => mainCommitCount(owner, repo),
+    (count) => count === expected,
+    {
+      description: `main to report ${expected} commit(s)`,
+    },
+  );
 }
 
 // These tests drive real `gh` against the live spry-check test repo. They
@@ -56,14 +79,18 @@ test.skipIf(SKIP)("verifyTestRepo passes against the real spry-check repo", asyn
 test.skipIf(SKIP)(
   "reset leaves zero open PRs",
   async () => {
-    const fixture = await createGitHubFixture();
+    // Serialize on the shared spry-check lock so a concurrent doc test's
+    // main rewrite / reset cannot race this test's reset + assertions.
+    await withSpryCheckRecordLock(async () => {
+      const fixture = await createGitHubFixture();
 
-    const report = await fixture.reset();
-    expect(report.errors).toEqual([]);
+      const report = await fixture.reset();
+      expect(report.errors).toEqual([]);
 
-    // After reset, no PRs should be open.
-    const remaining = await fixture.closeAllPRs();
-    expect(remaining).toBe(0);
+      // After reset, no PRs should be open.
+      const remaining = await fixture.closeAllPRs();
+      expect(remaining).toBe(0);
+    });
   },
   // Real gh round-trips (close PRs + delete branches + purge refs + restore
   // main) exceed the 5s default, like the other reset-driving tests.
@@ -73,32 +100,34 @@ test.skipIf(SKIP)(
 test.skipIf(SKIP)(
   "reset purges all refs/spry/* custom refs",
   async () => {
-    const fixture = await createGitHubFixture();
+    await withSpryCheckRecordLock(async () => {
+      const fixture = await createGitHubFixture();
 
-    // Seed a stale spry ref to simulate leftover state from a prior record run
-    // (e.g. a refs/spry/groups blob that survives across runs because the test
-    // commit-ids are deterministic).
-    await $`gh api -X POST repos/${fixture.owner}/${fixture.repo}/git/refs -f ref=refs/spry/test-purge -f sha=${await headSha(fixture.owner, fixture.repo)}`
-      .quiet()
-      .nothrow();
-
-    // GitHub's git-refs API is eventually consistent — wait until the seeded ref
-    // is actually visible before asking reset() to purge it, so we test the
-    // purge and not the create-propagation window.
-    await waitForSpryRef(fixture.owner, fixture.repo, "refs/spry/test-purge");
-
-    const report = await fixture.reset();
-    expect(report.errors).toEqual([]);
-    // The seeded ref must have been counted among the purged refs.
-    expect(report.spryRefsDeleted).toBeGreaterThanOrEqual(1);
-
-    // No refs/spry/* refs should remain after reset.
-    const remaining =
-      await $`gh api repos/${fixture.owner}/${fixture.repo}/git/matching-refs/spry/ --jq '.[].ref'`
+      // Seed a stale spry ref to simulate leftover state from a prior record run
+      // (e.g. a refs/spry/groups blob that survives across runs because the test
+      // commit-ids are deterministic).
+      await $`gh api -X POST repos/${fixture.owner}/${fixture.repo}/git/refs -f ref=refs/spry/test-purge -f sha=${await headSha(fixture.owner, fixture.repo)}`
         .quiet()
         .nothrow();
-    const refs = remaining.stdout.toString().trim();
-    expect(refs).toBe("");
+
+      // GitHub's git-refs API is eventually consistent — wait until the seeded ref
+      // is actually visible before asking reset() to purge it, so we test the
+      // purge and not the create-propagation window.
+      await waitForSpryRef(fixture.owner, fixture.repo, "refs/spry/test-purge");
+
+      const report = await fixture.reset();
+      expect(report.errors).toEqual([]);
+      // The seeded ref must have been counted among the purged refs.
+      expect(report.spryRefsDeleted).toBeGreaterThanOrEqual(1);
+
+      // No refs/spry/* refs should remain after reset.
+      const remaining =
+        await $`gh api repos/${fixture.owner}/${fixture.repo}/git/matching-refs/spry/ --jq '.[].ref'`
+          .quiet()
+          .nothrow();
+      const refs = remaining.stdout.toString().trim();
+      expect(refs).toBe("");
+    });
   },
   // Real gh round-trips (seed + list + delete + verify) exceed the 5s default.
   60000,
@@ -107,37 +136,43 @@ test.skipIf(SKIP)(
 test.skipIf(SKIP)(
   "reset restores main to the single-commit baseline",
   async () => {
-    const fixture = await createGitHubFixture();
-    const { owner, repo } = fixture;
+    await withSpryCheckRecordLock(async () => {
+      const fixture = await createGitHubFixture();
+      const { owner, repo } = fixture;
 
-    // Start clean so the seeded advance is the only thing above baseline.
-    await fixture.reset();
+      // Start clean so the seeded advance is the only thing above baseline.
+      await fixture.reset();
 
-    // Simulate the residue a prior `sp land` recording leaves behind: land's
-    // whole job is to fast-forward origin/main past the baseline, and neither
-    // closeAllPRs nor deleteAllBranches (which skips the default branch) rolls
-    // main back. Advance main by one empty commit to stand in for that.
-    const baseTip = await headSha(owner, repo);
-    const treeSha = (
-      await $`gh api repos/${owner}/${repo}/git/commits/${baseTip} --jq .tree.sha`.quiet().nothrow()
-    ).stdout
-      .toString()
-      .trim();
-    const commit =
-      await $`gh api -X POST repos/${owner}/${repo}/git/commits -f message=${"stale land residue"} -f tree=${treeSha} -f parents[]=${baseTip} --jq .sha`
+      // Simulate the residue a prior `sp land` recording leaves behind: land's
+      // whole job is to fast-forward origin/main past the baseline, and neither
+      // closeAllPRs nor deleteAllBranches (which skips the default branch) rolls
+      // main back. Advance main by one empty commit to stand in for that.
+      const baseTip = await headSha(owner, repo);
+      const treeSha = (
+        await $`gh api repos/${owner}/${repo}/git/commits/${baseTip} --jq .tree.sha`
+          .quiet()
+          .nothrow()
+      ).stdout
+        .toString()
+        .trim();
+      const commit =
+        await $`gh api -X POST repos/${owner}/${repo}/git/commits -f message=${"stale land residue"} -f tree=${treeSha} -f parents[]=${baseTip} --jq .sha`
+          .quiet()
+          .nothrow();
+      const advancedSha = commit.stdout.toString().trim();
+      await $`gh api -X PATCH repos/${owner}/${repo}/git/refs/heads/main -f sha=${advancedSha} -F force=true`
         .quiet()
         .nothrow();
-    const advancedSha = commit.stdout.toString().trim();
-    await $`gh api -X PATCH repos/${owner}/${repo}/git/refs/heads/main -f sha=${advancedSha} -F force=true`
-      .quiet()
-      .nothrow();
-    expect(await mainCommitCount(owner, repo)).toBeGreaterThan(1);
+      // Wait for the commits endpoint to reflect the advance (it lags the PATCH).
+      expect(await waitForMainCommitCount(owner, repo, 2)).toBe(2);
 
-    const report = await fixture.reset();
-    expect(report.errors).toEqual([]);
+      const report = await fixture.reset();
+      expect(report.errors).toEqual([]);
 
-    // Baseline is the single initial commit setup-spry-check.ts force-pushes.
-    expect(await mainCommitCount(owner, repo)).toBe(1);
+      // Baseline is the single initial commit setup-spry-check.ts force-pushes.
+      // Poll rather than a single read: the commits endpoint lags the reset PATCH.
+      expect(await waitForMainCommitCount(owner, repo, 1)).toBe(1);
+    });
   },
   // Real gh round-trips (advance + reset + verify) exceed the 5s default.
   60000,
