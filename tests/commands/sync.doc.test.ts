@@ -89,9 +89,18 @@ describe("sp sync docs", () => {
       await withGitHubFixture({ recording }, async () => {
         const repo = await createRepo({ origin: recording ? "github" : "local" });
         repos.push(repo);
-        doc.scrub(repo);
-        // Neutralize the real test-repo slug in generated docs.
+        // Neutralize the real test-repo slug BEFORE doc.scrub(repo). In record
+        // mode repo.originPath IS the fixture URL (https://github.com/<owner>/spry-check),
+        // and doc.scrub(repo) would rewrite that prefix to /tmp/repo-origin — which
+        // would then shadow the github-host canonicalization and leave a divergent,
+        // non-deterministic PR URL in the generated docs. Registering this first lets
+        // it win in record mode; in replay originPath is a /tmp path so order is moot.
         doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
+        doc.scrub(repo);
+        // PR numbers are GitHub-minted (non-deterministic); canonicalize the ones
+        // shown so the generated doc stays stable across re-recordings.
+        doc.scrub(/Created PR #\d+/g, "Created PR #42");
+        doc.scrub(/pull\/\d+/g, "pull/42");
 
         // Deterministic commits (repo.git pins identity/date) so the branch SHA is
         // byte-identical between the recording run and every offline replay.
@@ -140,8 +149,11 @@ describe("sp sync docs", () => {
       await withGitHubFixture({ recording }, async () => {
         const repo = await createRepo({ origin: recording ? "github" : "local" });
         repos.push(repo);
-        doc.scrub(repo);
+        // github-host canonicalization must precede doc.scrub(repo): in record mode
+        // repo.originPath is the fixture URL, and doc.scrub(repo) would otherwise
+        // rewrite it to /tmp/repo-origin and shadow this scrub. See order 20.
         doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
+        doc.scrub(repo);
 
         await repo.git.run(["config", "spry.trunk", "main"]);
         await repo.git.run(["config", "spry.remote", "origin"]);
@@ -248,8 +260,11 @@ describe("sp sync docs", () => {
       await withGitHubFixture({ recording }, async () => {
         const repo = await createRepo({ origin: recording ? "github" : "local" });
         repos.push(repo);
-        doc.scrub(repo);
+        // github-host canonicalization must precede doc.scrub(repo): in record mode
+        // repo.originPath is the fixture URL, and doc.scrub(repo) would otherwise
+        // rewrite it to /tmp/repo-origin and shadow this scrub. See order 20.
         doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
+        doc.scrub(repo);
 
         await repo.git.run(["config", "spry.trunk", "main"]);
         await repo.git.run(["config", "spry.remote", "origin"]);
@@ -336,8 +351,11 @@ describe("sp sync docs", () => {
       await withGitHubFixture({ recording }, async () => {
         const repo = await createRepo({ origin: recording ? "github" : "local" });
         repos.push(repo);
-        doc.scrub(repo);
+        // github-host canonicalization must precede doc.scrub(repo): in record mode
+        // repo.originPath is the fixture URL, and doc.scrub(repo) would otherwise
+        // rewrite it to /tmp/repo-origin and shadow this scrub. See order 20.
         doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
+        doc.scrub(repo);
 
         await repo.git.run(["config", "spry.trunk", "main"]);
         await repo.git.run(["config", "spry.remote", "origin"]);
@@ -425,8 +443,11 @@ describe("sp sync docs", () => {
       await withGitHubFixture({ recording }, async () => {
         const repo = await createRepo({ origin: recording ? "github" : "local" });
         repos.push(repo);
-        doc.scrub(repo);
+        // github-host canonicalization must precede doc.scrub(repo): in record mode
+        // repo.originPath is the fixture URL, and doc.scrub(repo) would otherwise
+        // rewrite it to /tmp/repo-origin and shadow this scrub. See order 20.
         doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
+        doc.scrub(repo);
 
         await repo.git.run(["config", "spry.trunk", "main"]);
         await repo.git.run(["config", "spry.remote", "origin"]);
