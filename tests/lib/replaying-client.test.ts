@@ -43,11 +43,11 @@ test("throws if more calls than recorded entries", async () => {
   const client = await createReplayingClient(cassettePath);
   await client.run(["status"]); // consumes the one entry
 
-  expect(client.run(["log"])).rejects.toThrow(/no more recorded entries/i);
+  await expect(client.run(["log"])).rejects.toThrow(/no more recorded entries/i);
 });
 
 test("throws if cassette file does not exist", async () => {
-  expect(createReplayingClient(join(tmpDir, "nonexistent.json"))).rejects.toThrow();
+  await expect(createReplayingClient(join(tmpDir, "nonexistent.json"))).rejects.toThrow();
 });
 
 test("throws if args don't match recorded entry", async () => {
@@ -57,7 +57,7 @@ test("throws if args don't match recorded entry", async () => {
   });
 
   const client = await createReplayingClient(cassettePath);
-  expect(client.run(["log"])).rejects.toThrow(/mismatch/i);
+  await expect(client.run(["log"])).rejects.toThrow(/mismatch/i);
 });
 
 test("match:args consumes the entry whose args+stdin match, order-independent", async () => {
@@ -89,5 +89,5 @@ test("match:args throws when no unconsumed entry matches", async () => {
     entries: [{ args: ["pr", "list"], result: { stdout: "", stderr: "", exitCode: 0 } }],
   });
   const client = await createReplayingClient(cassettePath, { match: "args" });
-  expect(client.run(["pr", "view"])).rejects.toThrow(/no matching/i);
+  await expect(client.run(["pr", "view"])).rejects.toThrow(/no matching/i);
 });
