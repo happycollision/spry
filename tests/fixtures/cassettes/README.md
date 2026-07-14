@@ -31,10 +31,11 @@ unique per run — no `gh` call is keyed by SHA. See `tests/lib/repo.ts`.)
 See also `tests/lib/cassette-harness.ts`.
 
 Each fixture test runs in its own **namespace** on the fixture repo: a
-per-test trunk (`trunk/<section>-<order>`, pushed from the baseline commit),
-a per-test branch prefix (`spry/t-<section>-<order>`), and a per-test remote
-home for spry's shared bookkeeping refs (`SPRY_REMOTE_REFS_PREFIX` →
-`refs/spry/t-<section>-<order>/{prs,groups}`; see `src/lib/refs-seam.ts`),
+per-test trunk (`trunk/<section-leaf>-<order>`, e.g. `trunk/sync-020`, pushed
+from the baseline commit), a per-test branch prefix
+(`spry/t-<section-leaf>-<order>`), and a per-test remote home for spry's
+shared bookkeeping refs (`SPRY_REMOTE_REFS_PREFIX` →
+`refs/spry/t-<section-leaf>-<order>/{prs,groups}`; see `src/lib/refs-seam.ts`),
 all pinned by `setupDocRepo` (`tests/lib/doc-repo.ts`). The names are pinned
 PER TEST, not per run, because they are cassette keys (`pr create --base
 <trunk>` is recorded); `setupDocRepo` registers scrubs mapping them back to
@@ -72,6 +73,8 @@ repo-wide destructive ops (`reset`, `restoreMainToBaseline`) that no namespace
 can contain, so they target a second dedicated repo,
 `happycollision/spry-check-fixture` (same safety marker; bootstrap with
 `SPRY_TEST_REPO_NAME=spry-check-fixture bun run scripts/setup-spry-check.ts`).
+Override that target repo's name with `SPRY_TEST_FIXTURE_REPO_NAME` (analogous
+to `SPRY_TEST_REPO_NAME` for the doc-test repo).
 
 Recording is **non-interactive** — the agent runs it itself (do not ask the
 user) whenever `gh` is authenticated. See the AGENTS.md testing section.

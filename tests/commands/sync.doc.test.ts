@@ -74,9 +74,13 @@ describe("sp sync docs", () => {
     expect(result2.stdout).not.toContain("pushed spry/dondenton/aaa11111");
   });
 
+  // Fixture doc tests carry a 180s timeout (here and below): replay finishes
+  // in seconds, but under a concurrent record run the budget must also absorb
+  // the shared suite-start reset (serial gh round-trips scaling with the
+  // previous session's residue) plus this test's own live gh traffic.
   docTest(
     "Opening a new PR",
-    { section: "commands/sync", order: 20, timeout: 60000 },
+    { section: "commands/sync", order: 20, timeout: 180000 },
     async (doc) => {
       // Record mode drives the real spry-check repo and captures genuine gh
       // responses into the committed cassette; replay (default) serves them
@@ -126,7 +130,7 @@ describe("sp sync docs", () => {
 
   docTest(
     "Opening a group as a single PR",
-    { section: "commands/sync", order: 22, timeout: 60000 },
+    { section: "commands/sync", order: 22, timeout: 180000 },
     async (doc) => {
       // Record mode publishes one real PR on spry-check for the grouped unit and
       // captures gh's create + PR-status traffic; replay serves it offline. Same
@@ -228,7 +232,7 @@ describe("sp sync docs", () => {
 
   docTest(
     "Selecting which branches to open as PRs",
-    { section: "commands/sync", order: 25, timeout: 60000 },
+    { section: "commands/sync", order: 25, timeout: 180000 },
     async (doc) => {
       const recording = isRecording();
       await withGitHubFixture({ recording }, async () => {
@@ -308,7 +312,7 @@ describe("sp sync docs", () => {
 
   docTest(
     "Pushing every tracked stack with --all",
-    { section: "commands/sync", order: 60, timeout: 60000 },
+    { section: "commands/sync", order: 60, timeout: 180000 },
     async (doc) => {
       // Record mode builds two independent stacks on spry-check, opens each
       // stack's PR (via `sp sync --open`, so the PR has a real diff and stays
@@ -394,7 +398,7 @@ describe("sp sync docs", () => {
 
   docTest(
     "Reordering a stack without merging PRs",
-    { section: "commands/sync", order: 70, timeout: 60000 },
+    { section: "commands/sync", order: 70, timeout: 180000 },
     async (doc) => {
       const recording = isRecording();
       await withGitHubFixture({ recording }, async () => {

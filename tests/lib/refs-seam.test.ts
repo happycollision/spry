@@ -17,3 +17,8 @@ test("remaps only the refs/spry prefix when set", () => {
   // bookkeeping refs, never branches).
   expect(remoteSpryRef("refs/heads/main", env)).toBe("refs/heads/main");
 });
+
+test("segment-anchored: a prefix that merely starts with refs/spry is not remapped", () => {
+  const env = { SPRY_REMOTE_REFS_PREFIX: "refs/spry/t-sync-020" };
+  expect(remoteSpryRef("refs/spryware/x", env)).toBe("refs/spryware/x");
+});

@@ -176,18 +176,15 @@ export async function createGitHubFixture(
       .trim()
       .split("\n")
       .filter((n) => n);
-    let closed = 0;
-
-    for (const prNumber of prNumbers) {
-      const closeResult = await $`gh pr close ${prNumber} --repo ${owner}/${repo} --delete-branch`
-        .quiet()
-        .nothrow();
-      if (closeResult.exitCode === 0) {
-        closed++;
-      }
-    }
-
-    return closed;
+    // Independent gh calls — run them concurrently. The suite-start reset's
+    // cost scales with prior-session residue (a dozen PRs is routine), and it
+    // sits inside every waiting test's timeout budget under `--concurrent`.
+    const results = await Promise.all(
+      prNumbers.map((prNumber) =>
+        $`gh pr close ${prNumber} --repo ${owner}/${repo} --delete-branch`.quiet().nothrow(),
+      ),
+    );
+    return results.filter((r) => r.exitCode === 0).length;
   }
 
   async function deleteAllBranches(): Promise<number> {
@@ -215,18 +212,13 @@ export async function createGitHubFixture(
       .split("\n")
       .filter((b) => b && b !== defaultBranch);
 
-    let deleted = 0;
-
-    for (const branch of branches) {
-      const deleteResult = await $`gh api -X DELETE repos/${owner}/${repo}/git/refs/heads/${branch}`
-        .quiet()
-        .nothrow();
-      if (deleteResult.exitCode === 0) {
-        deleted++;
-      }
-    }
-
-    return deleted;
+    // Independent gh calls — run them concurrently (see closeAllPRs).
+    const results = await Promise.all(
+      branches.map((branch) =>
+        $`gh api -X DELETE repos/${owner}/${repo}/git/refs/heads/${branch}`.quiet().nothrow(),
+      ),
+    );
+    return results.filter((r) => r.exitCode === 0).length;
   }
 
   /** List every ref under refs/spry/ (empty array when there are none). */
@@ -486,25 +478,42 @@ export async function withSpryCheckRecordLock<T>(
 let sessionFixturePromise: Promise<GitHubFixture> | undefined;
 
 function ensureSessionFixture(lockDir?: string): Promise<GitHubFixture> {
+  // Note: lockDir is first-caller-wins — only the call that creates the memo
+  // uses it. Fine in practice: real callers never pass one, and the unit
+  // tests reset the memo between cases.
   if (!sessionFixturePromise) {
-    sessionFixturePromise = (async () => {
+    const promise = (async () => {
       const fixture = await fixtureFactory();
       // Hold the record lock across the reset so it cannot interleave with an
       // exclusive body (e.g. the canonical land test) from another process.
+      const startedAt = Date.now();
       await withSpryCheckRecordLock(() => fixture.reset(), lockDir ? { lockDir } : undefined).then(
         (report) => {
           if (report.errors.length > 0) {
             throw new Error(`Suite-start fixture reset failed:\n${report.errors.join("\n")}`);
           }
+          // The reset runs inside every waiting test's timeout budget, so log
+          // its cost: a future record-mode timeout flake should be diagnosable
+          // as reset-cost from the test output alone.
+          console.log(
+            `[github-fixture] suite-start reset of ${fixture.owner}/${fixture.repo} took ` +
+              `${((Date.now() - startedAt) / 1000).toFixed(1)}s ` +
+              `(${report.prsClosed} PRs closed, ${report.branchesDeleted} branches deleted, ` +
+              `${report.spryRefsDeleted} spry refs purged, main restored: ${report.mainRestored})`,
+          );
         },
       );
       return fixture;
     })();
+    sessionFixturePromise = promise;
     // A failed suite-start reset must not be sticky-memoized as a rejected
     // promise that poisons an unrelated later call — clear the memo so the
     // next caller retries (each awaiting caller still sees the rejection).
-    sessionFixturePromise.catch(() => {
-      sessionFixturePromise = undefined;
+    // Guard against clearing a NEWER memo installed after this one failed.
+    promise.catch(() => {
+      if (sessionFixturePromise === promise) {
+        sessionFixturePromise = undefined;
+      }
     });
   }
   return sessionFixturePromise;

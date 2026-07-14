@@ -271,7 +271,7 @@ describe("sp group docs", () => {
 
   docTest(
     "Adopting a PR",
-    { section: "commands/group", order: 25, timeout: 60000 },
+    { section: "commands/group", order: 25, timeout: 180000 },
     async (doc) => {
       // Record mode publishes one real PR on spry-check (for the bottom commit)
       // and captures group's pre-editor PR lookup (findPRsForBranches); replay

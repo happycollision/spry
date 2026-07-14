@@ -90,10 +90,16 @@ export async function setupDocRepo(
   const repoName = process.env.SPRY_TEST_REPO_NAME ?? "spry-check";
   const repoSlug = `${repoOwner}/${repoName}`;
 
-  // This test's namespace on the fixture repo, keyed by section leaf + order
-  // exactly like the cassette file. Deterministic per test, never per run:
-  // both names end up in recorded gh args, so they must be byte-identical
-  // between record and replay.
+  // This test's namespace on the fixture repo, keyed by section LEAF + order.
+  // Deterministic per test, never per run: both names end up in recorded gh
+  // args, so they must be byte-identical between record and replay.
+  //
+  // NOTE the leaf-uniqueness assumption: cassettes are keyed by the FULL
+  // section ("commands/sync" -> commands__sync--020.json) but the namespace
+  // only by its leaf ("sync-020") — two sections sharing a leaf (e.g. a future
+  // "tui/sync") would collide on trunk/prefix at the same order even though
+  // their cassettes would not. If that happens, switch to the full sanitized
+  // section here (a cassette-key change: re-record everything).
   const sectionLeaf = options.section.split("/").pop() ?? options.section;
   const namespaceKey = `${sectionLeaf}-${String(options.order).padStart(3, "0")}`;
   const trunkName =

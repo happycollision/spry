@@ -27,5 +27,7 @@ export function remoteSpryRef(
 ): string {
   const prefix = env.SPRY_REMOTE_REFS_PREFIX;
   if (!prefix) return localRef;
-  return localRef.replace(/^refs\/spry/, prefix);
+  // Lookahead keeps the match anchored to the "refs/spry" path SEGMENT, so a
+  // hypothetical "refs/spryware/x" is never remapped.
+  return localRef.replace(/^refs\/spry(?=\/)/, prefix);
 }
