@@ -1,5 +1,9 @@
 # Investigation: `sp group` reorder doc test — varying `--all --reflog` commit count (8 vs 9)
 
+> **Note (2026-07-13):** the pinned-`2020-01-01` commit-date scheme described
+> below has been superseded by per-run seeded dates (spry-qfc8.5, see
+> `tests/lib/repo.ts`). The diagnosis and method remain valid history.
+
 Date: 2026-07-07
 Investigated on: `main` (branch `investigate/group-reflog-nondeterminism`, tip `9aab7f8`)
 Environment: git 2.52.0, Bun 1.3.11, macOS 26.5.1 (no docker aliases needed; git ≥ 2.40)

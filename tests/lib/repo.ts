@@ -46,8 +46,11 @@ export interface CreateRepoOptions {
 // doc test asserts a literal SHA, and the doc scrubber maps SHAs to a pool by
 // discovery order, not value. What IS load-bearing is a stable ORDER + COUNT
 // from the scrubber's `git log --all --reflog` walk, and distinct
-// monotonically increasing dates give that walk a total order (stronger than
-// the previous all-identical pinned date). Per-run uniqueness is the point:
+// monotonically increasing dates give that walk a total order over
+// independently created commits (stronger than the previous all-identical
+// pinned date); rewrite-inherited dates (e.g. `sp group`'s rewrite path copies
+// committer dates from the originals) can still tie, resolved deterministically
+// by git's commit-queue order. Per-run uniqueness is the point:
 // GitHub accumulates check runs on a SHA reused across recording sessions,
 // which trips `sp land`'s readiness gate with stale pending rollups.
 export const DETERMINISTIC_GIT_ENV = {
@@ -61,7 +64,10 @@ export const DETERMINISTIC_GIT_ENV = {
 // run's SHAs are unique. Shifted ~11 years into the past so commits made
 // WITHOUT this env (e.g. TUI-harness bookkeeping writes to refs/spry/*, which
 // use wall-clock dates) always sort strictly newer than every seeded commit —
-// keeping the scrubber's date-ordered walk deterministic.
+// keeping the scrubber's date-ordered walk deterministic. Headroom: seeded
+// dates would only cross wall clock after ~100k ticks in one process; ticks
+// accrue per git-runner call (including reads), and a full suite burns a few
+// thousand.
 const RUN_BASE_SECONDS = Math.floor(Date.now() / 1000) - 100_000 * 3600;
 
 // PROCESS-GLOBAL date counter, shared by every repo. Global (not per-repo) on
@@ -182,8 +188,10 @@ export async function createRepo(options?: CreateRepoOptions): Promise<TestRepo>
   // injects the pinned identity plus the advancing per-run date env, so
   // test-authored commits (created via raw git, not repo.commit) also get
   // distinct monotonic dates. Every run() call ticks the date counter — a tick
-  // without a commit is harmless (dates stay monotonic and unique). Callers
-  // can still override cwd or individual env vars explicitly.
+  // without a commit is harmless (dates stay monotonic and unique). Caveat: a
+  // single git invocation that creates MULTIPLE commits (rebase, cherry-pick
+  // range) would stamp them all with one date; no current test does this.
+  // Callers can still override cwd or individual env vars explicitly.
   const realGit = createRealGitRunner();
   const git: GitRunner = {
     run(args, options) {

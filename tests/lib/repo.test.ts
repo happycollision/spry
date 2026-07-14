@@ -87,6 +87,9 @@ test("commit dates are distinct and monotonically increasing within a repo", asy
   for (let i = 1; i < dates.length; i++) {
     expect(dates[i]!).toBeGreaterThan(dates[i - 1]!);
   }
+  // Seeded dates sit well below wall clock, so wall-clock-dated bookkeeping
+  // commits always sort strictly newer in the scrubber's date-ordered walk.
+  expect(dates.at(-1)!).toBeLessThan(Date.now() / 1000 - 86_400);
 });
 
 test("identical commit sequences in different repos mint distinct SHAs", async () => {
