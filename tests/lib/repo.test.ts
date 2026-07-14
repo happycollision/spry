@@ -65,26 +65,43 @@ test("branch creates and checks out new branch", async () => {
   expect(branchName).toContain(repo.uniqueId);
 });
 
-test("deterministic commits produce identical SHAs across repos", async () => {
-  const r1 = await tracked(await createRepo({ uniqueIdRng: createSeededRng("sha-stability") }));
-  const s1 = await r1.commit("Add login");
-  const r2 = await tracked(await createRepo({ uniqueIdRng: createSeededRng("sha-stability") }));
-  const s2 = await r2.commit("Add login");
+test("seeded uniqueIdRng produces identical uniqueIds across repos", async () => {
+  const r1 = await tracked(await createRepo({ uniqueIdRng: createSeededRng("id-stability") }));
+  const r2 = await tracked(await createRepo({ uniqueIdRng: createSeededRng("id-stability") }));
   expect(r1.uniqueId).toBe(r2.uniqueId);
-  expect(s1).toBe(s2);
 });
 
-test("repo.git produces identical SHAs across seeded repos", async () => {
-  const rng = () => createSeededRng("git-runner-stability");
-  const r1 = await tracked(await createRepo({ uniqueIdRng: rng() }));
-  await r1.git.run(["commit", "--allow-empty", "-m", "Pinned commit"]);
+// SHAs are intentionally NOT stable across runs (or across repos): commit
+// dates come from a per-run base advanced by a process-global counter, so
+// every run — and every repo within a run — mints fresh SHAs (GitHub would
+// otherwise accumulate check runs on a reused SHA). What must hold instead:
+// dates are distinct and monotonically increasing within a repo, giving the
+// doc scrubber's date-ordered reflog walk a total order.
+test("commit dates are distinct and monotonically increasing within a repo", async () => {
+  const repo = await tracked(await createRepo());
+  await repo.commit("First");
+  await repo.git.run(["commit", "--allow-empty", "-m", "Second"]);
+  const log = (await repo.git.run(["log", "--format=%ct", "--reverse", "HEAD"])).stdout.trim();
+  const dates = log.split("\n").map(Number);
+  expect(dates.length).toBe(3); // initial + 2
+  for (let i = 1; i < dates.length; i++) {
+    expect(dates[i]!).toBeGreaterThan(dates[i - 1]!);
+  }
+});
+
+test("identical commit sequences in different repos mint distinct SHAs", async () => {
+  const r1 = await tracked(await createRepo({ uniqueIdRng: createSeededRng("cross-repo") }));
+  await r1.git.run(["commit", "--allow-empty", "-m", "Same message"]);
   const s1 = (await r1.git.run(["rev-parse", "HEAD"])).stdout.trim();
 
-  const r2 = await tracked(await createRepo({ uniqueIdRng: rng() }));
-  await r2.git.run(["commit", "--allow-empty", "-m", "Pinned commit"]);
+  const r2 = await tracked(await createRepo({ uniqueIdRng: createSeededRng("cross-repo") }));
+  await r2.git.run(["commit", "--allow-empty", "-m", "Same message"]);
   const s2 = (await r2.git.run(["rev-parse", "HEAD"])).stdout.trim();
 
-  expect(s1).toBe(s2);
+  // Even with identical uniqueIds, messages, and call sequences, the shared
+  // date counter keeps SHAs unique — reusing a SHA on GitHub accumulates
+  // check runs across PRs (the land readiness-gate trap).
+  expect(s1).not.toBe(s2);
 });
 
 test("cleanup removes temp directories", async () => {

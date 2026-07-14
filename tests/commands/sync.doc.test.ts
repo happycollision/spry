@@ -102,8 +102,9 @@ describe("sp sync docs", () => {
         doc.scrub(/Created PR #\d+/g, "Created PR #42");
         doc.scrub(/pull\/\d+/g, "pull/42");
 
-        // Deterministic commits (repo.git pins identity/date) so the branch SHA is
-        // byte-identical between the recording run and every offline replay.
+        // Seeded commits: repo.git pins identity and stamps per-run monotonic
+        // dates. Replay does not need matching SHAs — the cassette keys gh
+        // calls by branch name, never by SHA.
         await repo.git.run(["config", "spry.trunk", "main"]);
         await repo.git.run(["config", "spry.remote", "origin"]);
         await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);

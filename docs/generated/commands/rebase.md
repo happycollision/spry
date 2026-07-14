@@ -29,7 +29,7 @@ sp rebase
 ```
 
 ```
-✗ Rebase would conflict on commit b47e1d05: Add API handler
+✗ Rebase would conflict on commit 7c3d9e2f: Add API handler
 
   Conflicting files:
     - api.ts

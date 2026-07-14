@@ -33,7 +33,9 @@ function repoSlug(): string {
  * upper→the bottom unit's branch), matching a synced stack, and wait for CI to
  * pass — land's readiness gate refuses PRs with pending checks or mis-targeted
  * bases. Because setup never changes a PR base after CI starts, there is no
- * pending-CI re-trigger race. The same deterministic commits run both ways.
+ * pending-CI re-trigger race. The repo's per-run seeded commit dates make each
+ * run's SHAs unique, so GitHub never accumulates historical check runs on a
+ * reused SHA — every PR gets a clean, single-run rollup.
  */
 async function setupLandStack(repo: TestRepo, recording: boolean): Promise<void> {
   await repo.git.run(["config", "spry.trunk", "main"]);
@@ -44,25 +46,12 @@ async function setupLandStack(repo: TestRepo, recording: boolean): Promise<void>
   // against (defaults to the maintainer's spry-check).
   await repo.git.run(["config", "spry.repo", repoSlug()]);
 
-  // A per-run nonce makes the empty commits' SHAs unique. Without it the fixed
-  // subject + fixed Spry-Commit-Id + fixed parent produce identical SHAs every
-  // run, so GitHub accumulates ALL historical check runs on that SHA — including
-  // a freshly-QUEUED one each time the PR reopens — and land's readiness gate
-  // (correctly) reads the rollup as `pending`. Unique SHAs give each PR a clean,
-  // single-run rollup. The nonce sits in a body paragraph ABOVE the trailer, so
-  // `Spry-Commit-Id` stays the last trailer and `--through <id>` still resolves.
-  const nonce = `${process.pid}-${performance.now()}`;
   await repo.git.run(["checkout", "-b", "feature/x"]);
   for (const [subject, id] of [
     ["Add login", "aaa11111"],
     ["Add logout", "bbb22222"],
   ] as const) {
-    await repo.git.run([
-      "commit",
-      "--allow-empty",
-      "-m",
-      `${subject}\n\ntest-nonce: ${nonce}\n\nSpry-Commit-Id: ${id}`,
-    ]);
+    await repo.git.run(["commit", "--allow-empty", "-m", `${subject}\n\nSpry-Commit-Id: ${id}`]);
     const head = (await repo.git.run(["rev-parse", "HEAD"])).stdout.trim();
     await repo.git.run(["push", "origin", `${head}:refs/heads/spry/dondenton/${id}`]);
   }

@@ -38,19 +38,42 @@ export interface CreateRepoOptions {
   uniqueIdRng?: () => number;
 }
 
-// Pinned author/committer identity + dates so that, given the same tree,
-// parents, and message, git produces a byte-stable commit SHA. Without this,
-// floating commit timestamps make every recorded SHA non-reproducible.
+// Pinned author/committer identity so commit objects never depend on local
+// git config. Dates are deliberately NOT pinned to a constant: each commit
+// gets a per-run seeded date (see the per-repo counter in createRepo).
+//
+// Byte-stable SHAs are not needed anywhere — no cassette contains a SHA, no
+// doc test asserts a literal SHA, and the doc scrubber maps SHAs to a pool by
+// discovery order, not value. What IS load-bearing is a stable ORDER + COUNT
+// from the scrubber's `git log --all --reflog` walk, and distinct
+// monotonically increasing dates give that walk a total order (stronger than
+// the previous all-identical pinned date). Per-run uniqueness is the point:
+// GitHub accumulates check runs on a SHA reused across recording sessions,
+// which trips `sp land`'s readiness gate with stale pending rollups.
 export const DETERMINISTIC_GIT_ENV = {
-  GIT_AUTHOR_DATE: "2020-01-01T00:00:00Z",
-  GIT_COMMITTER_DATE: "2020-01-01T00:00:00Z",
   GIT_AUTHOR_NAME: "Test User",
   GIT_AUTHOR_EMAIL: "test@example.com",
   GIT_COMMITTER_NAME: "Test User",
   GIT_COMMITTER_EMAIL: "test@example.com",
 } as const;
 
-const commitEnv = { ...process.env, ...DETERMINISTIC_GIT_ENV };
+// Per-run base for seeded commit dates, derived once at process start so every
+// run's SHAs are unique. Shifted ~11 years into the past so commits made
+// WITHOUT this env (e.g. TUI-harness bookkeeping writes to refs/spry/*, which
+// use wall-clock dates) always sort strictly newer than every seeded commit —
+// keeping the scrubber's date-ordered walk deterministic.
+const RUN_BASE_SECONDS = Math.floor(Date.now() / 1000) - 100_000 * 3600;
+
+// PROCESS-GLOBAL date counter, shared by every repo. Global (not per-repo) on
+// purpose: two repos in one run that replay the same setup sequence against
+// the same clone baseline would otherwise mint IDENTICAL SHAs (same tree,
+// parent, message, identity, and per-repo tick) — re-creating the in-run half
+// of the GitHub check-run accumulation trap (observed: the two land doc tests
+// collided, and the second one's readiness gate tripped on the first one's
+// check runs). A shared counter makes every seeded date unique process-wide
+// while keeping each repo's dates strictly monotonic. Increments are
+// synchronous on the JS thread, so concurrent tests cannot race a tick.
+let globalDateCounter = 0;
 
 // Disk-path uniqueness counter. The on-disk temp paths must always be unique
 // (even when two repos share a seeded, deterministic uniqueId), but this
@@ -69,6 +92,20 @@ export async function createRepo(options?: CreateRepoOptions): Promise<TestRepo>
   // Per-repo commit counter so a fresh repo always starts at the same
   // sequence (first commit -> file-1.txt, second -> file-2.txt, ...).
   let counter = 0;
+
+  // Every git invocation that might create a commit advances the seeded clock
+  // by one hour from the per-run base (via the process-global counter above),
+  // so commit dates are unique process-wide and monotonically increasing
+  // within this repo.
+  function nextDateEnv(): { GIT_AUTHOR_DATE: string; GIT_COMMITTER_DATE: string } {
+    globalDateCounter++;
+    // Git's internal "<epoch> <offset>" date format — unambiguous, no parsing.
+    const date = `${RUN_BASE_SECONDS + globalDateCounter * 3600} +0000`;
+    return { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date };
+  }
+  function commitEnv(): Record<string, string> {
+    return { ...process.env, ...DETERMINISTIC_GIT_ENV, ...nextDateEnv() };
+  }
 
   let originPath: string;
   if (origin === "github") {
@@ -95,7 +132,7 @@ export async function createRepo(options?: CreateRepoOptions): Promise<TestRepo>
     const initFile = join(workPath, "README.md");
     await Bun.write(initFile, "# Test repo\n");
     await $`git -C ${workPath} add .`.quiet();
-    await $`git -C ${workPath} commit -m "Initial commit"`.env(commitEnv).quiet();
+    await $`git -C ${workPath} commit -m "Initial commit"`.env(commitEnv()).quiet();
     await $`git -C ${workPath} push origin ${defaultBranch}`.quiet();
   }
 
@@ -105,7 +142,7 @@ export async function createRepo(options?: CreateRepoOptions): Promise<TestRepo>
     const msg = message ?? `Commit ${counter}`;
     await Bun.write(join(workPath, filename), `Content: ${msg}\n`);
     await $`git -C ${workPath} add .`.quiet();
-    await $`git -C ${workPath} commit -m ${msg}`.env(commitEnv).quiet();
+    await $`git -C ${workPath} commit -m ${msg}`.env(commitEnv()).quiet();
     return (await $`git -C ${workPath} rev-parse HEAD`.quiet().text()).trim();
   }
 
@@ -119,7 +156,7 @@ export async function createRepo(options?: CreateRepoOptions): Promise<TestRepo>
       await Bun.write(filePath, content);
     }
     await $`git -C ${workPath} add .`.quiet();
-    await $`git -C ${workPath} commit -m ${msg}`.env(commitEnv).quiet();
+    await $`git -C ${workPath} commit -m ${msg}`.env(commitEnv()).quiet();
     return (await $`git -C ${workPath} rev-parse HEAD`.quiet().text()).trim();
   }
 
@@ -141,17 +178,19 @@ export async function createRepo(options?: CreateRepoOptions): Promise<TestRepo>
     return (await $`git -C ${workPath} rev-parse --abbrev-ref HEAD`.quiet().text()).trim();
   }
 
-  // Deterministic git runner bound to this repo. Defaults cwd to the working
-  // tree and injects the pinned identity/date env so test-authored commits
-  // (created via raw git, not repo.commit) are also byte-stable. Callers can
-  // still override cwd or individual env vars explicitly.
+  // Seeded git runner bound to this repo. Defaults cwd to the working tree and
+  // injects the pinned identity plus the advancing per-run date env, so
+  // test-authored commits (created via raw git, not repo.commit) also get
+  // distinct monotonic dates. Every run() call ticks the date counter — a tick
+  // without a commit is harmless (dates stay monotonic and unique). Callers
+  // can still override cwd or individual env vars explicitly.
   const realGit = createRealGitRunner();
   const git: GitRunner = {
     run(args, options) {
       return realGit.run(args, {
         ...options,
         cwd: options?.cwd ?? workPath,
-        env: { ...process.env, ...DETERMINISTIC_GIT_ENV, ...options?.env },
+        env: { ...commitEnv(), ...options?.env },
       });
     },
   };
