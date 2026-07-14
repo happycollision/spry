@@ -24,9 +24,11 @@ A doc fragment runs the same body two ways, switching on `SPRY_RECORD`:
 - **Record (`SPRY_RECORD=1`):** `git` origin is a real `spry-check` clone, the
   seam (`SPRY_GH_CASSETTE_RECORD`) wraps real `gh` and writes the cassette.
 
-Determinism is the bridge: pinned commit dates/identity + a fixed `spry.repo`
-slug make the `gh` arguments byte-identical across both modes, so the args-keyed
-replayer matches. See `tests/lib/cassette-harness.ts` and `tests/lib/repo.ts`.
+Determinism is the bridge: fixed branch names, fixed `Spry-Commit-Id`s, and a
+fixed `spry.repo` slug make the `gh` arguments byte-identical across both
+modes, so the args-keyed replayer matches. (Commit SHAs are deliberately
+unique per run — no `gh` call is keyed by SHA. See `tests/lib/repo.ts`.)
+See also `tests/lib/cassette-harness.ts`.
 
 Cassettes are keyed by doc section + order, mirroring `fragmentPath`:
 `commands__sync--020.json` ⇔ `{ section: "commands/sync", order: 20 }`.

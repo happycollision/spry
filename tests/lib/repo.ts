@@ -40,7 +40,7 @@ export interface CreateRepoOptions {
 
 // Pinned author/committer identity so commit objects never depend on local
 // git config. Dates are deliberately NOT pinned to a constant: each commit
-// gets a per-run seeded date (see the per-repo counter in createRepo).
+// gets a per-run seeded date (see globalDateCounter below).
 //
 // Byte-stable SHAs are not needed anywhere — no cassette contains a SHA, no
 // doc test asserts a literal SHA, and the doc scrubber maps SHAs to a pool by
