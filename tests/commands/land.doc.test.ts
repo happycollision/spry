@@ -230,9 +230,9 @@ describe("sp land docs", () => {
         // resolves and flush() runs, so waiting for exit avoids racing any
         // trailing work with a hard kill (see
         // docs/investigations/2026-07-07-group-reflog-nondeterminism.md).
-        await driver.waitForExit({ timeout: 20000 });
-
         const { expect } = await import("bun:test");
+        expect(await driver.waitForExit({ timeout: 20000 })).toBe(0);
+
         const snap = driver.capture();
         expect(snap.text).toContain("Landed");
       });

@@ -283,7 +283,8 @@ describe("sp sync docs", () => {
         // resolves and flush() runs, so waiting for exit avoids racing any
         // trailing work with a hard kill (see
         // docs/investigations/2026-07-07-group-reflog-nondeterminism.md).
-        await driver.waitForExit({ timeout: 20000 });
+        const { expect } = await import("bun:test");
+        expect(await driver.waitForExit({ timeout: 20000 })).toBe(0);
 
         const snap = driver.capture();
         const syncLines = snap.lines
@@ -299,7 +300,6 @@ describe("sp sync docs", () => {
           );
         doc.output(syncLines.join("\n") + "\n");
 
-        const { expect } = await import("bun:test");
         expect(snap.text).toContain("Sync complete");
         // The captured terminal text is the real (unscrubbed) output: a created PR
         // with a GitHub-minted number. (The scrubs above only canonicalize the
