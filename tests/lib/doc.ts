@@ -134,6 +134,24 @@ export function docTest(
         const allSpryIds = new Set<string>();
 
         for (const repo of scrubRepos) {
+          // Scope the scan to THIS test's own work before walking (spry-4zs6):
+          // drop the clone's remote-tracking refs AND their reflogs in one
+          // stroke. Under concurrent record the origin is the shared
+          // spry-check repo, and `sp sync`'s fetch pulls every in-flight
+          // sibling's branches into refs/remotes/* — the `--all --reflog`
+          // walk below would sweep those foreign commits, making SHA
+          // discovery count and order racy across runs (`--exclude` cannot
+          // fix it: the remote-tracking REFLOGS still feed `--reflog`).
+          // Nothing this test created is lost: its commits stay reachable
+          // from local branches, the HEAD/refs-heads reflogs (fetch never
+          // writes those), and the origin-side walk. The scan runs after the
+          // test body and the repo is torn down right after, so the mutation
+          // is invisible to the test. Replay discovery is unchanged: a local
+          // bare origin only ever contains this test's own pushes, so its
+          // remote-tracking refs were redundant with the other walks
+          // (acceptance bar: docs/generated stays byte-identical).
+          await $`git -C ${repo.path} remote remove origin`.quiet().nothrow();
+
           // `--all --reflog` walks every ref AND every reflog entry, following
           // each back through its ancestors. This matters when a doc test
           // captures a screen showing pre-rewrite hashes (e.g. the MOVE-MODE
