@@ -5,8 +5,8 @@ import {
   docTest,
   createRepo,
   createTerminalDriver,
-  cassetteEnv,
   isRecording,
+  setupDocRepo,
   withGitHubFixture,
 } from "../lib/index.ts";
 
@@ -281,18 +281,12 @@ describe("sp group docs", () => {
       // and owner/repo (no SHA), which makes replay matching fully deterministic.
       const recording = isRecording();
       await withGitHubFixture({ recording }, async () => {
-        const repo = await createRepo({ origin: recording ? "github" : "local" });
+        const { repo, env } = await setupDocRepo(doc, {
+          recording,
+          section: "commands/group",
+          order: 25,
+        });
         repos.push(repo);
-        doc.scrub(repo);
-        doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
-
-        await repo.git.run(["config", "spry.trunk", "main"]);
-        await repo.git.run(["config", "spry.remote", "origin"]);
-        await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
-        // gh needs explicit owner/repo for its GraphQL query; pin to the slug the
-        // committed cassette was recorded against (see sync.doc.test.ts).
-        const repoSlug = `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`;
-        await repo.git.run(["config", "spry.repo", repoSlug]);
 
         await repo.git.run(["checkout", "-b", "feature/auth"]);
         await repo.git.run([
@@ -326,7 +320,7 @@ describe("sp group docs", () => {
         const term = await createTerminalDriver("bun", [adoptHarnessPath, repo.path], {
           cols: 80,
           rows: 20,
-          env: cassetteEnv({ section: "commands/group", order: 25 }),
+          env,
         });
 
         await term.waitForText("Stack:", { timeout: 15000 });

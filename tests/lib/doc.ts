@@ -32,6 +32,53 @@ function isRepoLike(
   );
 }
 
+/**
+ * The scrub engine behind {@link docTest}'s `doc.scrub`/entry rendering,
+ * extracted so unit tests (e.g. `doc-repo.test.ts`) can exercise the exact
+ * registration-order + substitution semantics the doc pipeline uses.
+ * Substitutions are applied in registration order, so an earlier scrub can
+ * shadow a later one — that ordering is load-bearing (see `setupDocRepo`).
+ */
+export interface DocScrubber {
+  scrub: DocContext["scrub"];
+  apply(this: void, text: string): string;
+  /** Repos registered via `scrub(repo)`, in order — used for SHA scanning. */
+  repos: Array<{ path: string; originPath: string }>;
+}
+
+export function createDocScrubber(): DocScrubber {
+  const subs: Substitution[] = [];
+  const repos: Array<{ path: string; originPath: string }> = [];
+
+  function apply(text: string): string {
+    let out = text;
+    for (const { pattern, replacement } of subs) {
+      if (typeof pattern === "string") {
+        out = out.replaceAll(pattern, replacement);
+      } else {
+        out = out.replace(pattern, replacement);
+      }
+    }
+    return out;
+  }
+
+  function scrub(arg: unknown, replacement?: string): void {
+    if (isRepoLike(arg)) {
+      subs.push({ pattern: arg.path, replacement: "/tmp/repo" });
+      subs.push({ pattern: arg.originPath, replacement: "/tmp/repo-origin" });
+      subs.push({ pattern: `-${arg.uniqueId}`, replacement: "" });
+      subs.push({ pattern: arg.uniqueId, replacement: "" });
+      repos.push({ path: arg.path, originPath: arg.originPath });
+    } else if (typeof arg === "string" || arg instanceof RegExp) {
+      subs.push({ pattern: arg, replacement: replacement ?? "" });
+    } else {
+      throw new TypeError("doc.scrub: expected a repo, a string, or a RegExp");
+    }
+  }
+
+  return { scrub, apply, repos };
+}
+
 export function docTest(
   title: string,
   options: { section: string; order: number; timeout?: number },
@@ -41,20 +88,9 @@ export function docTest(
     title,
     async () => {
       const entries: DocEntry[] = [];
-      const subs: Substitution[] = [];
-      const scrubRepos: Array<{ path: string; originPath: string }> = [];
-
-      function applyScrub(text: string): string {
-        let out = text;
-        for (const { pattern, replacement } of subs) {
-          if (typeof pattern === "string") {
-            out = out.replaceAll(pattern, replacement);
-          } else {
-            out = out.replace(pattern, replacement);
-          }
-        }
-        return out;
-      }
+      const scrubber = createDocScrubber();
+      const scrubRepos = scrubber.repos;
+      const applyScrub = scrubber.apply;
 
       const doc: DocContext = {
         prose(text) {
@@ -85,19 +121,7 @@ export function docTest(
             ansiContent: applyScrub(ansiLines.join("\n") + "\n"),
           });
         },
-        scrub(arg: unknown, replacement?: string) {
-          if (isRepoLike(arg)) {
-            subs.push({ pattern: arg.path, replacement: "/tmp/repo" });
-            subs.push({ pattern: arg.originPath, replacement: "/tmp/repo-origin" });
-            subs.push({ pattern: `-${arg.uniqueId}`, replacement: "" });
-            subs.push({ pattern: arg.uniqueId, replacement: "" });
-            scrubRepos.push({ path: arg.path, originPath: arg.originPath });
-          } else if (typeof arg === "string" || arg instanceof RegExp) {
-            subs.push({ pattern: arg, replacement: replacement ?? "" });
-          } else {
-            throw new TypeError("doc.scrub: expected a repo, a string, or a RegExp");
-          }
-        },
+        scrub: scrubber.scrub,
       };
 
       await fn(doc);

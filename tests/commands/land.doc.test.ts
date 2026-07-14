@@ -3,10 +3,9 @@ import { join } from "node:path";
 import {
   docTest,
   createRunner,
-  createRepo,
   createTerminalDriver,
-  cassetteEnv,
   isRecording,
+  setupDocRepo,
   withGitHubFixture,
 } from "../lib/index.ts";
 import type { TestRepo } from "../lib/index.ts";
@@ -23,29 +22,18 @@ afterAll(async () => {
   }
 });
 
-function repoSlug(): string {
-  return `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`;
-}
-
 /**
  * Build a 2-unit stack on `feature/x` and publish both spry branches to the
- * origin. In record mode, open each PR already-stacked (bottom→`main`,
- * upper→the bottom unit's branch), matching a synced stack, and wait for CI to
- * pass — land's readiness gate refuses PRs with pending checks or mis-targeted
- * bases. Because setup never changes a PR base after CI starts, there is no
- * pending-CI re-trigger race. The repo's per-run seeded commit dates make each
- * run's SHAs unique, so GitHub never accumulates historical check runs on a
- * reused SHA — every PR gets a clean, single-run rollup.
+ * origin (the spry config is already pinned by `setupDocRepo`). In record
+ * mode, open each PR already-stacked (bottom→`main`, upper→the bottom unit's
+ * branch), matching a synced stack, and wait for CI to pass — land's readiness
+ * gate refuses PRs with pending checks or mis-targeted bases. Because setup
+ * never changes a PR base after CI starts, there is no pending-CI re-trigger
+ * race. The repo's per-run seeded commit dates make each run's SHAs unique, so
+ * GitHub never accumulates historical check runs on a reused SHA — every PR
+ * gets a clean, single-run rollup.
  */
 async function setupLandStack(repo: TestRepo, recording: boolean): Promise<void> {
-  await repo.git.run(["config", "spry.trunk", "main"]);
-  await repo.git.run(["config", "spry.remote", "origin"]);
-  await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
-  // gh needs explicit owner/repo for its GraphQL query; in replay the origin is
-  // a local bare repo, so pin the slug to whatever the cassette was recorded
-  // against (defaults to the maintainer's spry-check).
-  await repo.git.run(["config", "spry.repo", repoSlug()]);
-
   await repo.git.run(["checkout", "-b", "feature/x"]);
   for (const [subject, id] of [
     ["Add login", "aaa11111"],
@@ -118,10 +106,12 @@ describe("sp land docs", () => {
       // the gh seam env differ.
       const recording = isRecording();
       await withGitHubFixture({ recording }, async () => {
-        const repo = await createRepo({ origin: recording ? "github" : "local" });
+        const { repo, env } = await setupDocRepo(doc, {
+          recording,
+          section: "commands/land",
+          order: 10,
+        });
         repos.push(repo);
-        doc.scrub(repo);
-        doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
 
         await setupLandStack(repo, recording);
         const tip = (await repo.git.run(["rev-parse", "HEAD"])).stdout.trim();
@@ -131,7 +121,7 @@ describe("sp land docs", () => {
         );
 
         const { command, result } = await runSp(repo.path, "land", ["--through", "bbb22222"], {
-          env: cassetteEnv({ section: "commands/land", order: 10 }),
+          env,
         });
         doc.command(command);
         doc.output(result.stdout);
@@ -151,10 +141,12 @@ describe("sp land docs", () => {
     async (doc) => {
       const recording = isRecording();
       await withGitHubFixture({ recording }, async () => {
-        const repo = await createRepo({ origin: recording ? "github" : "local" });
+        const { repo, env } = await setupDocRepo(doc, {
+          recording,
+          section: "commands/land",
+          order: 20,
+        });
         repos.push(repo);
-        doc.scrub(repo);
-        doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
 
         await setupLandStack(repo, recording);
 
@@ -163,12 +155,12 @@ describe("sp land docs", () => {
         );
         doc.command("sp land");
 
-        // Spawn the harness in a real PTY. The gh seam (cassetteEnv) records/replays
+        // Spawn the harness in a real PTY. The gh seam (cassette env) records/replays
         // the land traffic; the TUI picker runs for real.
         const driver = await createTerminalDriver("bun", [harnessPath, repo.path], {
           cols: 80,
           rows: 24,
-          env: cassetteEnv({ section: "commands/land", order: 20 }),
+          env,
         });
         repos.push({ cleanup: () => driver.close() });
 
