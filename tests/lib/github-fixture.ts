@@ -90,7 +90,21 @@ async function verifyTestRepo(owner: string, repo: string): Promise<boolean> {
   }
 }
 
-export async function createGitHubFixture(): Promise<GitHubFixture> {
+export interface CreateGitHubFixtureOptions {
+  /**
+   * Target repo name. Defaults to `SPRY_TEST_REPO_NAME` / "spry-check". The
+   * fixture's own unit tests pass a dedicated second repo here (see
+   * `github-fixture.test.ts`) so their repo-wide destructive ops never touch
+   * the repo the doc tests record against. An option rather than an env
+   * mutation because setting `process.env` mid-run would race concurrent
+   * tests.
+   */
+  repo?: string;
+}
+
+export async function createGitHubFixture(
+  options?: CreateGitHubFixtureOptions,
+): Promise<GitHubFixture> {
   // Resolve owner from env or the authenticated user.
   let owner: string;
   if (process.env.SPRY_TEST_REPO_OWNER) {
@@ -105,7 +119,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     owner = ownerResult.stdout.toString().trim();
   }
 
-  const repo = process.env.SPRY_TEST_REPO_NAME || DEFAULT_REPO_NAME;
+  const repo = options?.repo || process.env.SPRY_TEST_REPO_NAME || DEFAULT_REPO_NAME;
   const fullRepoName = `${owner}/${repo}`;
   const repoUrl = `https://github.com/${fullRepoName}`;
 
@@ -412,29 +426,38 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
  * {@link __setFixtureFactoryForTest} so the wrapper's control flow can be
  * exercised without touching real GitHub.
  */
-let fixtureFactory: () => Promise<GitHubFixture> = createGitHubFixture;
+let fixtureFactory: () => Promise<GitHubFixture> = () => createGitHubFixture();
 
-/** Test-only: swap the fixture factory (pass `undefined` to restore the real one). */
+/**
+ * Test-only: swap the fixture factory (pass `undefined` to restore the real
+ * one). Also clears the memoized session fixture, since a fixture minted by a
+ * previous factory must not survive a factory swap.
+ */
 export function __setFixtureFactoryForTest(
   factory: (() => Promise<GitHubFixture>) | undefined,
 ): void {
-  fixtureFactory = factory ?? createGitHubFixture;
+  fixtureFactory = factory ?? (() => createGitHubFixture());
+  sessionFixturePromise = undefined;
 }
 
 /**
- * The record-lock key. Every live-fixture doc test contends on the SAME shared
- * `spry-check` repo, so they must share one lock key — the value is arbitrary
- * as long as it's identical across all callers.
+ * The record-lock key. Every actor that mutates REPO-WIDE state on the shared
+ * `spry-check` repo (the suite-start reset, the canonical land test) must
+ * contend on this one key — the value is arbitrary as long as it's identical
+ * across all such callers.
  */
 const SPRY_CHECK_LOCK_KEY = "spry-check-record";
 
 /**
- * Run `body` under the shared `spry-check` record lock. This is the mutual
- * exclusion primitive that keeps every live-fixture actor — the doc tests via
- * {@link withGitHubFixture} AND the fixture's own unit tests
- * (`github-fixture.test.ts`) — from mutating the one shared repo concurrently.
- * They MUST all contend on the same key, or an unlocked actor's `main` rewrite
- * or `reset()` races a locked one (the class of bug this whole module fights).
+ * Run `body` under the shared `spry-check` record lock. Since the per-test
+ * namespacing work (per-test trunks + branch prefixes), most record-mode doc
+ * tests are mutually independent and run WITHOUT this lock; the only remaining
+ * holders are the two actors that touch repo-wide state on `spry-check`: the
+ * once-per-process suite-start `reset()` and the canonical land test's
+ * default-branch ff-push + restore (both via {@link withGitHubFixture}). Any
+ * new actor that mutates state outside its own namespace MUST contend on the
+ * same key. (The fixture's own unit tests no longer qualify — they run their
+ * repo-wide ops against the dedicated `spry-check-fixture` repo instead.)
  *
  * Unlike {@link withGitHubFixture} this adds no reset/fixture wrapper — it is
  * pure serialization, for callers that manage their own fixture and assertions.
@@ -447,9 +470,64 @@ export async function withSpryCheckRecordLock<T>(
   return withRecordLock(SPRY_CHECK_LOCK_KEY, lockOpts, body);
 }
 
+/**
+ * Memoized suite-start reset. The FIRST record-mode fixture test in this
+ * process triggers one fixture creation + one repo-wide `reset()` (under the
+ * record lock); every other record-mode test awaits the same promise, so all
+ * of them start after exactly one reset. This is what handles cross-run
+ * staleness (branches/PRs/trunks left by a previous recording session) now
+ * that the tests themselves are namespaced and no longer reset per-test.
+ *
+ * One process is the supported recording topology: record the whole suite with
+ * a single `SPRY_RECORD=1 bun test --concurrent` (Bun runs all test files in
+ * one process). Two concurrent recording *processes* would each run their own
+ * suite-start reset and bulldoze each other — don't do that.
+ */
+let sessionFixturePromise: Promise<GitHubFixture> | undefined;
+
+function ensureSessionFixture(lockDir?: string): Promise<GitHubFixture> {
+  if (!sessionFixturePromise) {
+    sessionFixturePromise = (async () => {
+      const fixture = await fixtureFactory();
+      // Hold the record lock across the reset so it cannot interleave with an
+      // exclusive body (e.g. the canonical land test) from another process.
+      await withSpryCheckRecordLock(() => fixture.reset(), lockDir ? { lockDir } : undefined).then(
+        (report) => {
+          if (report.errors.length > 0) {
+            throw new Error(`Suite-start fixture reset failed:\n${report.errors.join("\n")}`);
+          }
+        },
+      );
+      return fixture;
+    })();
+    // A failed suite-start reset must not be sticky-memoized as a rejected
+    // promise that poisons an unrelated later call — clear the memo so the
+    // next caller retries (each awaiting caller still sees the rejection).
+    sessionFixturePromise.catch(() => {
+      sessionFixturePromise = undefined;
+    });
+  }
+  return sessionFixturePromise;
+}
+
+/** Test-only: clear the memoized session fixture/reset. */
+export function __resetSessionFixtureForTest(): void {
+  sessionFixturePromise = undefined;
+}
+
 export interface WithGitHubFixtureOptions {
   /** True under `SPRY_RECORD=1` (pass `isRecording()`). */
   recording: boolean;
+  /**
+   * Serialize this body under the exclusive spry-check record lock and restore
+   * the default branch to its baseline afterward (best-effort). Reserved for
+   * the ONE canonical land test that ff-pushes the real default branch — the
+   * standing validation of the real MERGED transition on a true default
+   * branch (see beads spry-tm2l) and the only record-mode body allowed to
+   * move `main`. Everything else runs lock-free in parallel on its own
+   * per-test trunk namespace.
+   */
+  exclusive?: boolean;
   /** Override the lock directory (test-only). */
   lockDir?: string;
 }
@@ -459,18 +537,20 @@ export interface WithGitHubFixtureOptions {
  *
  * - **Replay (`recording: false`)**: calls `body(undefined)` immediately, with
  *   NO lock and NO fixture — replay is offline and must stay fully parallel.
- * - **Record (`recording: true`)**: acquires a cross-process advisory lock on
- *   the shared `spry-check` repo (see {@link withRecordLock}), creates the
- *   fixture, `reset()`s it, then runs `body(fixture)` — all inside the lock.
- *   The entire body is the critical section, which is why the reset-then-run
- *   sequence lives here rather than in each test.
+ * - **Record (`recording: true`)**: awaits the once-per-process suite-start
+ *   `reset()` (see {@link ensureSessionFixture}), then runs `body(fixture)`
+ *   with NO per-test lock — record-mode tests are namespaced (per-test trunk +
+ *   branch prefix via `setupDocRepo`) and mutually independent, so they run in
+ *   parallel and the record wall clock is the slowest test, not the sum of CI
+ *   waits. The one exception is `exclusive: true` (the canonical land test),
+ *   which takes the record lock and gets a best-effort default-branch restore
+ *   when its body finishes.
  *
- * There is deliberately NO trailing reset: every record-mode body starts with
- * its own reset, so a leading reset alone guarantees each test a clean repo
- * (including after a previous body threw). The trade-off is that `spry-check`
- * is left dirty after the last record-mode test of a session — that residue is
- * harmless because the next recording session's first reset clears it, and
- * nothing else reads the repo between sessions.
+ * There is deliberately NO trailing cleanup for non-exclusive bodies: each
+ * test's namespace (its trunk branch, spry branches, and PRs) is left on the
+ * fixture repo after a recording session. That residue is harmless — nothing
+ * reads the repo between sessions, and the next session's suite-start reset
+ * clears it.
  *
  * This is the single uniform entry point the three live-fixture doc-test files
  * (`sync`, `land`, `group`) use, replacing the hand-rolled
@@ -484,11 +564,29 @@ export async function withGitHubFixture<T>(
     return body(undefined);
   }
 
+  const fixture = await ensureSessionFixture(options.lockDir);
+
+  if (!options.exclusive) {
+    return body(fixture);
+  }
+
   const lockOpts = options.lockDir ? { lockDir: options.lockDir } : undefined;
   return withSpryCheckRecordLock(async () => {
-    const fixture = await fixtureFactory();
-    await fixture.reset();
-    return body(fixture);
+    try {
+      return await body(fixture);
+    } finally {
+      // The exclusive body is the only mover of the default branch; put it
+      // back so every namespaced test keeps seeing the baseline. Best-effort:
+      // a restore failure must not mask the body's own result/error (the next
+      // session's suite-start reset restores main regardless).
+      try {
+        await fixture.restoreMainToBaseline();
+      } catch (err) {
+        console.warn(
+          `withGitHubFixture: failed to restore ${fixture.owner}/${fixture.repo} default branch to baseline: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
   }, lockOpts);
 }
 

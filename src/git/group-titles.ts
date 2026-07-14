@@ -1,4 +1,5 @@
 import type { GroupTitles, GroupRecord, GroupRecords, CommitGroupMap } from "../parse/types.ts";
+import { remoteSpryRef } from "../lib/refs-seam.ts";
 
 interface GitOpts {
   cwd?: string;
@@ -135,7 +136,8 @@ export async function fetchGroupRecords(
   remote: string,
   opts?: GitOpts,
 ): Promise<{ ok: true } | { ok: false; warning: string }> {
-  const refspec = `${GROUPS_REF}:${GROUPS_REF}`;
+  // Remote side goes through the test seam (identity in production).
+  const refspec = `${remoteSpryRef(GROUPS_REF)}:${GROUPS_REF}`;
   const result = await git.run(["fetch", remote, refspec], opts);
   if (result.exitCode === 0) return { ok: true };
   if (result.stderr.includes("couldn't find remote ref")) return { ok: true };
@@ -147,7 +149,8 @@ export async function pushGroupRecords(
   remote: string,
   opts?: GitOpts,
 ): Promise<{ ok: true } | { ok: false; warning: string }> {
-  const refspec = `${GROUPS_REF}:${GROUPS_REF}`;
+  // Remote side goes through the test seam (identity in production).
+  const refspec = `${GROUPS_REF}:${remoteSpryRef(GROUPS_REF)}`;
   const result = await git.run(["push", remote, refspec], opts);
   if (result.exitCode === 0) return { ok: true };
   return { ok: false, warning: result.stderr.trim() };

@@ -27,14 +27,21 @@ export function isRecording(): boolean {
  * Env block to hand a subprocess so it records or replays the right cassette.
  * Record mode points the gh seam at SPRY_GH_CASSETTE_RECORD; replay (default)
  * points it at SPRY_GH_CASSETTE.
+ *
+ * `recording` defaults to the global `isRecording()`, but callers that already
+ * carry an explicit record/replay decision (e.g. `setupDocRepo`'s `recording`
+ * option) should pass it through so the env can never contradict the rest of
+ * their setup.
  */
 export function cassetteEnv({
   section,
   order,
+  recording = isRecording(),
 }: {
   section: string;
   order: number;
+  recording?: boolean;
 }): Record<string, string> {
   const path = cassettePath({ section, order });
-  return isRecording() ? { SPRY_GH_CASSETTE_RECORD: path } : { SPRY_GH_CASSETTE: path };
+  return recording ? { SPRY_GH_CASSETTE_RECORD: path } : { SPRY_GH_CASSETTE: path };
 }

@@ -82,16 +82,16 @@ describe("sp sync docs", () => {
       // responses into the committed cassette; replay (default) serves them
       // offline. The same body runs both ways — only the git origin and the
       // gh seam env differ. See docs/plans/2026-06-13-gh-cassettes-real-recording.md.
-      // withGitHubFixture serializes record-mode bodies (which all mutate the
-      // one shared spry-check repo) via a cross-process lock and resets the
-      // fixture before the body; replay runs unlocked with fixture === undefined.
+      // withGitHubFixture runs one suite-start reset per record session; the
+      // body itself runs lock-free in its own per-test trunk/prefix namespace
+      // (from setupDocRepo). Replay runs with fixture === undefined.
       const recording = isRecording();
       await withGitHubFixture({ recording }, async () => {
         // setupDocRepo owns the invariant prefix: repo against the right origin,
-        // determinism scrubs in the load-bearing order, spry config, gh-seam env.
-        // Seeded commits: repo.git pins identity and stamps per-run monotonic
-        // dates. Replay does not need matching SHAs — the cassette keys gh
-        // calls by branch name, never by SHA.
+        // determinism scrubs in the load-bearing order, per-test namespace,
+        // spry config, gh-seam env. Seeded commits: repo.git pins identity and
+        // stamps per-run monotonic dates. Replay does not need matching SHAs —
+        // the cassette keys gh calls by branch name, never by SHA.
         const { repo, env } = await setupDocRepo(doc, {
           recording,
           section: "commands/sync",
@@ -133,7 +133,7 @@ describe("sp sync docs", () => {
       // body both ways — only the git origin and the gh seam env differ.
       const recording = isRecording();
       await withGitHubFixture({ recording }, async () => {
-        const { repo, repoSlug, env } = await setupDocRepo(doc, {
+        const { repo, repoSlug, env, branchPrefix } = await setupDocRepo(doc, {
           recording,
           section: "commands/sync",
           order: 22,
@@ -178,7 +178,7 @@ describe("sp sync docs", () => {
         if (recording) {
           const { $ } = await import("bun");
           const view =
-            await $`gh pr view spry/dondenton/grp00001 --repo ${repoSlug} --json title,body`
+            await $`gh pr view ${`${branchPrefix}/grp00001`} --repo ${repoSlug} --json title,body`
               .cwd(repo.path)
               .quiet();
           const pr = JSON.parse(view.stdout.toString()) as { title: string; body: string };
@@ -189,7 +189,7 @@ describe("sp sync docs", () => {
 
         const { expect } = await import("bun:test");
         expect(result.exitCode).toBe(0);
-        expect(result.stdout).toContain("↑ pushed spry/dondenton/grp00001");
+        expect(result.stdout).toContain(`↑ pushed ${branchPrefix}/grp00001`);
         expect(result.stdout).toContain("Created PR #");
         expect(result.stdout).toContain("Auth flow");
         expect(result.stdout).toContain("Sync complete");
@@ -317,7 +317,7 @@ describe("sp sync docs", () => {
       // push for every stack; replay serves it offline.
       const recording = isRecording();
       await withGitHubFixture({ recording }, async () => {
-        const { repo, env } = await setupDocRepo(doc, {
+        const { repo, env, branchPrefix } = await setupDocRepo(doc, {
           recording,
           section: "commands/sync",
           order: 60,
@@ -365,8 +365,8 @@ describe("sp sync docs", () => {
 
         const { expect } = await import("bun:test");
         expect(result.exitCode).toBe(0);
-        expect(result.stdout).toContain("pushed spry/dondenton/aaa11111");
-        expect(result.stdout).toContain("pushed spry/dondenton/bbb22222");
+        expect(result.stdout).toContain(`pushed ${branchPrefix}/aaa11111`);
+        expect(result.stdout).toContain(`pushed ${branchPrefix}/bbb22222`);
         expect(result.stdout).toContain("Updated PR cache");
       });
     },
@@ -398,7 +398,7 @@ describe("sp sync docs", () => {
     async (doc) => {
       const recording = isRecording();
       await withGitHubFixture({ recording }, async () => {
-        const { repo, repoSlug, env } = await setupDocRepo(doc, {
+        const { repo, repoSlug, env, branchPrefix } = await setupDocRepo(doc, {
           recording,
           section: "commands/sync",
           order: 70,
@@ -429,13 +429,14 @@ describe("sp sync docs", () => {
         // Real-gh validation: this test's two branches must each still have an
         // OPEN PR after the reorder sync. Query per branch with `--state open` so
         // stale CLOSED/MERGED PRs on the SAME branch name (left by prior recording
-        // runs — the doc tests reuse the spry/dondenton/{aaa,bbb} branch names and
-        // commit ids) cannot contaminate the assertion. If the reorder had wrongly
-        // merged a PR, that branch would have no OPEN PR and this would fail.
+        // runs — the branch names and commit ids are pinned per test, so they
+        // recur across sessions) cannot contaminate the assertion. If the reorder
+        // had wrongly merged a PR, that branch would have no OPEN PR and this
+        // would fail.
         if (recording) {
           const { $ } = await import("bun");
           const { expect } = await import("bun:test");
-          for (const branch of ["spry/dondenton/aaa11111", "spry/dondenton/bbb22222"]) {
+          for (const branch of [`${branchPrefix}/aaa11111`, `${branchPrefix}/bbb22222`]) {
             const view =
               await $`gh pr list --repo ${repoSlug} --head ${branch} --state open --json number`
                 .cwd(repo.path)

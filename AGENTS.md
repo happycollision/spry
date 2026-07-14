@@ -192,8 +192,11 @@ remains the canonical serial run. Always use the script rather than a bare
 `bun test --concurrent`: the script raises the per-test timeout, which
 concurrent runs need because tests that capture console output serialize on a
 shared lock (`tests/lib/capture.ts`) and the queue wait counts against each
-test's own timeout. Record mode stays serial for now (`SPRY_RECORD=1 bun test`,
-no `--concurrent`).
+test's own timeout. Record mode is concurrent too (`bun run record` =
+`SPRY_RECORD=1 bun test --concurrent`): each fixture doc test runs in its own
+namespace on spry-check (per-test trunk + branch prefix via `setupDocRepo`),
+so record-mode tests are mutually independent and their GitHub CI waits
+overlap — record wall clock is roughly the slowest single test, not the sum.
 
 GitHub integration is tested via **gh cassettes**: doc tests run the real `sp`
 binary while replaying committed recordings in `tests/fixtures/cassettes/`, so the
@@ -206,13 +209,21 @@ with `SPRY_RECORD=1` (real-record mode is the validation - see
 `SPRY_RECORD=1 bun test <doc-test>` is a **non-interactive** command; when `gh`
 is authenticated (it normally is — check with `gh auth status`), the agent has
 everything it needs and is authorized to record. Recording mutates the real
-`happycollision/spry-check` repo, but the fixture resets it, so this is expected
-and safe. The fixture manages its own HTTPS clone of `spry-check` internally, so
-the working repo's `origin` remote being SSH is **not** a blocker — do not
-reconfigure `origin` and do not defer to the user over the remote protocol.
-(The lone live-network unit test shares the `SPRY_RECORD` gate, so it runs
-alongside cassette recording and verifies the fixture reset machinery that
-recording depends on.)
+`happycollision/spry-check` repo, but a once-per-process suite-start reset
+clears any previous session's residue, so this is expected and safe. The
+fixture manages its own HTTPS clone of `spry-check` internally, so the working
+repo's `origin` remote being SSH is **not** a blocker — do not reconfigure
+`origin` and do not defer to the user over the remote protocol. (The
+live-network fixture unit tests share the `SPRY_RECORD` gate, so they run
+alongside cassette recording; their repo-wide destructive ops target a second
+dedicated repo, `happycollision/spry-check-fixture`, so they can never bulldoze
+a concurrent recording. Bootstrap it with
+`SPRY_TEST_REPO_NAME=spry-check-fixture bun run scripts/setup-spry-check.ts`.)
+
+Recording runs one process: always record via a single
+`SPRY_RECORD=1 bun test [--concurrent]` invocation. Two recording _processes_
+at once would each run their own suite-start reset and destroy each other's
+in-flight work.
 
 Every user-facing command or UI output must have doc-producing tests in a `tests/commands/<command>.doc.test.ts` file using the `docTest` helper from `tests/lib/index.ts`. Doc tests are the source of truth for generated documentation in `docs/generated/`. See `tests/commands/sync.doc.test.ts` or `tests/commands/view.doc.test.ts` for the pattern.
 
@@ -224,9 +235,14 @@ that the generated docs are stable. Run this gate and expect it to pass:
 1. **Record the whole suite once, regenerating docs from scratch:**
    ```bash
    bun run docs:clean            # wipe .test-tmp/doc-fragments + docs/generated
-   SPRY_RECORD=1 bun test        # full suite in record mode (mutates spry-check)
+   bun run record                # SPRY_RECORD=1 bun test --concurrent (mutates spry-check)
    bun run docs:build            # regenerate docs/generated from the fresh fragments
    ```
+   Record mode is concurrent by design (per-test trunk namespaces make the
+   fixture tests independent; only the canonical `sp land` doc test serializes
+   on the record lock, because it alone ff-pushes the real default branch to
+   validate GitHub's MERGED-by-reachability behavior). If GitHub returns
+   secondary-rate-limit errors, retry with `--max-concurrency 4`.
 2. **Play the suite back twice** (the normal offline path):
    ```bash
    bun test

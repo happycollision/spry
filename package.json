@@ -6,6 +6,7 @@
   "scripts": {
     "test": "bun test",
     "test:concurrent": "bun test --concurrent --timeout 120000",
+    "record": "SPRY_RECORD=1 bun test --concurrent --timeout 400000",
     "test:docker": "./scripts/test-docker.sh test",
     "test:concurrent:docker": "./scripts/test-docker.sh test --concurrent --timeout 120000",
     "record:docker": "./scripts/test-docker.sh record",

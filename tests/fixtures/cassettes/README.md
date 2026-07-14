@@ -30,18 +30,48 @@ modes, so the args-keyed replayer matches. (Commit SHAs are deliberately
 unique per run — no `gh` call is keyed by SHA. See `tests/lib/repo.ts`.)
 See also `tests/lib/cassette-harness.ts`.
 
+Each fixture test runs in its own **namespace** on the fixture repo: a
+per-test trunk (`trunk/<section>-<order>`, pushed from the baseline commit),
+a per-test branch prefix (`spry/t-<section>-<order>`), and a per-test remote
+home for spry's shared bookkeeping refs (`SPRY_REMOTE_REFS_PREFIX` →
+`refs/spry/t-<section>-<order>/{prs,groups}`; see `src/lib/refs-seam.ts`),
+all pinned by `setupDocRepo` (`tests/lib/doc-repo.ts`). The names are pinned
+PER TEST, not per run, because they are cassette keys (`pr create --base
+<trunk>` is recorded); `setupDocRepo` registers scrubs mapping them back to
+`main` / `spry/dondenton`, so the generated docs still tell the plain-`main`
+story.
+The one exception is the canonical land test (`commands/land`, order 10),
+which keeps `spry.trunk` on the real default branch to validate the genuine
+MERGED transition. Namespacing is what lets record mode run the fixture tests
+concurrently.
+
 Cassettes are keyed by doc section + order, mirroring `fragmentPath`:
 `commands__sync--020.json` ⇔ `{ section: "commands/sync", order: 20 }`.
 
 ## Re-recording
 
 Recording mutates the real `spry-check` repo (pushes branches, opens/merges
-PRs). Each record-mode test `reset()`s the repo (via `withGitHubFixture`)
-**before** its body runs — there is no trailing reset, so `spry-check` is left
-dirty (leftover branches/PRs, possibly an advanced `main`) after the last test
-of a recording session. That residue is expected and harmless: the next
-recording session's first reset clears it, and nothing reads the repo between
+PRs). The FIRST record-mode test in the process triggers one repo-wide
+`reset()` (via `withGitHubFixture`'s suite-start reset, under the record
+lock); after that, tests run **concurrently and lock-free**, each confined to
+its own trunk/prefix namespace. The one exception is the canonical land test,
+which takes the exclusive record lock, ff-pushes the real default branch, and
+restores it to baseline afterward. There is no trailing cleanup: `spry-check`
+is left dirty (each test's trunk branch, spry branches, and PRs) after a
+recording session. That residue is expected and harmless — the next recording
+session's suite-start reset clears it, and nothing reads the repo between
 sessions.
+
+Because the suite-start reset is once **per process**, always record with a
+single `bun test` invocation (`bun run record` records the whole suite
+concurrently). Two recording processes at once would each reset the repo and
+destroy each other's in-flight work.
+
+The fixture's own unit tests (`tests/lib/github-fixture.test.ts`) exercise
+repo-wide destructive ops (`reset`, `restoreMainToBaseline`) that no namespace
+can contain, so they target a second dedicated repo,
+`happycollision/spry-check-fixture` (same safety marker; bootstrap with
+`SPRY_TEST_REPO_NAME=spry-check-fixture bun run scripts/setup-spry-check.ts`).
 
 Recording is **non-interactive** — the agent runs it itself (do not ask the
 user) whenever `gh` is authenticated. See the AGENTS.md testing section.

@@ -281,7 +281,7 @@ describe("sp group docs", () => {
       // and owner/repo (no SHA), which makes replay matching fully deterministic.
       const recording = isRecording();
       await withGitHubFixture({ recording }, async () => {
-        const { repo, env } = await setupDocRepo(doc, {
+        const { repo, env, trunkName, branchPrefix } = await setupDocRepo(doc, {
           recording,
           section: "commands/group",
           order: 25,
@@ -305,10 +305,10 @@ describe("sp group docs", () => {
         // Pre-publish the bottom commit's branch and, in record mode, open its PR.
         // This is the open PR the new group will adopt; the top commit has none.
         const aSha = (await repo.git.run(["rev-parse", "HEAD~1"])).stdout.trim();
-        await repo.git.run(["push", "origin", `${aSha}:refs/heads/spry/dondenton/aaa11111`]);
+        await repo.git.run(["push", "origin", `${aSha}:refs/heads/${branchPrefix}/aaa11111`]);
         if (recording) {
           const { $ } = await import("bun");
-          await $`gh pr create --title ${"Add login form"} --head spry/dondenton/aaa11111 --base main --body ${"Login form PR"}`
+          await $`gh pr create --title ${"Add login form"} --head ${`${branchPrefix}/aaa11111`} --base ${trunkName} --body ${"Login form PR"}`
             .cwd(repo.path)
             .quiet();
         }
