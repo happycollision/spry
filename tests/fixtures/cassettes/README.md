@@ -31,23 +31,26 @@ unique per run — no `gh` call is keyed by SHA. See `tests/lib/repo.ts`.)
 See also `tests/lib/cassette-harness.ts`.
 
 Each fixture test runs in its own **namespace** on the fixture repo: a
-per-test trunk (`trunk/<section-leaf>-<order>`, e.g. `trunk/sync-020`, pushed
-from the baseline commit), a per-test branch prefix
-(`spry/t-<section-leaf>-<order>`), and a per-test remote home for spry's
-shared bookkeeping refs (`SPRY_REMOTE_REFS_PREFIX` →
-`refs/spry/t-<section-leaf>-<order>/{prs,groups}`; see `src/lib/refs-seam.ts`),
-all pinned by `setupDocRepo` (`tests/lib/doc-repo.ts`). The names are pinned
-PER TEST, not per run, because they are cassette keys (`pr create --base
-<trunk>` is recorded); `setupDocRepo` registers scrubs mapping them back to
-`main` / `spry/dondenton`, so the generated docs still tell the plain-`main`
-story.
+per-test trunk (`trunk/<key>`, e.g. `trunk/commands__sync--020`, pushed from
+the baseline commit), a per-test branch prefix (`spry/t-<key>`), and a
+per-test remote home for spry's shared bookkeeping refs
+(`SPRY_REMOTE_REFS_PREFIX` → `refs/spry/t-<key>/{prs,groups}`; see
+`src/lib/refs-seam.ts`), all pinned by `setupDocRepo` (`tests/lib/doc-repo.ts`).
+`<key>` is `cassetteKey({ section, order })` (`tests/lib/cassette-harness.ts`)
+— the FULL sanitized section + order, the same key used for the cassette
+filename below — so the namespace and the cassette can never collide in one
+without also colliding in the other; they come from one function. The names
+are pinned PER TEST, not per run, because they are cassette keys (`pr create
+--base <trunk>` is recorded); `setupDocRepo` registers scrubs mapping them
+back to `main` / `spry/dondenton`, so the generated docs still tell the
+plain-`main` story.
 The one exception is the canonical land test (`commands/land`, order 10),
 which keeps `spry.trunk` on the real default branch to validate the genuine
 MERGED transition. Namespacing is what lets record mode run the fixture tests
 concurrently.
 
-Cassettes are keyed by doc section + order, mirroring `fragmentPath`:
-`commands__sync--020.json` ⇔ `{ section: "commands/sync", order: 20 }`.
+Cassettes are keyed by doc section + order via the same `cassetteKey`
+function: `commands__sync--020.json` ⇔ `{ section: "commands/sync", order: 20 }`.
 
 ## Re-recording
 

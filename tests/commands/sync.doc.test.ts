@@ -90,7 +90,7 @@ describe("sp sync docs", () => {
       // body itself runs lock-free in its own per-test trunk/prefix namespace
       // (from setupDocRepo). Replay runs with fixture === undefined.
       const recording = isRecording();
-      await withGitHubFixture({ recording }, async () => {
+      await withGitHubFixture({ recording }, async (fixture) => {
         // setupDocRepo owns the invariant prefix: repo against the right origin,
         // determinism scrubs in the load-bearing order, per-test namespace,
         // spry config, gh-seam env. Seeded commits: repo.git pins identity and
@@ -98,6 +98,8 @@ describe("sp sync docs", () => {
         // the cassette keys gh calls by branch name, never by SHA.
         const { repo, env } = await setupDocRepo(doc, {
           recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
           section: "commands/sync",
           order: 20,
         });
@@ -136,9 +138,11 @@ describe("sp sync docs", () => {
       // captures gh's create + PR-status traffic; replay serves it offline. Same
       // body both ways — only the git origin and the gh seam env differ.
       const recording = isRecording();
-      await withGitHubFixture({ recording }, async () => {
+      await withGitHubFixture({ recording }, async (fixture) => {
         const { repo, repoSlug, env, branchPrefix } = await setupDocRepo(doc, {
           recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
           section: "commands/sync",
           order: 22,
         });
@@ -235,9 +239,11 @@ describe("sp sync docs", () => {
     { section: "commands/sync", order: 25, timeout: 180000 },
     async (doc) => {
       const recording = isRecording();
-      await withGitHubFixture({ recording }, async () => {
+      await withGitHubFixture({ recording }, async (fixture) => {
         const { repo, env } = await setupDocRepo(doc, {
           recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
           section: "commands/sync",
           order: 25,
         });
@@ -320,9 +326,11 @@ describe("sp sync docs", () => {
       // genuinely behind its local tip. `sp sync --all` then performs a real
       // push for every stack; replay serves it offline.
       const recording = isRecording();
-      await withGitHubFixture({ recording }, async () => {
+      await withGitHubFixture({ recording }, async (fixture) => {
         const { repo, env, branchPrefix } = await setupDocRepo(doc, {
           recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
           section: "commands/sync",
           order: 60,
         });
@@ -401,9 +409,11 @@ describe("sp sync docs", () => {
     { section: "commands/sync", order: 70, timeout: 180000 },
     async (doc) => {
       const recording = isRecording();
-      await withGitHubFixture({ recording }, async () => {
+      await withGitHubFixture({ recording }, async (fixture) => {
         const { repo, repoSlug, env, branchPrefix } = await setupDocRepo(doc, {
           recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
           section: "commands/sync",
           order: 70,
         });

@@ -1,7 +1,19 @@
 import { createRepo } from "./repo.ts";
-import { cassetteEnv } from "./cassette-harness.ts";
+import { cassetteEnv, cassetteKey } from "./cassette-harness.ts";
 import type { TestRepo } from "./repo.ts";
 import type { DocContext } from "./doc-types.ts";
+
+/**
+ * The GitHub slug the committed cassettes were recorded against. Replay MUST
+ * pin this exact constant: recorded `gh` args embed it verbatim (e.g. `--repo
+ * happycollision/spry-check`), and replay matches on args, so any other slug
+ * would desync every replayed call from its cassette entry. Record mode never
+ * uses this constant — it derives the slug from the fixture it actually
+ * cloned (see `fixtureOwner`/`fixtureRepo` below), which is a different value
+ * whenever a contributor records without `SPRY_TEST_REPO_OWNER` set (gh falls
+ * back to their own authenticated account).
+ */
+const REPLAY_REPO_SLUG = "happycollision/spry-check";
 
 export interface SetupDocRepoOptions {
   /** True under `SPRY_RECORD=1` (pass `isRecording()`). */
@@ -29,11 +41,34 @@ export interface SetupDocRepoOptions {
    * them under `bun test --concurrent`.
    */
   createRepoFn?: typeof createRepo;
+  /**
+   * Record mode ONLY: the owner/repo the fixture actually cloned (the
+   * `GitHubFixture` callback parameter `withGitHubFixture` hands the caller —
+   * see `tests/lib/github-fixture.ts`). REQUIRED when `recording: true`.
+   *
+   * This is the fix for a real footgun: `createRepo({origin: "github"})`
+   * internally resolves its own owner via `SPRY_TEST_REPO_OWNER`, falling back
+   * to the AUTHENTICATED gh user (`gh api user`) when unset. A contributor
+   * recording without that env var set would clone/push to THEIR OWN
+   * spry-check fork while `spry.repo` — if re-derived independently from env
+   * — silently pinned "happycollision", pointing every `gh` query at the
+   * wrong owner. Passing the fixture's already-resolved owner/repo through
+   * makes the slug agree with the clone by construction: one resolution, one
+   * source of truth, instead of two independent env reads that can diverge.
+   * Ignored in replay (see `REPLAY_REPO_SLUG`).
+   */
+  fixtureOwner?: string;
+  fixtureRepo?: string;
 }
 
 export interface DocRepoSetup {
   repo: TestRepo;
-  /** The GitHub slug pinned into `spry.repo` (default happycollision/spry-check). */
+  /**
+   * The GitHub slug pinned into `spry.repo`. In replay this is always the
+   * deterministic `REPLAY_REPO_SLUG` constant (happycollision/spry-check,
+   * matching the committed cassettes); in record mode it is exactly
+   * `fixtureOwner/fixtureRepo` — the fixture the test actually cloned.
+   */
   repoSlug: string;
   /** Env block for subprocesses so the gh seam records/replays this test's cassette. */
   env: Record<string, string>;
@@ -83,34 +118,65 @@ export async function setupDocRepo(
   const makeRepo = options.createRepoFn ?? createRepo;
   const repo = await makeRepo({ origin: options.recording ? "github" : "local" });
 
-  // gh needs explicit owner/repo for its GraphQL query. In replay the origin is
-  // a local bare repo, so pin the slug to whatever the committed cassette was
-  // recorded against (defaults to the maintainer's spry-check).
-  const repoOwner = process.env.SPRY_TEST_REPO_OWNER ?? "happycollision";
-  const repoName = process.env.SPRY_TEST_REPO_NAME ?? "spry-check";
-  const repoSlug = `${repoOwner}/${repoName}`;
-
-  // This test's namespace on the fixture repo, keyed by section LEAF + order.
-  // Deterministic per test, never per run: both names end up in recorded gh
-  // args, so they must be byte-identical between record and replay.
+  // gh needs explicit owner/repo for its GraphQL query.
   //
-  // NOTE the leaf-uniqueness assumption: cassettes are keyed by the FULL
-  // section ("commands/sync" -> commands__sync--020.json) but the namespace
-  // only by its leaf ("sync-020") — two sections sharing a leaf (e.g. a future
-  // "tui/sync") would collide on trunk/prefix at the same order even though
-  // their cassettes would not. If that happens, switch to the full sanitized
-  // section here (a cassette-key change: re-record everything).
-  const sectionLeaf = options.section.split("/").pop() ?? options.section;
-  const namespaceKey = `${sectionLeaf}-${String(options.order).padStart(3, "0")}`;
+  // Replay's origin is a local bare repo — there is no real fixture to derive
+  // a slug from — so it pins the deterministic constant the committed
+  // cassettes were recorded against.
+  //
+  // Record mode MUST NOT re-derive the slug from env: `createRepo({origin:
+  // "github"})` clones a fixture whose owner resolution (SPRY_TEST_REPO_OWNER,
+  // else the AUTHENTICATED gh user) this helper cannot see from here, so a
+  // second, independent env read (e.g. defaulting to "happycollision") can
+  // silently diverge from the repo actually cloned — pinning `spry.repo` at a
+  // different owner than the one `gh` traffic will actually hit. The caller
+  // must instead pass the fixture's own resolved identity through
+  // `fixtureOwner`/`fixtureRepo` (the `GitHubFixture` `withGitHubFixture` hands
+  // it), making the slug agree with the clone by construction.
+  let repoSlug: string;
+  // The repo name used for the github-host scrub below: the fixture's own name
+  // in record mode, and the name baked into REPLAY_REPO_SLUG in replay (both
+  // "spry-check" today, but this keeps the scrub keyed off the same source of
+  // truth as repoSlug rather than a third, independent env read).
+  let scrubRepoName: string;
+  if (options.recording) {
+    if (!options.fixtureOwner || !options.fixtureRepo) {
+      throw new Error(
+        "setupDocRepo: recording mode requires fixtureOwner + fixtureRepo (the " +
+          "GitHubFixture's resolved owner/repo) so spry.repo cannot diverge from " +
+          "the fixture actually cloned.",
+      );
+    }
+    repoSlug = `${options.fixtureOwner}/${options.fixtureRepo}`;
+    scrubRepoName = options.fixtureRepo;
+  } else {
+    repoSlug = REPLAY_REPO_SLUG;
+    scrubRepoName = REPLAY_REPO_SLUG.split("/", 2)[1] ?? REPLAY_REPO_SLUG;
+  }
+
+  // This test's namespace on the fixture repo, keyed by the FULL sanitized
+  // section + order — the SAME key `cassetteKey` (tests/lib/cassette-harness.ts)
+  // uses for the cassette filename, e.g. "commands/sync" + 20 ->
+  // "commands__sync--020". Deterministic per test, never per run: both names
+  // end up in recorded gh args, so they must be byte-identical between record
+  // and replay. Sharing `cassetteKey` (rather than re-deriving a similar key
+  // here) is what makes namespace and cassette keying provably agree: two
+  // sections can never collide in one without also colliding in the other,
+  // because both come from one function. The key is embedded in git ref names
+  // (`trunk/<key>`, `spry/t-<key>/...`) — `cassetteKey`'s sanitization (`/` ->
+  // `__`, zero-padded order, otherwise alphanumeric) produces a valid git ref
+  // path component (no `..`, no leading/trailing `/`, no `~^:?*[\`, no `@{`, no
+  // `//`).
+  const namespaceKey = cassetteKey({ section: options.section, order: options.order });
   const trunkName =
     options.trunk === "default-branch" ? repo.defaultBranch : `trunk/${namespaceKey}`;
   const branchPrefix = `spry/t-${namespaceKey}`;
 
   // 1. github-host canonicalization — BEFORE doc.scrub(repo); see above. Built
-  //    from the env-derived repo name so a renamed fixture repo can't silently
-  //    resurrect the ordering bug.
+  //    from the same repo-name source as repoSlug so a renamed fixture repo
+  //    can't silently resurrect the ordering bug.
   doc.scrub(
-    new RegExp(`https://github\\.com/[^/]+/${escapeRegExp(repoName)}`, "g"),
+    new RegExp(`https://github\\.com/[^/]+/${escapeRegExp(scrubRepoName)}`, "g"),
     "https://github.com/owner/repo",
   );
   // 2. Repo paths + uniqueId.

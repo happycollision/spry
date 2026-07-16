@@ -2,6 +2,7 @@ import { $ } from "bun";
 import { test as bunTest } from "bun:test";
 import { join } from "node:path";
 import stripAnsi from "strip-ansi";
+import { cassetteKey } from "./cassette-harness.ts";
 import type { ScreenSnapshot } from "./ansi-parser.ts";
 import type { DocContext, DocEntry, DocFragment } from "./doc-types.ts";
 
@@ -9,10 +10,12 @@ export type { DocContext, DocEntry, DocFragment } from "./doc-types.ts";
 
 const FRAGMENTS_DIR = join(import.meta.dir, "../../.test-tmp/doc-fragments");
 
+// Fragment filenames share the ONE (section, order) keyer with cassette
+// filenames and setupDocRepo's per-test namespaces (see cassetteKey in
+// cassette-harness.ts) — all three keyings are structurally coupled, so none
+// can drift from the others.
 export function fragmentPath(fragment: Pick<DocFragment, "section" | "order">): string {
-  const section = fragment.section.replaceAll("/", "__");
-  const order = String(fragment.order).padStart(3, "0");
-  return join(FRAGMENTS_DIR, `${section}--${order}.json`);
+  return join(FRAGMENTS_DIR, `${cassetteKey(fragment)}.json`);
 }
 
 interface Substitution {

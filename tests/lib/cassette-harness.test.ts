@@ -1,8 +1,28 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
-import { cassettePath, cassetteEnv, isRecording } from "./cassette-harness.ts";
+import { cassettePath, cassetteEnv, cassetteKey, isRecording } from "./cassette-harness.ts";
 
 const CASSETTES_DIR = join(import.meta.dir, "../fixtures/cassettes");
+
+test("cassetteKey sanitizes section + zero-pads order", () => {
+  expect(cassetteKey({ section: "commands/sync", order: 20 })).toBe("commands__sync--020");
+});
+
+test("cassetteKey is the single source cassettePath derives from", () => {
+  // setupDocRepo (tests/lib/doc-repo.ts) also calls cassetteKey directly to
+  // derive its per-test namespace, so this equality is what keeps the
+  // namespace and the cassette filename provably in sync.
+  const key = cassetteKey({ section: "commands/sync", order: 20 });
+  expect(cassettePath({ section: "commands/sync", order: 20 })).toBe(
+    join(CASSETTES_DIR, `${key}.json`),
+  );
+});
+
+test("cassetteKey never collides for different sections sharing a leaf", () => {
+  expect(cassetteKey({ section: "commands/sync", order: 20 })).not.toBe(
+    cassetteKey({ section: "tui/sync", order: 20 }),
+  );
+});
 
 test("cassettePath keys section + zero-padded order under fixtures/cassettes", () => {
   expect(cassettePath({ section: "commands/sync", order: 20 })).toBe(

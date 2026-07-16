@@ -11,7 +11,8 @@
  * generated docs.
  *
  * `SPRY_REMOTE_REFS_PREFIX` remaps the REMOTE side of those refs (e.g.
- * `refs/spry/t-sync-020`, giving `refs/spry/t-sync-020/prs`), so each test's
+ * `refs/spry/t-commands__sync--020`, giving `refs/spry/t-commands__sync--020/prs`),
+ * so each test's
  * subprocesses share bookkeeping only with themselves. Local ref names are
  * deliberately untouched: tests and helpers that read/write the local refs
  * in-process keep working, and production behavior is byte-identical when the

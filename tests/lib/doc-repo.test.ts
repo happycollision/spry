@@ -73,6 +73,8 @@ test("fake-record mode: spry-check PR URL canonicalizes to owner/repo (scrub-ord
       seenOrigin = options?.origin;
       return makeFakeRepo("https://github.com/happycollision/spry-check", gitLog);
     },
+    fixtureOwner: "happycollision",
+    fixtureRepo: "spry-check",
   });
 
   expect(seenOrigin).toBe("github");
@@ -89,15 +91,19 @@ test("fake-record mode: spry-check PR URL canonicalizes to owner/repo (scrub-ord
   // The ordering bug's signature: the repo scrub won and rewrote the URL.
   expect(scrubbed).not.toContain("/tmp/repo-origin");
 
-  // The invariant config block, pinned to the spry-check slug and this test's
-  // namespace (order of the config writes is not load-bearing).
-  expect(repoSlug).toBe(
-    `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`,
-  );
+  // Record mode derives repoSlug from the fixture it actually cloned
+  // (fixtureOwner/fixtureRepo), NOT from SPRY_TEST_REPO_OWNER/NAME re-read —
+  // those two must always agree in practice, but the slug's single source of
+  // truth is the fixture, so a caller passing a divergent fixture identity is
+  // reflected here.
+  expect(repoSlug).toBe("happycollision/spry-check");
+  // The namespace key is the FULL sanitized section + order (matching the
+  // cassette key), not just the section's leaf — see cassetteKey in
+  // cassette-harness.ts.
   expect(configMap(gitLog)).toEqual({
-    "spry.trunk": "trunk/sync-020",
+    "spry.trunk": "trunk/commands__sync--020",
     "spry.remote": "origin",
-    "spry.branchPrefix": "spry/t-sync-020",
+    "spry.branchPrefix": "spry/t-commands__sync--020",
     "spry.repo": repoSlug,
   });
 
@@ -107,10 +113,55 @@ test("fake-record mode: spry-check PR URL canonicalizes to owner/repo (scrub-ord
   // (refs/spry/{prs,groups}) so concurrent record-mode tests never contend.
   expect(env).toEqual({
     SPRY_GH_CASSETTE_RECORD: cassettePath({ section: "commands/sync", order: 20 }),
-    SPRY_REMOTE_REFS_PREFIX: "refs/spry/t-sync-020",
+    SPRY_REMOTE_REFS_PREFIX: "refs/spry/t-commands__sync--020",
   });
-  expect(trunkName).toBe("trunk/sync-020");
-  expect(branchPrefix).toBe("spry/t-sync-020");
+  expect(trunkName).toBe("trunk/commands__sync--020");
+  expect(branchPrefix).toBe("spry/t-commands__sync--020");
+});
+
+test("record mode: repoSlug is derived from the fixture, not re-parsed from env", async () => {
+  // Regression for the slug-divergence hazard: createRepo({origin: "github"})
+  // internally resolves owner via SPRY_TEST_REPO_OWNER *or* falls back to the
+  // authenticated gh user. setupDocRepo must not re-derive its own slug from
+  // env alone (which silently defaults to "happycollision" even when the
+  // fixture actually cloned a different owner's fork) — it must reflect
+  // whatever owner/repo the fixture resolved to.
+  const gitLog: string[][] = [];
+  const { doc } = makeScrubbingDoc();
+  const { repoSlug } = await setupDocRepo(doc, {
+    recording: true,
+    section: "commands/sync",
+    order: 20,
+    createRepoFn: async () =>
+      makeFakeRepo("https://github.com/some-other-owner/spry-check", gitLog),
+    // Simulates SPRY_TEST_REPO_OWNER being unset and gh falling back to a
+    // contributor's own account.
+    fixtureOwner: "some-other-owner",
+    fixtureRepo: "spry-check",
+  });
+
+  expect(repoSlug).toBe("some-other-owner/spry-check");
+  expect(configMap(gitLog)["spry.repo"]).toBe("some-other-owner/spry-check");
+});
+
+test("replay mode: repoSlug is the deterministic constant matching committed cassettes", async () => {
+  // Replay never touches a real fixture (origin is a local bare repo), so
+  // there is no "actual clone" to derive a slug from. The committed cassettes
+  // were recorded against the canonical maintainer account and embed that
+  // slug in recorded gh args (e.g. `--repo happycollision/spry-check`), so
+  // replay MUST pin the same constant regardless of env or fixtureOwner/Repo
+  // (which replay callers never pass).
+  const gitLog: string[][] = [];
+  const { doc } = makeScrubbingDoc();
+  const { repoSlug } = await setupDocRepo(doc, {
+    recording: false,
+    section: "commands/land",
+    order: 10,
+    createRepoFn: async () => makeFakeRepo("/tmp/spry-test-origin-fake", gitLog),
+  });
+
+  expect(repoSlug).toBe("happycollision/spry-check");
+  expect(configMap(gitLog)["spry.repo"]).toBe("happycollision/spry-check");
 });
 
 test("per-test trunk: pushed from the baseline root commit and scrubbed back to the main story", async () => {
@@ -121,27 +172,35 @@ test("per-test trunk: pushed from the baseline root commit and scrubbed back to 
     section: "commands/land",
     order: 20,
     createRepoFn: async () => makeFakeRepo("https://github.com/happycollision/spry-check", gitLog),
+    fixtureOwner: "happycollision",
+    fixtureRepo: "spry-check",
   });
 
-  expect(trunkName).toBe("trunk/land-020");
-  expect(branchPrefix).toBe("spry/t-land-020");
+  expect(trunkName).toBe("trunk/commands__land--020");
+  expect(branchPrefix).toBe("spry/t-commands__land--020");
 
   // The trunk is established at the repo's ROOT commit — invariant even when
   // the canonical land test has transiently advanced the default branch — and
   // the local working branch is rebuilt on the same baseline.
   expect(gitLog).toContainEqual(["rev-list", "--max-parents=0", "origin/main"]);
   expect(gitLog).toContainEqual(["reset", "--hard", FAKE_BASELINE]);
-  expect(gitLog).toContainEqual(["push", "origin", `${FAKE_BASELINE}:refs/heads/trunk/land-020`]);
+  expect(gitLog).toContainEqual([
+    "push",
+    "origin",
+    `${FAKE_BASELINE}:refs/heads/trunk/commands__land--020`,
+  ]);
   expect(gitLog).toContainEqual([
     "update-ref",
-    "refs/remotes/origin/trunk/land-020",
+    "refs/remotes/origin/trunk/commands__land--020",
     FAKE_BASELINE,
   ]);
 
   // The docs keep telling the `main` + `spry/dondenton` story: the per-test
   // namespace never leaks into a generated fragment.
-  expect(scrubber.apply("✓ Landed 2 PRs to trunk/land-020")).toBe("✓ Landed 2 PRs to main");
-  expect(scrubber.apply("↑ pushed spry/t-land-020/aaa11111")).toBe(
+  expect(scrubber.apply("✓ Landed 2 PRs to trunk/commands__land--020")).toBe(
+    "✓ Landed 2 PRs to main",
+  );
+  expect(scrubber.apply("↑ pushed spry/t-commands__land--020/aaa11111")).toBe(
     "↑ pushed spry/dondenton/aaa11111",
   );
 });
@@ -155,16 +214,18 @@ test("default-branch trunk: no side branch is pushed and spry.trunk stays on mai
     order: 10,
     trunk: "default-branch",
     createRepoFn: async () => makeFakeRepo("https://github.com/happycollision/spry-check", gitLog),
+    fixtureOwner: "happycollision",
+    fixtureRepo: "spry-check",
   });
 
   expect(trunkName).toBe("main");
   // The branch prefix is still per-test — only the trunk is the real default
   // branch (MERGED-reachability fidelity).
-  expect(branchPrefix).toBe("spry/t-land-010");
+  expect(branchPrefix).toBe("spry/t-commands__land--010");
   expect(configMap(gitLog)["spry.trunk"]).toBe("main");
   // No trunk branch is created or pushed.
   expect(gitLog.some((args) => args[0] === "push" || args[0] === "rev-list")).toBe(false);
-  expect(scrubber.apply("↑ pushed spry/t-land-010/aaa11111")).toBe(
+  expect(scrubber.apply("↑ pushed spry/t-commands__land--010/aaa11111")).toBe(
     "↑ pushed spry/dondenton/aaa11111",
   );
 });
@@ -187,14 +248,46 @@ test("replay mode: creates a local-origin repo, per-test trunk on the local orig
   expect(repo.originPath).toBe("/tmp/spry-test-origin-fake");
   // The trunk name is pinned PER TEST (a cassette key), so replay uses the
   // same name as record and creates it on the local bare origin.
-  expect(trunkName).toBe("trunk/land-010");
-  expect(gitLog).toContainEqual(["push", "origin", `${FAKE_BASELINE}:refs/heads/trunk/land-010`]);
+  expect(trunkName).toBe("trunk/commands__land--010");
+  expect(gitLog).toContainEqual([
+    "push",
+    "origin",
+    `${FAKE_BASELINE}:refs/heads/trunk/commands__land--010`,
+  ]);
   // Local paths scrub as usual; the github-host scrub is inert but registered.
   expect(scrubber.apply("pushed to /tmp/spry-test-origin-fake")).toBe("pushed to /tmp/repo-origin");
   // Fixed replay env key, derived from this call's `recording: false`. The
   // refs namespace is set in replay too, so both modes run identical commands.
   expect(env).toEqual({
     SPRY_GH_CASSETTE: cassettePath({ section: "commands/land", order: 10 }),
-    SPRY_REMOTE_REFS_PREFIX: "refs/spry/t-land-010",
+    SPRY_REMOTE_REFS_PREFIX: "refs/spry/t-commands__land--010",
   });
+});
+
+test("namespace key derives from the FULL section, so a shared leaf across sections cannot collide", async () => {
+  // e.g. "commands/sync" and a hypothetical "tui/sync" both have leaf "sync",
+  // but their full-section keys diverge, so trunk/prefix never collide even
+  // at the same order — matching how cassettePath keys the two differently.
+  const gitLogA: string[][] = [];
+  const gitLogB: string[][] = [];
+  const { doc: docA } = makeScrubbingDoc();
+  const { doc: docB } = makeScrubbingDoc();
+
+  const a = await setupDocRepo(docA, {
+    recording: false,
+    section: "commands/sync",
+    order: 20,
+    createRepoFn: async () => makeFakeRepo("/tmp/spry-test-origin-a", gitLogA),
+  });
+  const b = await setupDocRepo(docB, {
+    recording: false,
+    section: "tui/sync",
+    order: 20,
+    createRepoFn: async () => makeFakeRepo("/tmp/spry-test-origin-b", gitLogB),
+  });
+
+  expect(a.trunkName).not.toBe(b.trunkName);
+  expect(a.branchPrefix).not.toBe(b.branchPrefix);
+  expect(a.trunkName).toBe("trunk/commands__sync--020");
+  expect(b.trunkName).toBe("trunk/tui__sync--020");
 });

@@ -181,9 +181,11 @@ describe("sp land docs", () => {
       // Replay serves it offline. Same body both ways — only the git origin and
       // the gh seam env differ.
       const recording = isRecording();
-      await withGitHubFixture({ recording, exclusive: true }, async () => {
+      await withGitHubFixture({ recording, exclusive: true }, async (fixture) => {
         const { repo, env, trunkName, branchPrefix } = await setupDocRepo(doc, {
           recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
           section: "commands/land",
           order: 10,
           trunk: "default-branch",
@@ -258,7 +260,7 @@ describe("sp land docs", () => {
     },
     async (doc) => {
       // Non-canonical land test: it lands onto its own per-test trunk
-      // (trunk/land-020), so in record mode it runs lock-free in parallel with
+      // (trunk/commands__land--020), so in record mode it runs lock-free in parallel with
       // the other fixture tests. FIDELITY CAVEAT: this is a side-branch trunk,
       // not the repo's default branch, so it is deliberately NOT the standing
       // validation of real-world land behavior — that's the canonical test
@@ -266,9 +268,11 @@ describe("sp land docs", () => {
       // identical in shape either way; observed live, GitHub even flips the
       // trunk-based PR to MERGED on a side-branch trunk push — beads spry-tm2l.)
       const recording = isRecording();
-      await withGitHubFixture({ recording }, async () => {
+      await withGitHubFixture({ recording }, async (fixture) => {
         const { repo, env, trunkName, branchPrefix } = await setupDocRepo(doc, {
           recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
           section: "commands/land",
           order: 20,
         });

@@ -289,9 +289,11 @@ describe("sp group docs", () => {
       // recorded traffic is the per-branch GraphQL lookups, keyed by branch name
       // and owner/repo (no SHA), which makes replay matching fully deterministic.
       const recording = isRecording();
-      await withGitHubFixture({ recording }, async () => {
+      await withGitHubFixture({ recording }, async (fixture) => {
         const { repo, env, trunkName, branchPrefix } = await setupDocRepo(doc, {
           recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
           section: "commands/group",
           order: 25,
         });
