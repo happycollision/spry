@@ -84,6 +84,25 @@ test("waitForExit still allows capture() to read the rendered screen after exit"
   expect(screen.text).toContain("Hello from PTY");
 });
 
+test("capture after waitForExit shows the final lines when output exceeds the rows", async () => {
+  // Regression: the screen buffer used to drop everything once output ran past
+  // the last row (no scroll-on-overflow), so capture() after a long-running
+  // command was truncated to the FIRST `rows` lines and the final output —
+  // the part doc tests assert on — was missing.
+  const script =
+    "for (let i = 1; i <= 2000; i++) console.log('filler line ' + i); " +
+    "console.log('FINAL SENTINEL LINE');";
+  const term = await createTerminalDriver("bun", ["-e", script], {
+    cols: 80,
+    rows: 24,
+  });
+
+  expect(await term.waitForExit({ timeout: 10000 })).toBe(0);
+  const screen = term.capture();
+  expect(screen.text).toContain("FINAL SENTINEL LINE");
+  expect(screen.text).not.toContain("filler line 1\n");
+});
+
 test("waitForExit throws with a screen dump on timeout", async () => {
   // cat with no input never exits on its own.
   const term = await createTerminalDriver("cat", [], {
