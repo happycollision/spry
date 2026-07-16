@@ -1,8 +1,153 @@
 import { test, expect } from "bun:test";
 import { $ } from "bun";
-import { createGitHubFixture, verifyTestRepo } from "./github-fixture.ts";
+import {
+  createGitHubFixture,
+  verifyTestRepo,
+  runWithRetry,
+  buildSetupHint,
+} from "./github-fixture.ts";
 import { waitForValue } from "./wait-for.ts";
 import { serialChain } from "./serial.ts";
+
+/**
+ * Offline unit tests for the two building blocks the suite-start `reset()`
+ * relies on to surface failures instead of silently swallowing them:
+ *
+ * - `runWithRetry`: the generic "attempt, retry failures once, recheck a
+ *   persistent failure against an already-done predicate" helper shared by
+ *   `closeAllPRs` and `deleteAllBranches`. No `gh`/network involved — `attempt`
+ *   and `isAlreadyDone` are injected fakes, so these run in the normal offline
+ *   suite (no SPRY_RECORD gate).
+ * - `buildSetupHint`: pure string construction, no network.
+ */
+test("runWithRetry: item fails once then succeeds on retry counts as success, no failures", async () => {
+  let calls = 0;
+  const result = await runWithRetry(
+    [{ id: "1" }, { id: "2" }],
+    async (item) => {
+      if (item.id === "1") {
+        calls++;
+        if (calls === 1) return { ok: false, stderr: "transient 403" };
+        return { ok: true, stderr: "" };
+      }
+      return { ok: true, stderr: "" };
+    },
+    { sleep: async () => {} },
+  );
+  expect(result.succeeded.map((i) => i.id).sort()).toEqual(["1", "2"]);
+  expect(result.failed).toEqual([]);
+});
+
+test("runWithRetry: item fails twice lands in failed with operation context", async () => {
+  const result = await runWithRetry(
+    [{ id: "1" }],
+    async () => ({ ok: false, stderr: "still rate limited" }),
+    { sleep: async () => {} },
+  );
+  expect(result.succeeded).toEqual([]);
+  expect(result.failed).toHaveLength(1);
+  expect(result.failed[0]?.item.id).toBe("1");
+  expect(result.failed[0]?.stderr).toContain("still rate limited");
+});
+
+test("runWithRetry: a brief pause precedes the retry pass", async () => {
+  const sleeps: number[] = [];
+  let calls = 0;
+  await runWithRetry(
+    [{ id: "1" }],
+    async () => {
+      calls++;
+      if (calls === 1) return { ok: false, stderr: "nope" };
+      return { ok: true, stderr: "" };
+    },
+    { sleep: async (ms) => void sleeps.push(ms) },
+  );
+  expect(sleeps.length).toBeGreaterThanOrEqual(1);
+  expect(sleeps[0]).toBeGreaterThan(0);
+});
+
+test("runWithRetry: isAlreadyDone treats a persistent failure as success (auto-close cascade)", async () => {
+  // Simulates: `gh pr close` fails on retry because GitHub already auto-closed
+  // the PR when its head branch was deleted concurrently. The recheck
+  // confirms the PR is already in the desired (closed) state, so the
+  // persistent "failure" must not be reported as an error.
+  const result = await runWithRetry(
+    [{ id: "42" }],
+    async () => ({ ok: false, stderr: "pull request is already closed" }),
+    {
+      sleep: async () => {},
+      isAlreadyDone: async (item) => item.id === "42",
+    },
+  );
+  expect(result.succeeded.map((i) => i.id)).toEqual(["42"]);
+  expect(result.failed).toEqual([]);
+});
+
+test("runWithRetry: isAlreadyDone false still reports the persistent failure", async () => {
+  const result = await runWithRetry(
+    [{ id: "42" }],
+    async () => ({ ok: false, stderr: "some other error" }),
+    {
+      sleep: async () => {},
+      isAlreadyDone: async () => false,
+    },
+  );
+  expect(result.succeeded).toEqual([]);
+  expect(result.failed).toHaveLength(1);
+  expect(result.failed[0]?.stderr).toContain("some other error");
+});
+
+test("runWithRetry: success counts include both first-pass and retry-pass successes", async () => {
+  let attempts = 0;
+  const result = await runWithRetry(
+    [{ id: "a" }, { id: "b" }, { id: "c" }],
+    async (item) => {
+      attempts++;
+      if (item.id === "b") {
+        // "b" fails first pass, succeeds on retry.
+        return attempts <= 3 ? { ok: false, stderr: "boom" } : { ok: true, stderr: "" };
+      }
+      return { ok: true, stderr: "" };
+    },
+    { sleep: async () => {} },
+  );
+  expect(result.succeeded.map((i) => i.id).sort()).toEqual(["a", "b", "c"]);
+  expect(result.failed).toEqual([]);
+});
+
+test("buildSetupHint: default repo name and no owner override yields the plain command", () => {
+  expect(buildSetupHint({ repo: "spry-check", defaultRepo: "spry-check" })).toBe(
+    "Run: bun run scripts/setup-spry-check.ts",
+  );
+});
+
+test("buildSetupHint: non-default repo name prefixes SPRY_TEST_REPO_NAME", () => {
+  expect(buildSetupHint({ repo: "spry-check-fixture", defaultRepo: "spry-check" })).toBe(
+    "Run: SPRY_TEST_REPO_NAME=spry-check-fixture bun run scripts/setup-spry-check.ts",
+  );
+});
+
+test("buildSetupHint: owner override is included alongside a non-default repo name", () => {
+  expect(
+    buildSetupHint({
+      repo: "spry-check-fixture",
+      defaultRepo: "spry-check",
+      ownerOverride: "someorg",
+    }),
+  ).toBe(
+    "Run: SPRY_TEST_REPO_NAME=spry-check-fixture SPRY_TEST_REPO_OWNER=someorg bun run scripts/setup-spry-check.ts",
+  );
+});
+
+test("buildSetupHint: owner override alone (default repo name) still includes it", () => {
+  expect(
+    buildSetupHint({
+      repo: "spry-check",
+      defaultRepo: "spry-check",
+      ownerOverride: "someorg",
+    }),
+  ).toBe("Run: SPRY_TEST_REPO_OWNER=someorg bun run scripts/setup-spry-check.ts");
+});
 
 /**
  * The destructive tests below exercise repo-wide ops — `reset()`,

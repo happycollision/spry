@@ -8,7 +8,31 @@ const SAFETY_MARKER = "<!-- spry-test-repo:v1 -->";
 // Configurable via environment variables (same as the setup script)
 const DEFAULT_REPO_NAME = "spry-check";
 
-const SETUP_HINT = "Run: bun run scripts/setup-spry-check.ts";
+/**
+ * Builds the "how to fix this" hint for repo-not-found / missing-safety-marker
+ * errors. `scripts/setup-spry-check.ts` bootstraps `SPRY_TEST_REPO_NAME` (repo
+ * name) and `SPRY_TEST_REPO_OWNER` (owner) from the environment — so a hint
+ * that always says the bare `bun run scripts/setup-spry-check.ts` command
+ * bootstraps the WRONG repo whenever either override is in play (e.g. the
+ * fixture unit tests' dedicated `spry-check-fixture` repo). This builds the
+ * command with exactly the env prefixes that are actually needed, so
+ * following it verbatim bootstraps the right repo.
+ */
+export function buildSetupHint(opts: {
+  repo: string;
+  defaultRepo: string;
+  ownerOverride?: string;
+}): string {
+  const prefixes: string[] = [];
+  if (opts.repo !== opts.defaultRepo) {
+    prefixes.push(`SPRY_TEST_REPO_NAME=${opts.repo}`);
+  }
+  if (opts.ownerOverride) {
+    prefixes.push(`SPRY_TEST_REPO_OWNER=${opts.ownerOverride}`);
+  }
+  const envPrefix = prefixes.length > 0 ? `${prefixes.join(" ")} ` : "";
+  return `Run: ${envPrefix}bun run scripts/setup-spry-check.ts`;
+}
 
 export interface CleanupReport {
   branchesDeleted: number;
@@ -51,6 +75,89 @@ export interface GitHubFixture {
 
   /** Merge a PR via gh (simulating a merge via the GitHub UI). */
   mergePR(prNumber: number, opts?: { deleteBranch?: boolean; squash?: boolean }): Promise<void>;
+}
+
+/** An item `runWithRetry` can operate over — just needs a stable identifier for error context. */
+export interface RetryableItem {
+  /** Human-readable identifier used in error context (PR number, branch name, ...). */
+  id: string;
+}
+
+export interface RetryResult<T> {
+  /** Items whose op succeeded, either on the first pass or the retry pass. */
+  succeeded: T[];
+  /** Items whose op failed on both the first pass AND the retry pass. */
+  failed: { item: T; stderr: string }[];
+}
+
+/**
+ * Runs `attempt` over every item CONCURRENTLY (matches the existing
+ * `Promise.all` cost model — the suite-start reset's cost scales with prior
+ * session residue), then retries any failures ONCE, sequentially (this is the
+ * recovery path, not the hot path — no need for concurrency there, and
+ * sequential keeps `isAlreadyDone` rechecks simple to reason about).
+ *
+ * Before the retry pass, sleeps `retryDelayMs` (default 1500ms) to let
+ * transient causes (secondary rate limits, close/delete cascades) settle.
+ *
+ * A failure that persists after the retry is checked against the optional
+ * `isAlreadyDone` predicate: if the item is already in the desired end state
+ * (e.g. a PR that GitHub auto-closed when its head branch was deleted by a
+ * concurrent `deleteAllBranches`-style call, so the retry's own `pr close`
+ * fails against an already-closed PR), it counts as a SUCCESS rather than a
+ * reported failure. Only a failure that is both persistent and NOT already
+ * done is returned in `failed` — this is what lets a genuine failure (e.g. a
+ * sustained rate limit) surface instead of being silently absorbed.
+ */
+export async function runWithRetry<T extends RetryableItem>(
+  items: T[],
+  attempt: (item: T) => Promise<{ ok: boolean; stderr: string }>,
+  options?: {
+    /** Recheck run on a persistent failure before it is reported (see doc comment). */
+    isAlreadyDone?: (item: T) => Promise<boolean>;
+    /** Delay before the retry pass, ms. Default 1500. */
+    retryDelayMs?: number;
+    /** Injectable delay (tests pass a no-op). Default sleeps `retryDelayMs`. */
+    sleep?: (ms: number) => Promise<void>;
+  },
+): Promise<RetryResult<T>> {
+  const retryDelayMs = options?.retryDelayMs ?? 1500;
+  const sleep = options?.sleep ?? ((ms: number) => Bun.sleep(ms));
+
+  if (items.length === 0) return { succeeded: [], failed: [] };
+
+  const firstPass = await Promise.all(
+    items.map(async (item) => ({ item, result: await attempt(item) })),
+  );
+
+  const succeeded: T[] = [];
+  const toRetry: { item: T; stderr: string }[] = [];
+  for (const { item, result } of firstPass) {
+    if (result.ok) succeeded.push(item);
+    else toRetry.push({ item, stderr: result.stderr });
+  }
+
+  if (toRetry.length === 0) return { succeeded, failed: [] };
+
+  await sleep(retryDelayMs);
+
+  const failed: { item: T; stderr: string }[] = [];
+  // Sequential: this is the recovery path, not the hot path, and it keeps the
+  // isAlreadyDone recheck below simple to reason about.
+  for (const { item, stderr: firstStderr } of toRetry) {
+    const retryResult = await attempt(item);
+    if (retryResult.ok) {
+      succeeded.push(item);
+      continue;
+    }
+    if (options?.isAlreadyDone && (await options.isAlreadyDone(item))) {
+      succeeded.push(item);
+      continue;
+    }
+    failed.push({ item, stderr: retryResult.stderr || firstStderr });
+  }
+
+  return { succeeded, failed };
 }
 
 /**
@@ -123,10 +230,19 @@ export async function createGitHubFixture(
   const fullRepoName = `${owner}/${repo}`;
   const repoUrl = `https://github.com/${fullRepoName}`;
 
+  // Dynamic hint: include exactly the env prefixes needed to bootstrap THIS
+  // repo/owner (see buildSetupHint doc comment) — a hint that always says the
+  // bare command bootstraps the wrong repo whenever an override is in play.
+  const setupHint = buildSetupHint({
+    repo,
+    defaultRepo: DEFAULT_REPO_NAME,
+    ownerOverride: process.env.SPRY_TEST_REPO_OWNER,
+  });
+
   // Verify the repo exists.
   const repoCheck = await $`gh repo view ${fullRepoName} --json name`.quiet().nothrow();
   if (repoCheck.exitCode !== 0) {
-    throw new Error(`Test repository ${fullRepoName} not found.\n${SETUP_HINT}`);
+    throw new Error(`Test repository ${fullRepoName} not found.\n${setupHint}`);
   }
 
   // Safety check: verify this is actually a spry test repo before handing back
@@ -140,7 +256,7 @@ export async function createGitHubFixture(
   if (!safetyVerified) {
     throw new Error(
       `Repository ${fullRepoName} exists but does not appear to be a spry test repo.\n` +
-        `The README is missing the safety marker "${SAFETY_MARKER}".\n${SETUP_HINT}`,
+        `The README is missing the safety marker "${SAFETY_MARKER}".\n${setupHint}`,
     );
   }
 
@@ -154,12 +270,35 @@ export async function createGitHubFixture(
     if (!safetyVerified) {
       throw new Error(
         `Refusing to mutate ${owner}/${repo}: it is missing the safety marker ` +
-          `"${SAFETY_MARKER}".\n${SETUP_HINT}`,
+          `"${SAFETY_MARKER}".\n${setupHint}`,
       );
     }
   }
 
-  async function closeAllPRs(): Promise<number> {
+  /**
+   * Checks whether PR `prNumber` is already closed (or merged) — used to
+   * absorb the auto-close cascade: GitHub auto-closes an open PR when its
+   * head branch is deleted, and `deleteAllBranches` runs concurrently with
+   * (or just before, on a retry) `closeAllPRs`, so a `gh pr close` retry can
+   * legitimately fail with the PR already in the desired end state. This is a
+   * real state query (not a stderr-message guess), so it's correct regardless
+   * of gh's exact wording for "already closed".
+   */
+  async function isPRAlreadyClosed(prNumber: string): Promise<boolean> {
+    const result = await $`gh pr view ${prNumber} --repo ${owner}/${repo} --json state --jq .state`
+      .quiet()
+      .nothrow();
+    if (result.exitCode !== 0) return false;
+    const state = result.stdout.toString().trim();
+    return state === "CLOSED" || state === "MERGED";
+  }
+
+  /**
+   * Internal variant that also surfaces persistent per-item failures, so
+   * `reset()` can report them instead of only lowering a count (see
+   * `runWithRetry` doc comment for the retry + cascade-absorption design).
+   */
+  async function closeAllPRsWithFailures(): Promise<RetryResult<{ id: string }>> {
     assertSafeToMutate();
 
     const listResult =
@@ -168,26 +307,43 @@ export async function createGitHubFixture(
         .nothrow();
 
     if (listResult.exitCode !== 0 || !listResult.stdout.toString().trim()) {
-      return 0;
+      return { succeeded: [], failed: [] };
     }
 
     const prNumbers = listResult.stdout
       .toString()
       .trim()
       .split("\n")
-      .filter((n) => n);
-    // Independent gh calls — run them concurrently. The suite-start reset's
-    // cost scales with prior-session residue (a dozen PRs is routine), and it
-    // sits inside every waiting test's timeout budget under `--concurrent`.
-    const results = await Promise.all(
-      prNumbers.map((prNumber) =>
-        $`gh pr close ${prNumber} --repo ${owner}/${repo} --delete-branch`.quiet().nothrow(),
-      ),
+      .filter((n) => n)
+      .map((id) => ({ id }));
+
+    // Independent gh calls — run them concurrently on the first pass. The
+    // suite-start reset's cost scales with prior-session residue (a dozen PRs
+    // is routine), and it sits inside every waiting test's timeout budget
+    // under `--concurrent`. Failures (e.g. a secondary rate limit under
+    // concurrent writes) are retried once, sequentially, by runWithRetry.
+    return runWithRetry(
+      prNumbers,
+      async ({ id: prNumber }) => {
+        const result = await $`gh pr close ${prNumber} --repo ${owner}/${repo} --delete-branch`
+          .quiet()
+          .nothrow();
+        return { ok: result.exitCode === 0, stderr: result.stderr.toString() };
+      },
+      { isAlreadyDone: ({ id: prNumber }) => isPRAlreadyClosed(prNumber) },
     );
-    return results.filter((r) => r.exitCode === 0).length;
   }
 
-  async function deleteAllBranches(): Promise<number> {
+  async function closeAllPRs(): Promise<number> {
+    const { succeeded } = await closeAllPRsWithFailures();
+    return succeeded.length;
+  }
+
+  /**
+   * Internal variant that also surfaces persistent per-item failures (see
+   * closeAllPRsWithFailures).
+   */
+  async function deleteAllBranchesWithFailures(): Promise<RetryResult<{ id: string }>> {
     assertSafeToMutate();
 
     // Determine the default branch so we never delete it.
@@ -203,22 +359,32 @@ export async function createGitHubFixture(
       .nothrow();
 
     if (listResult.exitCode !== 0 || !listResult.stdout.toString().trim()) {
-      return 0;
+      return { succeeded: [], failed: [] };
     }
 
     const branches = listResult.stdout
       .toString()
       .trim()
       .split("\n")
-      .filter((b) => b && b !== defaultBranch);
+      .filter((b) => b && b !== defaultBranch)
+      .map((id) => ({ id }));
 
-    // Independent gh calls — run them concurrently (see closeAllPRs).
-    const results = await Promise.all(
-      branches.map((branch) =>
-        $`gh api -X DELETE repos/${owner}/${repo}/git/refs/heads/${branch}`.quiet().nothrow(),
-      ),
-    );
-    return results.filter((r) => r.exitCode === 0).length;
+    // Independent gh calls — run them concurrently on the first pass (see
+    // closeAllPRsWithFailures). No isAlreadyDone recheck here: unlike PR
+    // close, there is no known benign cascade that deletes a branch out from
+    // under this call, so a persistent branch-delete failure is always a
+    // genuine failure worth reporting.
+    return runWithRetry(branches, async ({ id: branch }) => {
+      const result = await $`gh api -X DELETE repos/${owner}/${repo}/git/refs/heads/${branch}`
+        .quiet()
+        .nothrow();
+      return { ok: result.exitCode === 0, stderr: result.stderr.toString() };
+    });
+  }
+
+  async function deleteAllBranches(): Promise<number> {
+    const { succeeded } = await deleteAllBranchesWithFailures();
+    return succeeded.length;
   }
 
   /** List every ref under refs/spry/ (empty array when there are none). */
@@ -325,18 +491,31 @@ export async function createGitHubFixture(
       errors: [],
     };
 
-    // Close PRs first (this also deletes their source branches).
+    // Close PRs first (this also deletes their source branches). Per-item
+    // failures that survive the retry (see runWithRetry) are pushed into
+    // report.errors with enough context to act on — operation, PR number,
+    // stderr excerpt — instead of only lowering prsClosed. This is what lets
+    // ensureSessionFixture's `if (report.errors.length > 0) throw` guard
+    // actually fire on a stale PR that outlives the suite-start reset.
     try {
-      report.prsClosed = await closeAllPRs();
+      const { succeeded, failed } = await closeAllPRsWithFailures();
+      report.prsClosed = succeeded.length;
+      for (const { item, stderr } of failed) {
+        report.errors.push(`Failed to close PR #${item.id}: ${stderr.trim()}`);
+      }
     } catch (err: unknown) {
       report.errors.push(
         `Failed to close PRs: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
 
-    // Delete any remaining branches.
+    // Delete any remaining branches. Same failure-surfacing as closeAllPRs.
     try {
-      report.branchesDeleted = await deleteAllBranches();
+      const { succeeded, failed } = await deleteAllBranchesWithFailures();
+      report.branchesDeleted = succeeded.length;
+      for (const { item, stderr } of failed) {
+        report.errors.push(`Failed to delete branch ${item.id}: ${stderr.trim()}`);
+      }
     } catch (err: unknown) {
       report.errors.push(
         `Failed to delete branches: ${err instanceof Error ? err.message : String(err)}`,
