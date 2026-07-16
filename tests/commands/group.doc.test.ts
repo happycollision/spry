@@ -70,6 +70,7 @@ describe("sp group docs", () => {
     // Save
     term.press("Enter");
     expect(await term.waitForExit({ timeout: 10000 })).toBe(0);
+    expect(term.capture().text).toContain("Groups updated");
 
     expect(snapshot.text).toContain("Auth Flow");
   });
@@ -121,6 +122,9 @@ describe("sp group docs", () => {
     // count (and thus the doc-scrubber's SHA registry) flip between runs. See
     // docs/investigations/2026-07-07-group-reflog-nondeterminism.md.
     expect(await term.waitForExit({ timeout: 10000 })).toBe(0);
+    // Pin the save path: a mistimed keystroke or a regression that exits
+    // cleanly without persisting must not pass as a successful reorder.
+    expect(term.capture().text).toContain("Groups updated");
   });
 
   docTest(
@@ -160,6 +164,8 @@ describe("sp group docs", () => {
 
       term.type("q");
       expect(await term.waitForExit({ timeout: 5000 })).toBe(0);
+      // Pin the cancel path: exit 0 alone is indistinguishable from a save.
+      expect(term.capture().text).toContain("Cancelled.");
     },
   );
 
@@ -215,6 +221,7 @@ describe("sp group docs", () => {
     await Bun.sleep(150);
     term.press("Enter"); // save editor
     expect(await term.waitForExit({ timeout: 10000 })).toBe(0);
+    expect(term.capture().text).toContain("Groups updated");
   });
 
   docTest("Conflict prediction", { section: "commands/group", order: 30 }, async (doc) => {
@@ -267,6 +274,8 @@ describe("sp group docs", () => {
     await Bun.sleep(100);
     term.press("q"); // quit without saving
     expect(await term.waitForExit({ timeout: 5000 })).toBe(0);
+    // Pin the cancel path: exit 0 alone is indistinguishable from a save.
+    expect(term.capture().text).toContain("Cancelled.");
   });
 
   docTest(
