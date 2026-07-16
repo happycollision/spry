@@ -1350,7 +1350,15 @@ describe("checkSync", () => {
     );
     const ctx = makeCtx(repo, gh);
 
-    const result = await checkSync(ctx, { cwd: repo.path });
+    // checkSync writes the PR cache internally, which logs "Updated PR
+    // cache" through console.log — hold the output lock while it runs.
+    const logs = await captureLogs();
+    let result: Awaited<ReturnType<typeof checkSync>>;
+    try {
+      result = await checkSync(ctx, { cwd: repo.path });
+    } finally {
+      logs.restore();
+    }
     expect(result.units.map((u) => u.id)).toEqual(["aaa11111"]);
     expect(calls.some((c) => c.args[0] === "pr" && c.args[1] === "edit")).toBe(false);
     expect(calls.some((c) => c.args[0] === "pr" && c.args[1] === "create")).toBe(false);
@@ -1414,20 +1422,28 @@ describe("parkMismatchedToTrunk", () => {
     ]);
     const { gh, calls } = stubGh(() => ({ stdout: "", stderr: "", exitCode: 0 }));
     const ctx = makeCtx(repo, gh);
-    const failed = await parkMismatchedToTrunk(
-      ctx,
-      config,
-      units,
-      ["spry/test/aaa11111", "spry/test/bbb22222"],
-      prMap,
-      repo.path,
-    );
+    const logs = await captureLogs();
+    let failed: Set<string>;
+    try {
+      failed = await parkMismatchedToTrunk(
+        ctx,
+        config,
+        units,
+        ["spry/test/aaa11111", "spry/test/bbb22222"],
+        prMap,
+        repo.path,
+      );
+    } finally {
+      logs.restore();
+    }
     const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
     expect(edits.map((c) => c.args)).toEqual([
       ["pr", "edit", "10", "--base", "main"],
       ["pr", "edit", "11", "--base", "main"],
     ]);
     expect(failed.size).toBe(0);
+    expect(logs.out.join("\n")).toContain("↻ parked PR #10 → main");
+    expect(logs.out.join("\n")).toContain("↻ parked PR #11 → main");
   });
 
   test("does not park a PR already on its correct stacked base", async () => {
@@ -1443,17 +1459,24 @@ describe("parkMismatchedToTrunk", () => {
     ]);
     const { gh, calls } = stubGh(() => ({ stdout: "", stderr: "", exitCode: 0 }));
     const ctx = makeCtx(repo, gh);
-    const failed = await parkMismatchedToTrunk(
-      ctx,
-      config,
-      units,
-      ["spry/test/aaa11111", "spry/test/bbb22222"],
-      prMap,
-      repo.path,
-    );
+    const logs = await captureLogs();
+    let failed: Set<string>;
+    try {
+      failed = await parkMismatchedToTrunk(
+        ctx,
+        config,
+        units,
+        ["spry/test/aaa11111", "spry/test/bbb22222"],
+        prMap,
+        repo.path,
+      );
+    } finally {
+      logs.restore();
+    }
     const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
     expect(edits).toHaveLength(0); // aaa already on trunk, bbb already correctly stacked
     expect(failed.size).toBe(0);
+    expect(logs.out.join("\n")).not.toContain("parked");
   });
 
   test("does not retarget a PR already based on trunk", async () => {
@@ -1464,17 +1487,24 @@ describe("parkMismatchedToTrunk", () => {
     ]);
     const { gh, calls } = stubGh(() => ({ stdout: "", stderr: "", exitCode: 0 }));
     const ctx = makeCtx(repo, gh);
-    const failed = await parkMismatchedToTrunk(
-      ctx,
-      config,
-      units,
-      ["spry/test/aaa11111"],
-      prMap,
-      repo.path,
-    );
+    const logs = await captureLogs();
+    let failed: Set<string>;
+    try {
+      failed = await parkMismatchedToTrunk(
+        ctx,
+        config,
+        units,
+        ["spry/test/aaa11111"],
+        prMap,
+        repo.path,
+      );
+    } finally {
+      logs.restore();
+    }
     const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
     expect(edits).toHaveLength(0);
     expect(failed.size).toBe(0);
+    expect(logs.out.join("\n")).not.toContain("parked");
   });
 
   test("records a failed park and does not throw", async () => {
