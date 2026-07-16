@@ -15,6 +15,59 @@ const cliPath = join(import.meta.dir, "../../src/cli/index.ts");
 const harnessPath = join(import.meta.dir, "../fixtures/land-tui-harness.ts");
 const runSp = createRunner(cliPath);
 
+// Replay never touches GitHub (gh traffic is cassette-served), but it is NOT
+// wait-free: order 20's PTY spawn + TUI render run for real in replay too, and
+// its declared inner waits are waitForText(15000) + waitForExit(20000) =
+// 35000ms — so the replay budget must exceed that ceiling (bun's per-test
+// timeout overrides any CLI --timeout, so nothing else rescues it). 60000ms
+// covers the 35000ms TUI ceiling with headroom while still surfacing a
+// genuine replay hang in a minute instead of inheriting the record-mode
+// budgets below. (Order 10's replay body has no TUI and its polls are
+// recording-gated, so it finishes in seconds either way.)
+const REPLAY_TIMEOUT_MS = 60000;
+
+// waitForChecks' per-call budget (its default `timeoutMs` parameter below).
+const WAIT_FOR_CHECKS_TIMEOUT_MS = 240000;
+
+// setupLandStack awaits waitForChecks twice, SEQUENTIALLY (2 * 240000 =
+// 480000ms worst case) before either land docTest body even reaches its own
+// assertions. That alone exceeds the old flat 300000ms timeout, which is
+// Finding A. Both record-mode land docTest bodies below share this floor; the
+// canonical test additionally pays the MERGED poll and the
+// exclusive-lock/reset overhead (see CANONICAL_RECORD_TIMEOUT_MS).
+const SETUP_LAND_STACK_WAIT_MS = 2 * WAIT_FOR_CHECKS_TIMEOUT_MS; // 480000
+
+// "Picking the land point interactively" (order 20) is non-exclusive: it never
+// contends the record lock, and it has no MERGED poll. Its worst case is
+// setupLandStack's wait plus its own TUI waits (15000 + 20000 = 35000ms):
+// SETUP_LAND_STACK_WAIT_MS + 35000 = 515000ms. Round up for headroom.
+const NON_EXCLUSIVE_RECORD_TIMEOUT_MS = SETUP_LAND_STACK_WAIT_MS + 35000 + 65000; // 580000
+
+// The MERGED-fidelity poll's own budget (see the waitForValue call below —
+// Finding B): 48 attempts * 5000ms cadence, matching waitForChecks's ~240s
+// ceiling rather than waitForValue's tiny 10 * 500ms defaults.
+const MERGED_POLL_WAIT_MS = 48 * 5000; // 240000
+
+// The canonical land test (order 10, exclusive: true) additionally pays:
+//   - MERGED_POLL_WAIT_MS (240000ms, see above)
+//   - up to the once-per-process suite-start reset (bounded in practice by the
+//     spry-check repo's own residue, not separately budgeted here since it is
+//     shared/memoized across the whole record run and typically far smaller
+//     than the CI waits above)
+//   - the record-lock ACQUIRE wait: withRecordLock's default acquire timeout
+//     is 15 minutes (900000ms, see tests/lib/record-lock.ts) — this test is
+//     one of only two lock contenders (itself and the suite-start reset), so
+//     acquisition is normally near-instant, but the budget must not assume
+//     that under a slow CI queue.
+// Worst-case sum: SETUP_LAND_STACK_WAIT_MS (480000) + MERGED_POLL_WAIT_MS
+// (240000) + lock-acquire (900000) = 1620000ms. 1500000ms undercuts that by
+// design: the lock-acquire figure is itself a conservative ceiling
+// (contention is normally near-zero with only one other holder), so
+// 1500000ms (25 minutes) is sized to comfortably absorb the two CI-wait terms
+// in full (720000ms) plus substantial real lock contention, without
+// inheriting the full pathological 900000ms on top of everything else.
+const CANONICAL_RECORD_TIMEOUT_MS = SETUP_LAND_STACK_WAIT_MS + MERGED_POLL_WAIT_MS + 780000; // 1500000
+
 const repos: Array<{ cleanup(): Promise<void> }> = [];
 
 afterAll(async () => {
@@ -73,7 +126,11 @@ async function setupLandStack(
  * `statusCheckRollup` signal `sp land` reads, and require a NON-EMPTY, fully
  * green rollup before returning.
  */
-async function waitForChecks(cwd: string, branch: string, timeoutMs = 240000): Promise<void> {
+async function waitForChecks(
+  cwd: string,
+  branch: string,
+  timeoutMs = WAIT_FOR_CHECKS_TIMEOUT_MS,
+): Promise<void> {
   const { $ } = await import("bun");
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -102,7 +159,11 @@ async function waitForChecks(cwd: string, branch: string, timeoutMs = 240000): P
 describe("sp land docs", () => {
   docTest(
     "Landing through a commit",
-    { section: "commands/land", order: 10, timeout: 300000 },
+    {
+      section: "commands/land",
+      order: 10,
+      timeout: isRecording() ? CANONICAL_RECORD_TIMEOUT_MS : REPLAY_TIMEOUT_MS,
+    },
     async (doc) => {
       // THE CANONICAL LAND TEST. It lands on the repo's REAL default branch
       // (trunk: "default-branch") and, in record mode, runs exclusively (record
@@ -171,7 +232,16 @@ describe("sp land docs", () => {
               return res.stdout.toString().trim();
             },
             (s) => s === "MERGED",
-            { description: `PR for ${branchPrefix}/aaa11111 to be marked MERGED` },
+            {
+              description: `PR for ${branchPrefix}/aaa11111 to be marked MERGED`,
+              // Same cadence as waitForChecks: this is the same class of
+              // GitHub-eventual-consistency wait (the MERGED flip applies
+              // asynchronously after the ff-push), so it gets the same
+              // interval and the same ~240s ceiling (48 * 5000ms) rather than
+              // waitForValue's tiny 10 * 500ms defaults.
+              intervalMs: 5000,
+              attempts: 48,
+            },
           );
           expect(state).toBe("MERGED");
         }
@@ -181,7 +251,11 @@ describe("sp land docs", () => {
 
   docTest(
     "Picking the land point interactively",
-    { section: "commands/land", order: 20, timeout: 300000 },
+    {
+      section: "commands/land",
+      order: 20,
+      timeout: isRecording() ? NON_EXCLUSIVE_RECORD_TIMEOUT_MS : REPLAY_TIMEOUT_MS,
+    },
     async (doc) => {
       // Non-canonical land test: it lands onto its own per-test trunk
       // (trunk/land-020), so in record mode it runs lock-free in parallel with
