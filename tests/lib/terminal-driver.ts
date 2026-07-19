@@ -107,6 +107,14 @@ export async function createTerminalDriver(
     return screen.capture();
   }
 
+  function closePty(): void {
+    try {
+      proc.terminal?.close();
+    } catch {
+      /* may already be closed */
+    }
+  }
+
   async function waitForExit(opts?: { timeout?: number }): Promise<number> {
     const timeout = opts?.timeout ?? 5000;
 
@@ -126,21 +134,13 @@ export async function createTerminalDriver(
     // Bun does not close the pty master when the child exits, so a
     // waitForExit-only caller would leak an open pty fd. Close it here; the
     // screen buffer is in-process, so capture() keeps working afterwards.
-    try {
-      proc.terminal?.close();
-    } catch {
-      /* may already be closed */
-    }
+    closePty();
 
     return result.code;
   }
 
   async function close(): Promise<void> {
-    try {
-      proc.terminal?.close();
-    } catch {
-      /* may have exited */
-    }
+    closePty();
 
     // Graceful: give the process a short grace window to exit on its own
     // (closing the pty typically triggers a natural exit) before resorting to
