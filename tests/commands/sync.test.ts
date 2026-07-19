@@ -1302,6 +1302,38 @@ describe("PR cache", () => {
     expect(cache["aaa11111"]?.cachedAt).toBeDefined();
   });
 
+  test("sync does not cache a stale MERGED/CLOSED PR for the branch", async () => {
+    // A head branch can carry a stale MERGED/CLOSED PR record (GitHub never
+    // deletes PRs). That record is not the unit's live PR — sync must not cache
+    // it, and must not print "Updated PR cache" for it. Only an OPEN PR counts.
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "Add login\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${head}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+
+    const { gh } = stubGh(
+      ghPRMap({ "spry/test/aaa11111": { number: 9, baseRefName: "main", state: "MERGED" } }),
+    );
+    const ctx = makeCtx(repo, gh);
+    const logs = await captureLogs();
+    try {
+      await syncCommand(ctx, { cwd: repo.path });
+    } finally {
+      logs.restore();
+    }
+
+    expect(logs.out.join("\n")).not.toContain("Updated PR cache");
+    const cache = await loadPRCache(git, { cwd: repo.path });
+    expect(Object.keys(cache)).toHaveLength(0);
+  });
+
   test("sync does not write cache when gh is unavailable", async () => {
     const repo = await makeRepoWithConfig();
     const git = createRealGitRunner();

@@ -623,7 +623,12 @@ async function writePRCache(
   for (const unit of units) {
     const branch = branchForUnit(unit, config);
     const pr = prMap.get(branch);
-    if (pr) cache[unit.id] = { ...pr, branch, cachedAt: now };
+    // Only an OPEN PR is the unit's live PR. A MERGED/CLOSED record on the same
+    // head branch is stale residue (GitHub never deletes PRs, so a reused branch
+    // keeps old records) — caching it would print a phantom "Updated PR cache"
+    // and let sp view render a stale state. Merged-state display comes from the
+    // cache write made while the PR was still open; land/clean own its removal.
+    if (pr && pr.state === "OPEN") cache[unit.id] = { ...pr, branch, cachedAt: now };
   }
   const count = Object.keys(cache).length;
   if (count === 0) return;
