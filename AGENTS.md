@@ -68,15 +68,20 @@ br sync --status      # Check sync status
 **Before ending any session, run this checklist:**
 
 ```bash
-git status                        # Check what changed in the main repo
-git add <files>                   # Stage code changes
-br sync --flush-only              # Export beads changes to JSONL
-git nook beads add --all          # Stage issue data in the nook
-git nook beads commit -m "issues" # Commit it (skip if nothing changed)
-git nook beads push               # Publish the hidden ref on origin
-git commit -m "..."               # Commit code (on a feature branch, not main)
-git push                          # Push code
+git status                                   # Check what changed in the main repo
+git add <files>                              # Stage code changes
+br sync --flush-only                         # Export beads changes to JSONL
+git nook -n beads run add --all              # Stage issue data in the nook
+git nook -n beads run commit -m "issues"     # Commit it (skip if nothing changed)
+git nook -n beads run push                   # Publish the hidden ref on origin
+git commit -m "..."                          # Commit code (on a feature branch, not main)
+git push                                     # Push code
 ```
+
+The nook uses `git nook -n <name> run <git-args...>` to run any git command
+against it (this is `git-nook post-v0.3.0-dev`; there is no `git nook <name>
+<cmd>` shorthand). If the nook is "not linked here" in a fresh clone or
+worktree, run `git nook materialize` once first to link it in.
 
 ### Best Practices
 
@@ -116,18 +121,20 @@ repo-excluded `.beads/` dir, published to a custom ref on `origin`
 default clones. This keeps issue-tracker churn off the `main` branch history.
 
 ```bash
-git nook list                 # see this repo's nooks (expect: beads)
-git nook beads status         # any git command works against the nook
+git nook list                        # see this repo's nooks (expect: beads)
+git nook materialize                 # link the nook into this worktree (needed once
+                                     #   per fresh clone/worktree; "not linked here")
+git nook -n beads run status         # any git command works via `-n <name> run <args>`
 ```
 
 The daily beads flow on this repo:
 
 ```bash
-br sync --flush-only          # beads DB -> .beads/issues.jsonl
-git nook beads add --all
-git nook beads commit -m "issues"
-git nook beads pull --no-rebase   # only needed when another machine pushed
-git nook beads push
+br sync --flush-only                     # beads DB -> .beads/issues.jsonl
+git nook -n beads run add --all
+git nook -n beads run commit -m "issues"
+git nook -n beads run pull --no-rebase   # only needed when another machine pushed
+git nook -n beads run push
 ```
 
 If a pull merges `issues.jsonl` from another machine, do NOT hand-resolve JSONL
@@ -154,7 +161,7 @@ is for _new_ plans, not a mandate to migrate those.)
   is the _only_ record — so inline the full detail: files touched, key code, exact
   test assertions.
 - After creating them, publish via the session protocol and verify the nook's ref
-  received them (`git nook beads show origin/main:issues.jsonl | grep <id>`).
+  received them (`git nook -n beads run show origin/main:issues.jsonl | grep <id>`).
 
 ## Git
 
