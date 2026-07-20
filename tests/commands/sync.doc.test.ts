@@ -6,8 +6,8 @@ import {
   createRepo,
   createRealGitRunner,
   createTerminalDriver,
-  cassetteEnv,
   isRecording,
+  setupDocRepo,
   withGitHubFixture,
 } from "../lib/index.ts";
 
@@ -74,44 +74,36 @@ describe("sp sync docs", () => {
     expect(result2.stdout).not.toContain("pushed spry/dondenton/aaa11111");
   });
 
+  // Fixture doc tests carry a 180s timeout (here and below): replay finishes
+  // in seconds, but under a concurrent record run the budget must also absorb
+  // the shared suite-start reset (serial gh round-trips scaling with the
+  // previous session's residue) plus this test's own live gh traffic.
   docTest(
     "Opening a new PR",
-    { section: "commands/sync", order: 20, timeout: 60000 },
+    { section: "commands/sync", order: 20, timeout: 180000 },
     async (doc) => {
       // Record mode drives the real spry-check repo and captures genuine gh
       // responses into the committed cassette; replay (default) serves them
       // offline. The same body runs both ways — only the git origin and the
       // gh seam env differ. See docs/plans/2026-06-13-gh-cassettes-real-recording.md.
-      // withGitHubFixture serializes record-mode bodies (which all mutate the
-      // one shared spry-check repo) via a cross-process lock and resets the
-      // fixture before/after; replay runs unlocked with fixture === undefined.
+      // withGitHubFixture runs one suite-start reset per record session; the
+      // body itself runs lock-free in its own per-test trunk/prefix namespace
+      // (from setupDocRepo). Replay runs with fixture === undefined.
       const recording = isRecording();
-      await withGitHubFixture({ recording }, async () => {
-        const repo = await createRepo({ origin: recording ? "github" : "local" });
+      await withGitHubFixture({ recording }, async (fixture) => {
+        // setupDocRepo owns the invariant prefix: repo against the right origin,
+        // determinism scrubs in the load-bearing order, per-test namespace,
+        // spry config, gh-seam env. Seeded commits: repo.git pins identity and
+        // stamps per-run monotonic dates. Replay does not need matching SHAs —
+        // the cassette keys gh calls by branch name, never by SHA.
+        const { repo, env } = await setupDocRepo(doc, {
+          recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
+          section: "commands/sync",
+          order: 20,
+        });
         repos.push(repo);
-        // Neutralize the real test-repo slug BEFORE doc.scrub(repo). In record
-        // mode repo.originPath IS the fixture URL (https://github.com/<owner>/spry-check),
-        // and doc.scrub(repo) would rewrite that prefix to /tmp/repo-origin — which
-        // would then shadow the github-host canonicalization and leave a divergent,
-        // non-deterministic PR URL in the generated docs. Registering this first lets
-        // it win in record mode; in replay originPath is a /tmp path so order is moot.
-        doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
-        doc.scrub(repo);
-        // PR numbers are GitHub-minted (non-deterministic); canonicalize the ones
-        // shown so the generated doc stays stable across re-recordings.
-        doc.scrub(/Created PR #\d+/g, "Created PR #42");
-        doc.scrub(/pull\/\d+/g, "pull/42");
-
-        // Deterministic commits (repo.git pins identity/date) so the branch SHA is
-        // byte-identical between the recording run and every offline replay.
-        await repo.git.run(["config", "spry.trunk", "main"]);
-        await repo.git.run(["config", "spry.remote", "origin"]);
-        await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
-        // gh needs explicit owner/repo for its GraphQL query. In replay the origin
-        // is a local bare repo, so pin the slug to whatever the committed cassette
-        // was recorded against (defaults to the maintainer's spry-check).
-        const repoSlug = `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`;
-        await repo.git.run(["config", "spry.repo", repoSlug]);
         await repo.git.run(["checkout", "-b", "feature/x"]);
         await repo.git.run([
           "commit",
@@ -125,7 +117,7 @@ describe("sp sync docs", () => {
         );
 
         const { command, result } = await runSp(repo.path, "sync", ["--open", "aaa11111"], {
-          env: cassetteEnv({ section: "commands/sync", order: 20 }),
+          env,
         });
         doc.command(command);
         doc.output(result.stdout);
@@ -140,26 +132,21 @@ describe("sp sync docs", () => {
 
   docTest(
     "Opening a group as a single PR",
-    { section: "commands/sync", order: 22, timeout: 60000 },
+    { section: "commands/sync", order: 22, timeout: 180000 },
     async (doc) => {
       // Record mode publishes one real PR on spry-check for the grouped unit and
       // captures gh's create + PR-status traffic; replay serves it offline. Same
       // body both ways — only the git origin and the gh seam env differ.
       const recording = isRecording();
-      await withGitHubFixture({ recording }, async () => {
-        const repo = await createRepo({ origin: recording ? "github" : "local" });
+      await withGitHubFixture({ recording }, async (fixture) => {
+        const { repo, repoSlug, env, branchPrefix } = await setupDocRepo(doc, {
+          recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
+          section: "commands/sync",
+          order: 22,
+        });
         repos.push(repo);
-        // github-host canonicalization must precede doc.scrub(repo): in record mode
-        // repo.originPath is the fixture URL, and doc.scrub(repo) would otherwise
-        // rewrite it to /tmp/repo-origin and shadow this scrub. See order 20.
-        doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
-        doc.scrub(repo);
-
-        await repo.git.run(["config", "spry.trunk", "main"]);
-        await repo.git.run(["config", "spry.remote", "origin"]);
-        await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
-        const repoSlug = `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`;
-        await repo.git.run(["config", "spry.repo", repoSlug]);
 
         await repo.git.run(["checkout", "-b", "feature/auth"]);
         await repo.git.run([
@@ -188,23 +175,18 @@ describe("sp sync docs", () => {
           "When you group commits with `sp group`, `sp sync --open <group-id>` publishes the whole group as a single PR. The PR title is the group's title and its body is left empty by design — the individual commit messages carry the detail:",
         );
 
-        // PR numbers are GitHub-minted (non-deterministic); canonicalize the ones
-        // shown so the generated doc stays stable across re-recordings.
-        doc.scrub(/Created PR #\d+/g, "Created PR #42");
-        doc.scrub(/pull\/\d+/g, "pull/42");
-
         const { command, result } = await runSp(repo.path, "sync", ["--open", "grp00001"], {
-          env: cassetteEnv({ section: "commands/sync", order: 22 }),
+          env,
         });
         doc.command(command);
         doc.output(result.stdout);
 
         // Recording is the real-gh validation: confirm the live PR was opened with
-        // the group title and an empty body before the fixture tears it down.
+        // the group title and an empty body before a later reset tears it down.
         if (recording) {
           const { $ } = await import("bun");
           const view =
-            await $`gh pr view spry/dondenton/grp00001 --repo ${repoSlug} --json title,body`
+            await $`gh pr view ${`${branchPrefix}/grp00001`} --repo ${repoSlug} --json title,body`
               .cwd(repo.path)
               .quiet();
           const pr = JSON.parse(view.stdout.toString()) as { title: string; body: string };
@@ -215,7 +197,7 @@ describe("sp sync docs", () => {
 
         const { expect } = await import("bun:test");
         expect(result.exitCode).toBe(0);
-        expect(result.stdout).toContain("↑ pushed spry/dondenton/grp00001");
+        expect(result.stdout).toContain(`↑ pushed ${branchPrefix}/grp00001`);
         expect(result.stdout).toContain("Created PR #");
         expect(result.stdout).toContain("Auth flow");
         expect(result.stdout).toContain("Sync complete");
@@ -254,23 +236,18 @@ describe("sp sync docs", () => {
 
   docTest(
     "Selecting which branches to open as PRs",
-    { section: "commands/sync", order: 25, timeout: 60000 },
+    { section: "commands/sync", order: 25, timeout: 180000 },
     async (doc) => {
       const recording = isRecording();
-      await withGitHubFixture({ recording }, async () => {
-        const repo = await createRepo({ origin: recording ? "github" : "local" });
+      await withGitHubFixture({ recording }, async (fixture) => {
+        const { repo, env } = await setupDocRepo(doc, {
+          recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
+          section: "commands/sync",
+          order: 25,
+        });
         repos.push(repo);
-        // github-host canonicalization must precede doc.scrub(repo): in record mode
-        // repo.originPath is the fixture URL, and doc.scrub(repo) would otherwise
-        // rewrite it to /tmp/repo-origin and shadow this scrub. See order 20.
-        doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
-        doc.scrub(repo);
-
-        await repo.git.run(["config", "spry.trunk", "main"]);
-        await repo.git.run(["config", "spry.remote", "origin"]);
-        await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
-        const repoSlug = `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`;
-        await repo.git.run(["config", "spry.repo", repoSlug]);
 
         await repo.git.run(["checkout", "-b", "feature/x"]);
         await repo.git.run([
@@ -285,16 +262,12 @@ describe("sp sync docs", () => {
         );
         doc.command("sp sync --open");
 
-        // Canonicalize the GitHub-minted PR number for stable docs.
-        doc.scrub(/pull\/\d+/g, "pull/42");
-        doc.scrub(/Created PR #\d+/g, "Created PR #42");
-
-        // Spawn the harness in a real PTY. The gh seam (cassetteEnv) records/replays
+        // Spawn the harness in a real PTY. The gh seam (cassette env) records/replays
         // gh pr create + the PR-status graphql query; the TUI runs for real.
         const driver = await createTerminalDriver("bun", [harnessPath, repo.path], {
           cols: 80,
           rows: 24,
-          env: cassetteEnv({ section: "commands/sync", order: 25 }),
+          env,
         });
         repos.push({ cleanup: () => driver.close() });
 
@@ -311,7 +284,13 @@ describe("sp sync docs", () => {
         // network. On replay the cassette makes it instant, so the larger cap is
         // never approached. If this times out, the harness likely hit an error
         // path — print driver.capture().text to diagnose.
-        await driver.waitForText("Sync complete", { timeout: 20000 });
+        // Wait for the harness process to exit rather than the "Sync complete"
+        // sentinel + close(): sync-tui-harness exits right after syncCommand
+        // resolves and flush() runs, so waiting for exit avoids racing any
+        // trailing work with a hard kill (see
+        // docs/investigations/2026-07-07-group-reflog-nondeterminism.md).
+        const { expect } = await import("bun:test");
+        expect(await driver.waitForExit({ timeout: 20000 })).toBe(0);
 
         const snap = driver.capture();
         const syncLines = snap.lines
@@ -327,7 +306,6 @@ describe("sp sync docs", () => {
           );
         doc.output(syncLines.join("\n") + "\n");
 
-        const { expect } = await import("bun:test");
         expect(snap.text).toContain("Sync complete");
         // The captured terminal text is the real (unscrubbed) output: a created PR
         // with a GitHub-minted number. (The scrubs above only canonicalize the
@@ -340,7 +318,7 @@ describe("sp sync docs", () => {
 
   docTest(
     "Pushing every tracked stack with --all",
-    { section: "commands/sync", order: 60, timeout: 60000 },
+    { section: "commands/sync", order: 60, timeout: 180000 },
     async (doc) => {
       // Record mode builds two independent stacks on spry-check, opens each
       // stack's PR (via `sp sync --open`, so the PR has a real diff and stays
@@ -348,20 +326,15 @@ describe("sp sync docs", () => {
       // genuinely behind its local tip. `sp sync --all` then performs a real
       // push for every stack; replay serves it offline.
       const recording = isRecording();
-      await withGitHubFixture({ recording }, async () => {
-        const repo = await createRepo({ origin: recording ? "github" : "local" });
+      await withGitHubFixture({ recording }, async (fixture) => {
+        const { repo, env, branchPrefix } = await setupDocRepo(doc, {
+          recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
+          section: "commands/sync",
+          order: 60,
+        });
         repos.push(repo);
-        // github-host canonicalization must precede doc.scrub(repo): in record mode
-        // repo.originPath is the fixture URL, and doc.scrub(repo) would otherwise
-        // rewrite it to /tmp/repo-origin and shadow this scrub. See order 20.
-        doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
-        doc.scrub(repo);
-
-        await repo.git.run(["config", "spry.trunk", "main"]);
-        await repo.git.run(["config", "spry.remote", "origin"]);
-        await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
-        const repoSlug = `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`;
-        await repo.git.run(["config", "spry.repo", repoSlug]);
 
         const { registerBranch } = await import("../../src/git/tracked-branches.ts");
 
@@ -381,9 +354,7 @@ describe("sp sync docs", () => {
           await registerBranch(repo.git, branch);
           // Publish the PR for this stack (real diff vs main → PR opens and stays
           // open). In replay the gh traffic comes from the cassette.
-          await runSp(repo.path, "sync", ["--open", id], {
-            env: cassetteEnv({ section: "commands/sync", order: 60 }),
-          });
+          await runSp(repo.path, "sync", ["--open", id], { env });
           // Amend to advance the local SHA past the published remote tip (same
           // Spry-Commit-Id, so no re-injection and a stable branch id) — the
           // upcoming `--all` push is then a genuine, non-redundant push.
@@ -400,16 +371,14 @@ describe("sp sync docs", () => {
           "When you keep several independent stacks in flight, `sp sync --all` pushes every tracked stack's already-published branches in one run — no need to check each one out. It is push-only: it never rebases and never opens new PRs (use `sp rebase --all` to restack, and `sp sync --open` to publish).",
         );
 
-        const { command, result } = await runSp(repo.path, "sync", ["--all"], {
-          env: cassetteEnv({ section: "commands/sync", order: 60 }),
-        });
+        const { command, result } = await runSp(repo.path, "sync", ["--all"], { env });
         doc.command(command);
         doc.output(result.stdout);
 
         const { expect } = await import("bun:test");
         expect(result.exitCode).toBe(0);
-        expect(result.stdout).toContain("pushed spry/dondenton/aaa11111");
-        expect(result.stdout).toContain("pushed spry/dondenton/bbb22222");
+        expect(result.stdout).toContain(`pushed ${branchPrefix}/aaa11111`);
+        expect(result.stdout).toContain(`pushed ${branchPrefix}/bbb22222`);
         expect(result.stdout).toContain("Updated PR cache");
       });
     },
@@ -437,40 +406,26 @@ describe("sp sync docs", () => {
 
   docTest(
     "Reordering a stack without merging PRs",
-    { section: "commands/sync", order: 70, timeout: 60000 },
+    { section: "commands/sync", order: 70, timeout: 180000 },
     async (doc) => {
       const recording = isRecording();
-      await withGitHubFixture({ recording }, async () => {
-        const repo = await createRepo({ origin: recording ? "github" : "local" });
+      await withGitHubFixture({ recording }, async (fixture) => {
+        const { repo, repoSlug, env, branchPrefix } = await setupDocRepo(doc, {
+          recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
+          section: "commands/sync",
+          order: 70,
+        });
         repos.push(repo);
-        // github-host canonicalization must precede doc.scrub(repo): in record mode
-        // repo.originPath is the fixture URL, and doc.scrub(repo) would otherwise
-        // rewrite it to /tmp/repo-origin and shadow this scrub. See order 20.
-        doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
-        doc.scrub(repo);
-
-        await repo.git.run(["config", "spry.trunk", "main"]);
-        await repo.git.run(["config", "spry.remote", "origin"]);
-        await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
-        const repoSlug = `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`;
-        await repo.git.run(["config", "spry.repo", repoSlug]);
 
         // Build a 2-unit stack A(aaa)->B(bbb), open both PRs stacked.
         await repo.git.run(["checkout", "-b", "feature/reorder"]);
         await repo.git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"]);
         await repo.git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: bbb22222"]);
 
-        doc.scrub(/Created PR #\d+/g, "Created PR #42");
-        doc.scrub(/pull\/\d+/g, "pull/42");
-        // Park/retarget log lines echo GitHub-minted PR numbers; canonicalize so
-        // the generated doc stays stable across re-recordings.
-        doc.scrub(/parked PR #\d+/g, "parked PR #42");
-        doc.scrub(/retargeted PR #\d+/g, "retargeted PR #42");
-
         // Open both PRs first.
-        await runSp(repo.path, "sync", ["--open", "aaa11111,bbb22222"], {
-          env: cassetteEnv({ section: "commands/sync", order: 70 }),
-        });
+        await runSp(repo.path, "sync", ["--open", "aaa11111,bbb22222"], { env });
 
         // Reorder locally: swap so B is bottom, A is top (amend history).
         await repo.git.run(["reset", "--hard", "HEAD~2"]);
@@ -481,22 +436,21 @@ describe("sp sync docs", () => {
           "Reordering commits in a stack and re-syncing must never mark an open PR as merged. `sp sync` parks every affected PR onto trunk before force-pushing the reordered branches, then re-stacks them — so a reorder is safe:",
         );
 
-        const { command, result } = await runSp(repo.path, "sync", [], {
-          env: cassetteEnv({ section: "commands/sync", order: 70 }),
-        });
+        const { command, result } = await runSp(repo.path, "sync", [], { env });
         doc.command(command);
         doc.output(result.stdout);
 
         // Real-gh validation: this test's two branches must each still have an
         // OPEN PR after the reorder sync. Query per branch with `--state open` so
         // stale CLOSED/MERGED PRs on the SAME branch name (left by prior recording
-        // runs — the doc tests reuse the spry/dondenton/{aaa,bbb} branch names and
-        // commit ids) cannot contaminate the assertion. If the reorder had wrongly
-        // merged a PR, that branch would have no OPEN PR and this would fail.
+        // runs — the branch names and commit ids are pinned per test, so they
+        // recur across sessions) cannot contaminate the assertion. If the reorder
+        // had wrongly merged a PR, that branch would have no OPEN PR and this
+        // would fail.
         if (recording) {
           const { $ } = await import("bun");
           const { expect } = await import("bun:test");
-          for (const branch of ["spry/dondenton/aaa11111", "spry/dondenton/bbb22222"]) {
+          for (const branch of [`${branchPrefix}/aaa11111`, `${branchPrefix}/bbb22222`]) {
             const view =
               await $`gh pr list --repo ${repoSlug} --head ${branch} --state open --json number`
                 .cwd(repo.path)

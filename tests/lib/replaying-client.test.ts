@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, afterEach } from "bun:test";
+import { test, expect, beforeAll, afterAll } from "bun:test";
 import { join } from "node:path";
 import { rm } from "node:fs/promises";
 import { createReplayingClient } from "./replaying-client.ts";
@@ -6,11 +6,13 @@ import { writeCassette } from "./cassette.ts";
 
 const tmpDir = join(import.meta.dir, "../../.test-tmp/cassettes");
 
-beforeEach(async () => {
+// Wipe the shared tmp dir once per file (not per test): per-test hooks race
+// under --concurrent. Each test uses a unique cassette filename within it.
+beforeAll(async () => {
   await rm(tmpDir, { recursive: true, force: true });
 });
 
-afterEach(async () => {
+afterAll(async () => {
   await rm(tmpDir, { recursive: true, force: true });
 });
 
@@ -41,11 +43,11 @@ test("throws if more calls than recorded entries", async () => {
   const client = await createReplayingClient(cassettePath);
   await client.run(["status"]); // consumes the one entry
 
-  expect(client.run(["log"])).rejects.toThrow(/no more recorded entries/i);
+  await expect(client.run(["log"])).rejects.toThrow(/no more recorded entries/i);
 });
 
 test("throws if cassette file does not exist", async () => {
-  expect(createReplayingClient(join(tmpDir, "nonexistent.json"))).rejects.toThrow();
+  await expect(createReplayingClient(join(tmpDir, "nonexistent.json"))).rejects.toThrow();
 });
 
 test("throws if args don't match recorded entry", async () => {
@@ -55,7 +57,7 @@ test("throws if args don't match recorded entry", async () => {
   });
 
   const client = await createReplayingClient(cassettePath);
-  expect(client.run(["log"])).rejects.toThrow(/mismatch/i);
+  await expect(client.run(["log"])).rejects.toThrow(/mismatch/i);
 });
 
 test("match:args consumes the entry whose args+stdin match, order-independent", async () => {
@@ -87,5 +89,5 @@ test("match:args throws when no unconsumed entry matches", async () => {
     entries: [{ args: ["pr", "list"], result: { stdout: "", stderr: "", exitCode: 0 } }],
   });
   const client = await createReplayingClient(cassettePath, { match: "args" });
-  expect(client.run(["pr", "view"])).rejects.toThrow(/no matching/i);
+  await expect(client.run(["pr", "view"])).rejects.toThrow(/no matching/i);
 });

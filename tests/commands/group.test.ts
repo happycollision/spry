@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterAll } from "bun:test";
 import { join } from "node:path";
 import { createRepo, createRealGitRunner, createTerminalDriver } from "../lib/index.ts";
 import type { TestRepo } from "../lib/index.ts";
@@ -7,7 +7,9 @@ import { loadGroupRecords } from "../../src/git/group-titles.ts";
 const harnessPath = join(import.meta.dir, "../fixtures/group-tui-harness.ts");
 
 const repos: TestRepo[] = [];
-afterEach(async () => {
+// afterAll, not afterEach: under --concurrent a per-test cleanup hook would delete
+// repos out from under still-running sibling tests.
+afterAll(async () => {
   while (repos.length > 0) await repos.pop()!.cleanup();
 });
 

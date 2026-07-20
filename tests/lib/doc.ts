@@ -2,6 +2,7 @@ import { $ } from "bun";
 import { test as bunTest } from "bun:test";
 import { join } from "node:path";
 import stripAnsi from "strip-ansi";
+import { cassetteKey } from "./cassette-harness.ts";
 import type { ScreenSnapshot } from "./ansi-parser.ts";
 import type { DocContext, DocEntry, DocFragment } from "./doc-types.ts";
 
@@ -9,10 +10,12 @@ export type { DocContext, DocEntry, DocFragment } from "./doc-types.ts";
 
 const FRAGMENTS_DIR = join(import.meta.dir, "../../.test-tmp/doc-fragments");
 
+// Fragment filenames share the ONE (section, order) keyer with cassette
+// filenames and setupDocRepo's per-test namespaces (see cassetteKey in
+// cassette-harness.ts) — all three keyings are structurally coupled, so none
+// can drift from the others.
 export function fragmentPath(fragment: Pick<DocFragment, "section" | "order">): string {
-  const section = fragment.section.replaceAll("/", "__");
-  const order = String(fragment.order).padStart(3, "0");
-  return join(FRAGMENTS_DIR, `${section}--${order}.json`);
+  return join(FRAGMENTS_DIR, `${cassetteKey(fragment)}.json`);
 }
 
 interface Substitution {
@@ -32,6 +35,53 @@ function isRepoLike(
   );
 }
 
+/**
+ * The scrub engine behind {@link docTest}'s `doc.scrub`/entry rendering,
+ * extracted so unit tests (e.g. `doc-repo.test.ts`) can exercise the exact
+ * registration-order + substitution semantics the doc pipeline uses.
+ * Substitutions are applied in registration order, so an earlier scrub can
+ * shadow a later one — that ordering is load-bearing (see `setupDocRepo`).
+ */
+export interface DocScrubber {
+  scrub: DocContext["scrub"];
+  apply(this: void, text: string): string;
+  /** Repos registered via `scrub(repo)`, in order — used for SHA scanning. */
+  repos: Array<{ path: string; originPath: string }>;
+}
+
+export function createDocScrubber(): DocScrubber {
+  const subs: Substitution[] = [];
+  const repos: Array<{ path: string; originPath: string }> = [];
+
+  function apply(text: string): string {
+    let out = text;
+    for (const { pattern, replacement } of subs) {
+      if (typeof pattern === "string") {
+        out = out.replaceAll(pattern, replacement);
+      } else {
+        out = out.replace(pattern, replacement);
+      }
+    }
+    return out;
+  }
+
+  function scrub(arg: unknown, replacement?: string): void {
+    if (isRepoLike(arg)) {
+      subs.push({ pattern: arg.path, replacement: "/tmp/repo" });
+      subs.push({ pattern: arg.originPath, replacement: "/tmp/repo-origin" });
+      subs.push({ pattern: `-${arg.uniqueId}`, replacement: "" });
+      subs.push({ pattern: arg.uniqueId, replacement: "" });
+      repos.push({ path: arg.path, originPath: arg.originPath });
+    } else if (typeof arg === "string" || arg instanceof RegExp) {
+      subs.push({ pattern: arg, replacement: replacement ?? "" });
+    } else {
+      throw new TypeError("doc.scrub: expected a repo, a string, or a RegExp");
+    }
+  }
+
+  return { scrub, apply, repos };
+}
+
 export function docTest(
   title: string,
   options: { section: string; order: number; timeout?: number },
@@ -41,20 +91,9 @@ export function docTest(
     title,
     async () => {
       const entries: DocEntry[] = [];
-      const subs: Substitution[] = [];
-      const scrubRepos: Array<{ path: string; originPath: string }> = [];
-
-      function applyScrub(text: string): string {
-        let out = text;
-        for (const { pattern, replacement } of subs) {
-          if (typeof pattern === "string") {
-            out = out.replaceAll(pattern, replacement);
-          } else {
-            out = out.replace(pattern, replacement);
-          }
-        }
-        return out;
-      }
+      const scrubber = createDocScrubber();
+      const scrubRepos = scrubber.repos;
+      const applyScrub = scrubber.apply;
 
       const doc: DocContext = {
         prose(text) {
@@ -85,19 +124,7 @@ export function docTest(
             ansiContent: applyScrub(ansiLines.join("\n") + "\n"),
           });
         },
-        scrub(arg: unknown, replacement?: string) {
-          if (isRepoLike(arg)) {
-            subs.push({ pattern: arg.path, replacement: "/tmp/repo" });
-            subs.push({ pattern: arg.originPath, replacement: "/tmp/repo-origin" });
-            subs.push({ pattern: `-${arg.uniqueId}`, replacement: "" });
-            subs.push({ pattern: arg.uniqueId, replacement: "" });
-            scrubRepos.push({ path: arg.path, originPath: arg.originPath });
-          } else if (typeof arg === "string" || arg instanceof RegExp) {
-            subs.push({ pattern: arg, replacement: replacement ?? "" });
-          } else {
-            throw new TypeError("doc.scrub: expected a repo, a string, or a RegExp");
-          }
-        },
+        scrub: scrubber.scrub,
       };
 
       await fn(doc);
@@ -110,6 +137,24 @@ export function docTest(
         const allSpryIds = new Set<string>();
 
         for (const repo of scrubRepos) {
+          // Scope the scan to THIS test's own work before walking (spry-4zs6):
+          // drop the clone's remote-tracking refs AND their reflogs in one
+          // stroke. Under concurrent record the origin is the shared
+          // spry-check repo, and `sp sync`'s fetch pulls every in-flight
+          // sibling's branches into refs/remotes/* — the `--all --reflog`
+          // walk below would sweep those foreign commits, making SHA
+          // discovery count and order racy across runs (`--exclude` cannot
+          // fix it: the remote-tracking REFLOGS still feed `--reflog`).
+          // Nothing this test created is lost: its commits stay reachable
+          // from local branches, the HEAD/refs-heads reflogs (fetch never
+          // writes those), and the origin-side walk. The scan runs after the
+          // test body and the repo is torn down right after, so the mutation
+          // is invisible to the test. Replay discovery is unchanged: a local
+          // bare origin only ever contains this test's own pushes, so its
+          // remote-tracking refs were redundant with the other walks
+          // (acceptance bar: docs/generated stays byte-identical).
+          await $`git -C ${repo.path} remote remove origin`.quiet().nothrow();
+
           // `--all --reflog` walks every ref AND every reflog entry, following
           // each back through its ancestors. This matters when a doc test
           // captures a screen showing pre-rewrite hashes (e.g. the MOVE-MODE

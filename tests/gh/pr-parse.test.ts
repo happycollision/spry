@@ -217,4 +217,53 @@ describe("parsePRResponse", () => {
     });
     expect(parsePRResponse(json)?.reviewThreads).toEqual({ resolved: 0, total: 5 });
   });
+
+  describe("multiple PRs on one head branch", () => {
+    // A head branch can accumulate several PR records over its lifetime: GitHub
+    // never deletes a PR, so reusing a branch (or re-running against a repo that
+    // was not fully cleaned) leaves stale CLOSED/MERGED records alongside the
+    // live one. The query returns them all; parsePRResponse must pick the one
+    // that reflects the branch's current state, not merely the newest-updated
+    // (closing a stale PR bumps its UPDATED_AT and would otherwise win).
+    function makeMultiResponse(prs: object[]) {
+      return JSON.stringify({
+        data: { repository: { pullRequests: { nodes: prs } } },
+      });
+    }
+
+    const stub = (number: number, state: string) => ({
+      number,
+      url: `https://github.com/owner/repo/pull/${number}`,
+      state,
+      title: `PR ${number}`,
+      baseRefName: "main",
+      reviewDecision: null,
+      commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
+    });
+
+    test("prefers the OPEN PR over a stale CLOSED one that sorts first", () => {
+      // The CLOSED residue is listed first (as if UPDATED_AT-newest); the live
+      // OPEN PR must still win.
+      const json = makeMultiResponse([stub(1001, "CLOSED"), stub(1002, "OPEN")]);
+      const pr = parsePRResponse(json);
+      expect(pr?.number).toBe(1002);
+      expect(pr?.state).toBe("OPEN");
+    });
+
+    test("prefers the OPEN PR over a stale MERGED one that sorts first", () => {
+      const json = makeMultiResponse([stub(1001, "MERGED"), stub(1002, "OPEN")]);
+      const pr = parsePRResponse(json);
+      expect(pr?.number).toBe(1002);
+      expect(pr?.state).toBe("OPEN");
+    });
+
+    test("falls back to the first (newest) node when none are OPEN", () => {
+      // No live PR: the branch's outcome is the most-recent closed/merged one,
+      // so sp view can still render MERGED (✓) / CLOSED (✗).
+      const json = makeMultiResponse([stub(1002, "MERGED"), stub(1001, "CLOSED")]);
+      const pr = parsePRResponse(json);
+      expect(pr?.number).toBe(1002);
+      expect(pr?.state).toBe("MERGED");
+    });
+  });
 });

@@ -95,6 +95,55 @@ test("cursor hide/show are no-ops for buffer", () => {
   expect(screen.lineAt(0)).toBe("visible");
 });
 
+test("scrolls up when newlines push output past the last row", () => {
+  const screen = createScreenBuffer(80, 5);
+  const lines = Array.from({ length: 8 }, (_, i) => `line ${i + 1}`);
+  screen.write(lines.join("\n"));
+
+  // 8 lines into a 5-row buffer: the first 3 scrolled off, the last 5 remain.
+  expect(screen.lineAt(0)).toBe("line 4");
+  expect(screen.lineAt(4)).toBe("line 8");
+  const snapshot = screen.capture();
+  expect(snapshot.text).not.toContain("line 3");
+  expect(snapshot.text).toContain("line 8");
+});
+
+test("keeps only the last rows of output far exceeding the buffer height", () => {
+  const screen = createScreenBuffer(80, 24);
+  for (let i = 1; i <= 2000; i++) screen.write(`filler line ${i}\n`);
+  screen.write("FINAL SENTINEL LINE");
+
+  const snapshot = screen.capture();
+  expect(snapshot.text).toContain("FINAL SENTINEL LINE");
+  expect(screen.lineAt(23)).toBe("FINAL SENTINEL LINE");
+  expect(snapshot.text).not.toContain("filler line 1977");
+  expect(snapshot.text).toContain("filler line 1978");
+});
+
+test("a line wrapping past the bottom row also scrolls", () => {
+  const screen = createScreenBuffer(10, 3);
+  screen.write("aaa\nbbb\n");
+  // Cursor is now on the last row; 25 chars wrap across 3 rows, scrolling twice.
+  screen.write("0123456789ABCDEFGHIJKLMNO");
+
+  expect(screen.lineAt(0)).toBe("0123456789");
+  expect(screen.lineAt(1)).toBe("ABCDEFGHIJ");
+  expect(screen.lineAt(2)).toBe("KLMNO");
+});
+
+test("writing the bottom-right cell does not scroll until more output follows", () => {
+  // Full-screen TUIs paint every cell, including bottom-right, then reposition
+  // with CUP. That must not shift the frame.
+  const screen = createScreenBuffer(5, 2);
+  screen.write("top\n");
+  screen.write("12345"); // exactly fills the bottom row
+  screen.write("\x1b[1;1H"); // CUP home, as a redraw would
+
+  expect(screen.lineAt(0)).toBe("top");
+  expect(screen.lineAt(1)).toBe("12345");
+  expect(screen.cursor).toEqual({ x: 0, y: 0 });
+});
+
 test("capture returns frozen snapshot", () => {
   const screen = createScreenBuffer(80, 5);
   screen.write("Line 0\nLine 1\nLine 2");

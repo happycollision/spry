@@ -1,13 +1,15 @@
-import { test, expect, afterEach } from "bun:test";
+import { test, expect, afterAll } from "bun:test";
 import { $ } from "bun";
 import { stat } from "node:fs/promises";
 import { createRepo } from "./repo.ts";
 import type { TestRepo } from "./repo.ts";
-import { seedUniqueId, resetUniqueIdSeed } from "./unique-id.ts";
+import { createSeededRng } from "./unique-id.ts";
 
 const repos: TestRepo[] = [];
 
-afterEach(async () => {
+// afterAll, not afterEach: under --concurrent an afterEach would delete repos
+// out from under still-running sibling tests.
+afterAll(async () => {
   for (const repo of repos) await repo.cleanup();
   repos.length = 0;
 });
@@ -63,34 +65,46 @@ test("branch creates and checks out new branch", async () => {
   expect(branchName).toContain(repo.uniqueId);
 });
 
-test("deterministic commits produce identical SHAs across repos", async () => {
-  seedUniqueId("sha-stability");
-  const r1 = await createRepo();
-  const s1 = await r1.commit("Add login");
-  seedUniqueId("sha-stability");
-  const r2 = await createRepo();
-  const s2 = await r2.commit("Add login");
-  expect(s1).toBe(s2);
-  await r1.cleanup();
-  await r2.cleanup();
-  resetUniqueIdSeed();
+test("seeded uniqueIdRng produces identical uniqueIds across repos", async () => {
+  const r1 = await tracked(await createRepo({ uniqueIdRng: createSeededRng("id-stability") }));
+  const r2 = await tracked(await createRepo({ uniqueIdRng: createSeededRng("id-stability") }));
+  expect(r1.uniqueId).toBe(r2.uniqueId);
 });
 
-test("repo.git produces identical SHAs across seeded repos", async () => {
-  seedUniqueId("git-runner-stability");
-  const r1 = await createRepo();
-  await r1.git.run(["commit", "--allow-empty", "-m", "Pinned commit"]);
+// SHAs are intentionally NOT stable across runs (or across repos): commit
+// dates come from a per-run base advanced by a process-global counter, so
+// every run — and every repo within a run — mints fresh SHAs (GitHub would
+// otherwise accumulate check runs on a reused SHA). What must hold instead:
+// dates are distinct and monotonically increasing within a repo, giving the
+// doc scrubber's date-ordered reflog walk a total order.
+test("commit dates are distinct and monotonically increasing within a repo", async () => {
+  const repo = await tracked(await createRepo());
+  await repo.commit("First");
+  await repo.git.run(["commit", "--allow-empty", "-m", "Second"]);
+  const log = (await repo.git.run(["log", "--format=%ct", "--reverse", "HEAD"])).stdout.trim();
+  const dates = log.split("\n").map(Number);
+  expect(dates.length).toBe(3); // initial + 2
+  for (let i = 1; i < dates.length; i++) {
+    expect(dates[i]!).toBeGreaterThan(dates[i - 1]!);
+  }
+  // Seeded dates sit well below wall clock, so wall-clock-dated bookkeeping
+  // commits always sort strictly newer in the scrubber's date-ordered walk.
+  expect(dates.at(-1)!).toBeLessThan(Date.now() / 1000 - 86_400);
+});
+
+test("identical commit sequences in different repos mint distinct SHAs", async () => {
+  const r1 = await tracked(await createRepo({ uniqueIdRng: createSeededRng("cross-repo") }));
+  await r1.git.run(["commit", "--allow-empty", "-m", "Same message"]);
   const s1 = (await r1.git.run(["rev-parse", "HEAD"])).stdout.trim();
 
-  seedUniqueId("git-runner-stability");
-  const r2 = await createRepo();
-  await r2.git.run(["commit", "--allow-empty", "-m", "Pinned commit"]);
+  const r2 = await tracked(await createRepo({ uniqueIdRng: createSeededRng("cross-repo") }));
+  await r2.git.run(["commit", "--allow-empty", "-m", "Same message"]);
   const s2 = (await r2.git.run(["rev-parse", "HEAD"])).stdout.trim();
 
-  expect(s1).toBe(s2);
-  await r1.cleanup();
-  await r2.cleanup();
-  resetUniqueIdSeed();
+  // Even with identical uniqueIds, messages, and call sequences, the shared
+  // date counter keeps SHAs unique — reusing a SHA on GitHub accumulates
+  // check runs across PRs (the land readiness-gate trap).
+  expect(s1).not.toBe(s2);
 });
 
 test("cleanup removes temp directories", async () => {
@@ -99,6 +113,6 @@ test("cleanup removes temp directories", async () => {
 
   await repo.cleanup();
 
-  expect(stat(path)).rejects.toThrow();
-  expect(stat(originPath)).rejects.toThrow();
+  await expect(stat(path)).rejects.toThrow();
+  await expect(stat(originPath)).rejects.toThrow();
 });

@@ -8,7 +8,31 @@ const SAFETY_MARKER = "<!-- spry-test-repo:v1 -->";
 // Configurable via environment variables (same as the setup script)
 const DEFAULT_REPO_NAME = "spry-check";
 
-const SETUP_HINT = "Run: bun run scripts/setup-spry-check.ts";
+/**
+ * Builds the "how to fix this" hint for repo-not-found / missing-safety-marker
+ * errors. `scripts/setup-spry-check.ts` bootstraps `SPRY_TEST_REPO_NAME` (repo
+ * name) and `SPRY_TEST_REPO_OWNER` (owner) from the environment — so a hint
+ * that always says the bare `bun run scripts/setup-spry-check.ts` command
+ * bootstraps the WRONG repo whenever either override is in play (e.g. the
+ * fixture unit tests' dedicated `spry-check-fixture` repo). This builds the
+ * command with exactly the env prefixes that are actually needed, so
+ * following it verbatim bootstraps the right repo.
+ */
+export function buildSetupHint(opts: {
+  repo: string;
+  defaultRepo: string;
+  ownerOverride?: string;
+}): string {
+  const prefixes: string[] = [];
+  if (opts.repo !== opts.defaultRepo) {
+    prefixes.push(`SPRY_TEST_REPO_NAME=${opts.repo}`);
+  }
+  if (opts.ownerOverride) {
+    prefixes.push(`SPRY_TEST_REPO_OWNER=${opts.ownerOverride}`);
+  }
+  const envPrefix = prefixes.length > 0 ? `${prefixes.join(" ")} ` : "";
+  return `Run: ${envPrefix}bun run scripts/setup-spry-check.ts`;
+}
 
 export interface CleanupReport {
   branchesDeleted: number;
@@ -53,6 +77,89 @@ export interface GitHubFixture {
   mergePR(prNumber: number, opts?: { deleteBranch?: boolean; squash?: boolean }): Promise<void>;
 }
 
+/** An item `runWithRetry` can operate over — just needs a stable identifier for error context. */
+export interface RetryableItem {
+  /** Human-readable identifier used in error context (PR number, branch name, ...). */
+  id: string;
+}
+
+export interface RetryResult<T> {
+  /** Items whose op succeeded, either on the first pass or the retry pass. */
+  succeeded: T[];
+  /** Items whose op failed on both the first pass AND the retry pass. */
+  failed: { item: T; stderr: string }[];
+}
+
+/**
+ * Runs `attempt` over every item CONCURRENTLY (matches the existing
+ * `Promise.all` cost model — the suite-start reset's cost scales with prior
+ * session residue), then retries any failures ONCE, sequentially (this is the
+ * recovery path, not the hot path — no need for concurrency there, and
+ * sequential keeps `isAlreadyDone` rechecks simple to reason about).
+ *
+ * Before the retry pass, sleeps `retryDelayMs` (default 1500ms) to let
+ * transient causes (secondary rate limits, close/delete cascades) settle.
+ *
+ * A failure that persists after the retry is checked against the optional
+ * `isAlreadyDone` predicate: if the item is already in the desired end state
+ * (e.g. a PR that GitHub auto-closed when its head branch was deleted by a
+ * concurrent `deleteAllBranches`-style call, so the retry's own `pr close`
+ * fails against an already-closed PR), it counts as a SUCCESS rather than a
+ * reported failure. Only a failure that is both persistent and NOT already
+ * done is returned in `failed` — this is what lets a genuine failure (e.g. a
+ * sustained rate limit) surface instead of being silently absorbed.
+ */
+export async function runWithRetry<T extends RetryableItem>(
+  items: T[],
+  attempt: (item: T) => Promise<{ ok: boolean; stderr: string }>,
+  options?: {
+    /** Recheck run on a persistent failure before it is reported (see doc comment). */
+    isAlreadyDone?: (item: T) => Promise<boolean>;
+    /** Delay before the retry pass, ms. Default 1500. */
+    retryDelayMs?: number;
+    /** Injectable delay (tests pass a no-op). Default sleeps `retryDelayMs`. */
+    sleep?: (ms: number) => Promise<void>;
+  },
+): Promise<RetryResult<T>> {
+  const retryDelayMs = options?.retryDelayMs ?? 1500;
+  const sleep = options?.sleep ?? ((ms: number) => Bun.sleep(ms));
+
+  if (items.length === 0) return { succeeded: [], failed: [] };
+
+  const firstPass = await Promise.all(
+    items.map(async (item) => ({ item, result: await attempt(item) })),
+  );
+
+  const succeeded: T[] = [];
+  const toRetry: { item: T; stderr: string }[] = [];
+  for (const { item, result } of firstPass) {
+    if (result.ok) succeeded.push(item);
+    else toRetry.push({ item, stderr: result.stderr });
+  }
+
+  if (toRetry.length === 0) return { succeeded, failed: [] };
+
+  await sleep(retryDelayMs);
+
+  const failed: { item: T; stderr: string }[] = [];
+  // Sequential: this is the recovery path, not the hot path, and it keeps the
+  // isAlreadyDone recheck below simple to reason about.
+  for (const { item, stderr: firstStderr } of toRetry) {
+    const retryResult = await attempt(item);
+    if (retryResult.ok) {
+      succeeded.push(item);
+      continue;
+    }
+    if (options?.isAlreadyDone && (await options.isAlreadyDone(item))) {
+      succeeded.push(item);
+      continue;
+    }
+    failed.push({ item, stderr: retryResult.stderr || firstStderr });
+  }
+
+  return { succeeded, failed };
+}
+
 /**
  * Returns true only if the repo's README contains the safety marker. This is
  * the guard that makes it impossible to run a destructive op against a repo
@@ -90,22 +197,21 @@ async function verifyTestRepo(owner: string, repo: string): Promise<boolean> {
   }
 }
 
-/**
- * Defensive re-check used by every destructive method. Throws if the target
- * repo is missing the safety marker, so a destructive op can never run against
- * a non-test repo even if the constructor-time check is somehow bypassed.
- */
-async function assertSafeToMutate(owner: string, repo: string): Promise<void> {
-  const isTestRepo = await verifyTestRepo(owner, repo);
-  if (!isTestRepo) {
-    throw new Error(
-      `Refusing to mutate ${owner}/${repo}: it is missing the safety marker ` +
-        `"${SAFETY_MARKER}".\n${SETUP_HINT}`,
-    );
-  }
+export interface CreateGitHubFixtureOptions {
+  /**
+   * Target repo name. Defaults to `SPRY_TEST_REPO_NAME` / "spry-check". The
+   * fixture's own unit tests pass a dedicated second repo here (see
+   * `github-fixture.test.ts`) so their repo-wide destructive ops never touch
+   * the repo the doc tests record against. An option rather than an env
+   * mutation because setting `process.env` mid-run would race concurrent
+   * tests.
+   */
+  repo?: string;
 }
 
-export async function createGitHubFixture(): Promise<GitHubFixture> {
+export async function createGitHubFixture(
+  options?: CreateGitHubFixtureOptions,
+): Promise<GitHubFixture> {
   // Resolve owner from env or the authenticated user.
   let owner: string;
   if (process.env.SPRY_TEST_REPO_OWNER) {
@@ -120,28 +226,80 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     owner = ownerResult.stdout.toString().trim();
   }
 
-  const repo = process.env.SPRY_TEST_REPO_NAME || DEFAULT_REPO_NAME;
+  const repo = options?.repo || process.env.SPRY_TEST_REPO_NAME || DEFAULT_REPO_NAME;
   const fullRepoName = `${owner}/${repo}`;
   const repoUrl = `https://github.com/${fullRepoName}`;
+
+  // Dynamic hint: include exactly the env prefixes needed to bootstrap THIS
+  // repo/owner (see buildSetupHint doc comment) — a hint that always says the
+  // bare command bootstraps the wrong repo whenever an override is in play.
+  const setupHint = buildSetupHint({
+    repo,
+    defaultRepo: DEFAULT_REPO_NAME,
+    ownerOverride: process.env.SPRY_TEST_REPO_OWNER,
+  });
 
   // Verify the repo exists.
   const repoCheck = await $`gh repo view ${fullRepoName} --json name`.quiet().nothrow();
   if (repoCheck.exitCode !== 0) {
-    throw new Error(`Test repository ${fullRepoName} not found.\n${SETUP_HINT}`);
+    throw new Error(`Test repository ${fullRepoName} not found.\n${setupHint}`);
   }
 
   // Safety check: verify this is actually a spry test repo before handing back
-  // a fixture that can mutate it.
-  const isTestRepo = await verifyTestRepo(owner, repo);
-  if (!isTestRepo) {
+  // a fixture that can mutate it. This is the one network read of the safety
+  // marker per fixture instance: owner/repo are fixed for the instance's
+  // lifetime, so the verdict is cached and every destructive method asserts
+  // the cached flag instead of re-reading the README (which, right after a
+  // reset moved main, is exactly the eventually-consistent read that used to
+  // flake).
+  const safetyVerified = await verifyTestRepo(owner, repo);
+  if (!safetyVerified) {
     throw new Error(
       `Repository ${fullRepoName} exists but does not appear to be a spry test repo.\n` +
-        `The README is missing the safety marker "${SAFETY_MARKER}".\n${SETUP_HINT}`,
+        `The README is missing the safety marker "${SAFETY_MARKER}".\n${setupHint}`,
     );
   }
 
-  async function closeAllPRs(): Promise<number> {
-    await assertSafeToMutate(owner, repo);
+  /**
+   * Defensive re-check used by every destructive method: asserts the cached
+   * constructor-time verdict, so a destructive op can never run if the check
+   * above is somehow bypassed. No network — the target repo cannot change
+   * identity mid-fixture.
+   */
+  function assertSafeToMutate(): void {
+    if (!safetyVerified) {
+      throw new Error(
+        `Refusing to mutate ${owner}/${repo}: it is missing the safety marker ` +
+          `"${SAFETY_MARKER}".\n${setupHint}`,
+      );
+    }
+  }
+
+  /**
+   * Checks whether PR `prNumber` is already closed (or merged) — used to
+   * absorb the auto-close cascade: GitHub auto-closes an open PR when its
+   * head branch is deleted, and `deleteAllBranches` runs concurrently with
+   * (or just before, on a retry) `closeAllPRs`, so a `gh pr close` retry can
+   * legitimately fail with the PR already in the desired end state. This is a
+   * real state query (not a stderr-message guess), so it's correct regardless
+   * of gh's exact wording for "already closed".
+   */
+  async function isPRAlreadyClosed(prNumber: string): Promise<boolean> {
+    const result = await $`gh pr view ${prNumber} --repo ${owner}/${repo} --json state --jq .state`
+      .quiet()
+      .nothrow();
+    if (result.exitCode !== 0) return false;
+    const state = result.stdout.toString().trim();
+    return state === "CLOSED" || state === "MERGED";
+  }
+
+  /**
+   * Internal variant that also surfaces persistent per-item failures, so
+   * `reset()` can report them instead of only lowering a count (see
+   * `runWithRetry` doc comment for the retry + cascade-absorption design).
+   */
+  async function closeAllPRsWithFailures(): Promise<RetryResult<{ id: string }>> {
+    assertSafeToMutate();
 
     const listResult =
       await $`gh pr list --repo ${owner}/${repo} --state open --json number --jq '.[].number'`
@@ -149,30 +307,44 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
         .nothrow();
 
     if (listResult.exitCode !== 0 || !listResult.stdout.toString().trim()) {
-      return 0;
+      return { succeeded: [], failed: [] };
     }
 
     const prNumbers = listResult.stdout
       .toString()
       .trim()
       .split("\n")
-      .filter((n) => n);
-    let closed = 0;
+      .filter((n) => n)
+      .map((id) => ({ id }));
 
-    for (const prNumber of prNumbers) {
-      const closeResult = await $`gh pr close ${prNumber} --repo ${owner}/${repo} --delete-branch`
-        .quiet()
-        .nothrow();
-      if (closeResult.exitCode === 0) {
-        closed++;
-      }
-    }
-
-    return closed;
+    // Independent gh calls — run them concurrently on the first pass. The
+    // suite-start reset's cost scales with prior-session residue (a dozen PRs
+    // is routine), and it sits inside every waiting test's timeout budget
+    // under `--concurrent`. Failures (e.g. a secondary rate limit under
+    // concurrent writes) are retried once, sequentially, by runWithRetry.
+    return runWithRetry(
+      prNumbers,
+      async ({ id: prNumber }) => {
+        const result = await $`gh pr close ${prNumber} --repo ${owner}/${repo} --delete-branch`
+          .quiet()
+          .nothrow();
+        return { ok: result.exitCode === 0, stderr: result.stderr.toString() };
+      },
+      { isAlreadyDone: ({ id: prNumber }) => isPRAlreadyClosed(prNumber) },
+    );
   }
 
-  async function deleteAllBranches(): Promise<number> {
-    await assertSafeToMutate(owner, repo);
+  async function closeAllPRs(): Promise<number> {
+    const { succeeded } = await closeAllPRsWithFailures();
+    return succeeded.length;
+  }
+
+  /**
+   * Internal variant that also surfaces persistent per-item failures (see
+   * closeAllPRsWithFailures).
+   */
+  async function deleteAllBranchesWithFailures(): Promise<RetryResult<{ id: string }>> {
+    assertSafeToMutate();
 
     // Determine the default branch so we never delete it.
     const defaultResult =
@@ -187,27 +359,32 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
       .nothrow();
 
     if (listResult.exitCode !== 0 || !listResult.stdout.toString().trim()) {
-      return 0;
+      return { succeeded: [], failed: [] };
     }
 
     const branches = listResult.stdout
       .toString()
       .trim()
       .split("\n")
-      .filter((b) => b && b !== defaultBranch);
+      .filter((b) => b && b !== defaultBranch)
+      .map((id) => ({ id }));
 
-    let deleted = 0;
-
-    for (const branch of branches) {
-      const deleteResult = await $`gh api -X DELETE repos/${owner}/${repo}/git/refs/heads/${branch}`
+    // Independent gh calls — run them concurrently on the first pass (see
+    // closeAllPRsWithFailures). No isAlreadyDone recheck here: unlike PR
+    // close, there is no known benign cascade that deletes a branch out from
+    // under this call, so a persistent branch-delete failure is always a
+    // genuine failure worth reporting.
+    return runWithRetry(branches, async ({ id: branch }) => {
+      const result = await $`gh api -X DELETE repos/${owner}/${repo}/git/refs/heads/${branch}`
         .quiet()
         .nothrow();
-      if (deleteResult.exitCode === 0) {
-        deleted++;
-      }
-    }
+      return { ok: result.exitCode === 0, stderr: result.stderr.toString() };
+    });
+  }
 
-    return deleted;
+  async function deleteAllBranches(): Promise<number> {
+    const { succeeded } = await deleteAllBranchesWithFailures();
+    return succeeded.length;
   }
 
   /** List every ref under refs/spry/ (empty array when there are none). */
@@ -226,7 +403,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
   }
 
   async function purgeSpryRefs(): Promise<number> {
-    await assertSafeToMutate(owner, repo);
+    assertSafeToMutate();
 
     // GitHub's git-refs API is eventually consistent, and `gh api -X DELETE`
     // exits 0 even on a 422 "reference does not exist" — so a delete can appear
@@ -264,7 +441,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
   }
 
   async function restoreMainToBaseline(): Promise<boolean> {
-    await assertSafeToMutate(owner, repo);
+    assertSafeToMutate();
 
     // Determine the default branch (never assume "main").
     const defaultResult =
@@ -304,7 +481,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
   }
 
   async function reset(): Promise<CleanupReport> {
-    await assertSafeToMutate(owner, repo);
+    assertSafeToMutate();
 
     const report: CleanupReport = {
       branchesDeleted: 0,
@@ -314,18 +491,31 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
       errors: [],
     };
 
-    // Close PRs first (this also deletes their source branches).
+    // Close PRs first (this also deletes their source branches). Per-item
+    // failures that survive the retry (see runWithRetry) are pushed into
+    // report.errors with enough context to act on — operation, PR number,
+    // stderr excerpt — instead of only lowering prsClosed. This is what lets
+    // ensureSessionFixture's `if (report.errors.length > 0) throw` guard
+    // actually fire on a stale PR that outlives the suite-start reset.
     try {
-      report.prsClosed = await closeAllPRs();
+      const { succeeded, failed } = await closeAllPRsWithFailures();
+      report.prsClosed = succeeded.length;
+      for (const { item, stderr } of failed) {
+        report.errors.push(`Failed to close PR #${item.id}: ${stderr.trim()}`);
+      }
     } catch (err: unknown) {
       report.errors.push(
         `Failed to close PRs: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
 
-    // Delete any remaining branches.
+    // Delete any remaining branches. Same failure-surfacing as closeAllPRs.
     try {
-      report.branchesDeleted = await deleteAllBranches();
+      const { succeeded, failed } = await deleteAllBranchesWithFailures();
+      report.branchesDeleted = succeeded.length;
+      for (const { item, stderr } of failed) {
+        report.errors.push(`Failed to delete branch ${item.id}: ${stderr.trim()}`);
+      }
     } catch (err: unknown) {
       report.errors.push(
         `Failed to delete branches: ${err instanceof Error ? err.message : String(err)}`,
@@ -362,7 +552,7 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
     prNumber: number,
     opts?: { deleteBranch?: boolean; squash?: boolean },
   ): Promise<void> {
-    await assertSafeToMutate(owner, repo);
+    assertSafeToMutate();
 
     // Merge the PR via gh CLI (simulates merging via the GitHub UI).
     const mergeMethod = opts?.squash ? "--squash" : "--merge";
@@ -407,29 +597,38 @@ export async function createGitHubFixture(): Promise<GitHubFixture> {
  * {@link __setFixtureFactoryForTest} so the wrapper's control flow can be
  * exercised without touching real GitHub.
  */
-let fixtureFactory: () => Promise<GitHubFixture> = createGitHubFixture;
+let fixtureFactory: () => Promise<GitHubFixture> = () => createGitHubFixture();
 
-/** Test-only: swap the fixture factory (pass `undefined` to restore the real one). */
+/**
+ * Test-only: swap the fixture factory (pass `undefined` to restore the real
+ * one). Also clears the memoized session fixture, since a fixture minted by a
+ * previous factory must not survive a factory swap.
+ */
 export function __setFixtureFactoryForTest(
   factory: (() => Promise<GitHubFixture>) | undefined,
 ): void {
-  fixtureFactory = factory ?? createGitHubFixture;
+  fixtureFactory = factory ?? (() => createGitHubFixture());
+  sessionFixturePromise = undefined;
 }
 
 /**
- * The record-lock key. Every live-fixture doc test contends on the SAME shared
- * `spry-check` repo, so they must share one lock key — the value is arbitrary
- * as long as it's identical across all callers.
+ * The record-lock key. Every actor that mutates REPO-WIDE state on the shared
+ * `spry-check` repo (the suite-start reset, the canonical land test) must
+ * contend on this one key — the value is arbitrary as long as it's identical
+ * across all such callers.
  */
 const SPRY_CHECK_LOCK_KEY = "spry-check-record";
 
 /**
- * Run `body` under the shared `spry-check` record lock. This is the mutual
- * exclusion primitive that keeps every live-fixture actor — the doc tests via
- * {@link withGitHubFixture} AND the fixture's own unit tests
- * (`github-fixture.test.ts`) — from mutating the one shared repo concurrently.
- * They MUST all contend on the same key, or an unlocked actor's `main` rewrite
- * or `reset()` races a locked one (the class of bug this whole module fights).
+ * Run `body` under the shared `spry-check` record lock. Since the per-test
+ * namespacing work (per-test trunks + branch prefixes), most record-mode doc
+ * tests are mutually independent and run WITHOUT this lock; the only remaining
+ * holders are the two actors that touch repo-wide state on `spry-check`: the
+ * once-per-process suite-start `reset()` and the canonical land test's
+ * default-branch ff-push + restore (both via {@link withGitHubFixture}). Any
+ * new actor that mutates state outside its own namespace MUST contend on the
+ * same key. (The fixture's own unit tests no longer qualify — they run their
+ * repo-wide ops against the dedicated `spry-check-fixture` repo instead.)
  *
  * Unlike {@link withGitHubFixture} this adds no reset/fixture wrapper — it is
  * pure serialization, for callers that manage their own fixture and assertions.
@@ -442,9 +641,81 @@ export async function withSpryCheckRecordLock<T>(
   return withRecordLock(SPRY_CHECK_LOCK_KEY, lockOpts, body);
 }
 
+/**
+ * Memoized suite-start reset. The FIRST record-mode fixture test in this
+ * process triggers one fixture creation + one repo-wide `reset()` (under the
+ * record lock); every other record-mode test awaits the same promise, so all
+ * of them start after exactly one reset. This is what handles cross-run
+ * staleness (branches/PRs/trunks left by a previous recording session) now
+ * that the tests themselves are namespaced and no longer reset per-test.
+ *
+ * One process is the supported recording topology: record the whole suite with
+ * a single `SPRY_RECORD=1 bun test --concurrent` (Bun runs all test files in
+ * one process). Two concurrent recording *processes* would each run their own
+ * suite-start reset and bulldoze each other — don't do that.
+ */
+let sessionFixturePromise: Promise<GitHubFixture> | undefined;
+
+function ensureSessionFixture(lockDir?: string): Promise<GitHubFixture> {
+  // Note: lockDir is first-caller-wins — only the call that creates the memo
+  // uses it. Fine in practice: real callers never pass one, and the unit
+  // tests reset the memo between cases.
+  if (!sessionFixturePromise) {
+    const promise = (async () => {
+      const fixture = await fixtureFactory();
+      // Hold the record lock across the reset so it cannot interleave with an
+      // exclusive body (e.g. the canonical land test) from another process.
+      const startedAt = Date.now();
+      await withSpryCheckRecordLock(() => fixture.reset(), lockDir ? { lockDir } : undefined).then(
+        (report) => {
+          if (report.errors.length > 0) {
+            throw new Error(`Suite-start fixture reset failed:\n${report.errors.join("\n")}`);
+          }
+          // The reset runs inside every waiting test's timeout budget, so log
+          // its cost: a future record-mode timeout flake should be diagnosable
+          // as reset-cost from the test output alone.
+          console.log(
+            `[github-fixture] suite-start reset of ${fixture.owner}/${fixture.repo} took ` +
+              `${((Date.now() - startedAt) / 1000).toFixed(1)}s ` +
+              `(${report.prsClosed} PRs closed, ${report.branchesDeleted} branches deleted, ` +
+              `${report.spryRefsDeleted} spry refs purged, main restored: ${report.mainRestored})`,
+          );
+        },
+      );
+      return fixture;
+    })();
+    sessionFixturePromise = promise;
+    // A failed suite-start reset must not be sticky-memoized as a rejected
+    // promise that poisons an unrelated later call — clear the memo so the
+    // next caller retries (each awaiting caller still sees the rejection).
+    // Guard against clearing a NEWER memo installed after this one failed.
+    promise.catch(() => {
+      if (sessionFixturePromise === promise) {
+        sessionFixturePromise = undefined;
+      }
+    });
+  }
+  return sessionFixturePromise;
+}
+
+/** Test-only: clear the memoized session fixture/reset. */
+export function __resetSessionFixtureForTest(): void {
+  sessionFixturePromise = undefined;
+}
+
 export interface WithGitHubFixtureOptions {
   /** True under `SPRY_RECORD=1` (pass `isRecording()`). */
   recording: boolean;
+  /**
+   * Serialize this body under the exclusive spry-check record lock and restore
+   * the default branch to its baseline afterward (best-effort). Reserved for
+   * the ONE canonical land test that ff-pushes the real default branch — the
+   * standing validation of the real MERGED transition on a true default
+   * branch (see beads spry-tm2l) and the only record-mode body allowed to
+   * move `main`. Everything else runs lock-free in parallel on its own
+   * per-test trunk namespace.
+   */
+  exclusive?: boolean;
   /** Override the lock directory (test-only). */
   lockDir?: string;
 }
@@ -454,16 +725,24 @@ export interface WithGitHubFixtureOptions {
  *
  * - **Replay (`recording: false`)**: calls `body(undefined)` immediately, with
  *   NO lock and NO fixture — replay is offline and must stay fully parallel.
- * - **Record (`recording: true`)**: acquires a cross-process advisory lock on
- *   the shared `spry-check` repo (see {@link withRecordLock}), creates the
- *   fixture, `reset()`s it, runs `body(fixture)`, then `reset()`s again in a
- *   `finally` (so a thrown body still tidies up) — all inside the lock. The
- *   entire body is the critical section, which is why the reset-run-reset
- *   sequence lives here rather than in each test.
+ * - **Record (`recording: true`)**: awaits the once-per-process suite-start
+ *   `reset()` (see {@link ensureSessionFixture}), then runs `body(fixture)`
+ *   with NO per-test lock — record-mode tests are namespaced (per-test trunk +
+ *   branch prefix via `setupDocRepo`) and mutually independent, so they run in
+ *   parallel and the record wall clock is the slowest test, not the sum of CI
+ *   waits. The one exception is `exclusive: true` (the canonical land test),
+ *   which takes the record lock and gets a best-effort default-branch restore
+ *   when its body finishes.
+ *
+ * There is deliberately NO trailing cleanup for non-exclusive bodies: each
+ * test's namespace (its trunk branch, spry branches, and PRs) is left on the
+ * fixture repo after a recording session. That residue is harmless — nothing
+ * reads the repo between sessions, and the next session's suite-start reset
+ * clears it.
  *
  * This is the single uniform entry point the three live-fixture doc-test files
  * (`sync`, `land`, `group`) use, replacing the hand-rolled
- * `isRecording()` + `createGitHubFixture()` + double-`reset()` boilerplate.
+ * `isRecording()` + `createGitHubFixture()` + `reset()` boilerplate.
  */
 export async function withGitHubFixture<T>(
   options: WithGitHubFixtureOptions,
@@ -473,14 +752,28 @@ export async function withGitHubFixture<T>(
     return body(undefined);
   }
 
+  const fixture = await ensureSessionFixture(options.lockDir);
+
+  if (!options.exclusive) {
+    return body(fixture);
+  }
+
   const lockOpts = options.lockDir ? { lockDir: options.lockDir } : undefined;
   return withSpryCheckRecordLock(async () => {
-    const fixture = await fixtureFactory();
-    await fixture.reset();
     try {
       return await body(fixture);
     } finally {
-      await fixture.reset();
+      // The exclusive body is the only mover of the default branch; put it
+      // back so every namespaced test keeps seeing the baseline. Best-effort:
+      // a restore failure must not mask the body's own result/error (the next
+      // session's suite-start reset restores main regardless).
+      try {
+        await fixture.restoreMainToBaseline();
+      } catch (err) {
+        console.warn(
+          `withGitHubFixture: failed to restore ${fixture.owner}/${fixture.repo} default branch to baseline: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
   }, lockOpts);
 }

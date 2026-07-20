@@ -1,6 +1,7 @@
 import type { PRInfo } from "./pr.ts";
 import type { GitRunner } from "../lib/context.ts";
 import { isAlreadyGone } from "./push.ts";
+import { remoteSpryRef } from "../lib/refs-seam.ts";
 
 export interface PRCacheEntry extends PRInfo {
   branch: string;
@@ -75,7 +76,8 @@ export async function fetchPRCache(
   remote: string,
   opts?: GitOpts,
 ): Promise<{ ok: true } | { ok: false; warning: string }> {
-  const refspec = `${PR_CACHE_REF}:${PR_CACHE_REF}`;
+  // Remote side goes through the test seam (identity in production).
+  const refspec = `${remoteSpryRef(PR_CACHE_REF)}:${PR_CACHE_REF}`;
   const result = await git.run(["fetch", remote, refspec], opts);
   if (result.exitCode === 0) return { ok: true };
   if (result.stderr.includes("couldn't find remote ref")) return { ok: true };
@@ -87,7 +89,8 @@ export async function pushPRCache(
   remote: string,
   opts?: GitOpts,
 ): Promise<{ ok: true } | { ok: false; warning: string }> {
-  const refspec = `${PR_CACHE_REF}:${PR_CACHE_REF}`;
+  // Remote side goes through the test seam (identity in production).
+  const refspec = `${PR_CACHE_REF}:${remoteSpryRef(PR_CACHE_REF)}`;
   const result = await git.run(["push", remote, refspec], opts);
   if (result.exitCode === 0) return { ok: true };
   return { ok: false, warning: result.stderr.trim() };
@@ -104,7 +107,7 @@ export async function deletePRCacheRemote(
   remote: string,
   opts?: GitOpts,
 ): Promise<{ ok: true } | { ok: false; warning: string }> {
-  const result = await git.run(["push", remote, `:${PR_CACHE_REF}`], opts);
+  const result = await git.run(["push", remote, `:${remoteSpryRef(PR_CACHE_REF)}`], opts);
   if (result.exitCode === 0 || isAlreadyGone(result.stderr)) return { ok: true };
   return { ok: false, warning: result.stderr.trim() };
 }

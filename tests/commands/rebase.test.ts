@@ -1,12 +1,15 @@
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterAll } from "bun:test";
 import { rebaseCommand } from "../../src/commands/rebase.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
+import { captureLogs, trapExit } from "../lib/capture.ts";
 import type { SpryContext, TestRepo } from "../lib/index.ts";
 import { registerBranch, loadTrackedBranches } from "../../src/git/tracked-branches.ts";
 
 const repos: TestRepo[] = [];
 
-afterEach(async () => {
+// afterAll, not afterEach: under --concurrent a per-test cleanup hook would delete
+// repos out from under still-running sibling tests.
+afterAll(async () => {
   while (repos.length > 0) {
     const r = repos.pop();
     if (r) await r.cleanup();
@@ -18,42 +21,6 @@ function makeCtx(repo: TestRepo): SpryContext {
   return {
     git: { run: (args, opts) => git.run(args, { ...opts, cwd: opts?.cwd ?? repo.path }) },
     gh: { run: async () => ({ stdout: "", stderr: "", exitCode: 0 }) },
-  };
-}
-
-function captureLogs(): { restore: () => void; out: string[]; err: string[] } {
-  const out: string[] = [];
-  const err: string[] = [];
-  const origLog = console.log;
-  const origErr = console.error;
-  console.log = (...args: unknown[]) => out.push(args.map(String).join(" "));
-  console.error = (...args: unknown[]) => err.push(args.map(String).join(" "));
-  return {
-    restore: () => {
-      console.log = origLog;
-      console.error = origErr;
-    },
-    out,
-    err,
-  };
-}
-
-function trapExit(): { exitCode: number | undefined; restore: () => void } {
-  const state: { exitCode: number | undefined } = { exitCode: undefined };
-  const origExit = process.exit;
-  // @ts-ignore
-  process.exit = (code: number) => {
-    state.exitCode = code;
-    throw new Error("process.exit");
-  };
-  return {
-    get exitCode() {
-      return state.exitCode;
-    },
-    restore: () => {
-      // @ts-ignore
-      process.exit = origExit;
-    },
   };
 }
 
@@ -76,7 +43,7 @@ describe("sp rebase", () => {
     // origin/main has NOT advanced — stack is up to date
 
     const ctx = makeCtx(repo);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await rebaseCommand(ctx, { cwd: repo.path });
     } finally {
@@ -107,7 +74,7 @@ describe("sp rebase", () => {
     await repo.checkout(featureBranch);
 
     const ctx = makeCtx(repo);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await rebaseCommand(ctx, { cwd: repo.path });
@@ -147,7 +114,7 @@ describe("sp rebase", () => {
     await repo.checkout(featureBranch);
 
     const ctx = makeCtx(repo);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await rebaseCommand(ctx, { cwd: repo.path });
@@ -174,7 +141,7 @@ describe("sp rebase", () => {
 
     const git = createRealGitRunner();
     const ctx = makeCtx(repo);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await rebaseCommand(ctx, { cwd: repo.path });
     } finally {
@@ -194,7 +161,7 @@ describe("sp rebase", () => {
     await git.run(["checkout", sha], { cwd: repo.path });
 
     const ctx = makeCtx(repo);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await rebaseCommand(ctx, { cwd: repo.path });
@@ -218,7 +185,7 @@ describe("sp rebase --all", () => {
     await repo.commit("some work");
 
     const ctx = makeCtx(repo);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await rebaseCommand(ctx, { cwd: repo.path, all: true });
@@ -256,7 +223,7 @@ describe("sp rebase --all", () => {
     await registerBranch(git, current, { cwd: repo.path });
 
     const ctx = makeCtx(repo);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await rebaseCommand(ctx, { cwd: repo.path, all: true });
@@ -298,7 +265,7 @@ describe("sp rebase --all", () => {
     await registerBranch(git, aliveBranch, { cwd: repo.path });
 
     const ctx = makeCtx(repo);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await rebaseCommand(ctx, { cwd: repo.path, all: true });
@@ -344,7 +311,7 @@ describe("sp rebase --all", () => {
     await repo.checkout(clean);
 
     const ctx = makeCtx(repo);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await rebaseCommand(ctx, { cwd: repo.path, all: true });

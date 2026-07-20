@@ -38,8 +38,25 @@ export function createScreenBuffer(cols: number, rows: number): ScreenBuffer {
     if (r) r[col] = cell;
   }
 
+  function scrollUp(): void {
+    grid.shift();
+    grid.push(Array.from({ length: cols }, () => ({ ...BLANK })));
+  }
+
   function putChar(ch: string): void {
-    if (cursor.y >= 0 && cursor.y < rows && cursor.x >= 0 && cursor.x < cols) {
+    // Scroll-on-overflow, applied lazily: a newline (or wrap) may leave the
+    // cursor past the last row, but the grid only scrolls when a character
+    // actually needs that row. Scrolling eagerly would shift the frame when a
+    // full-screen TUI paints the bottom-right cell and then repositions with
+    // CUP — deferring matches real terminals' pending-wrap behavior closely
+    // enough that in-bounds redraws render identically to before. Without
+    // this, output longer than `rows` was silently truncated to the FIRST
+    // `rows` lines, so capture() after exit missed the final lines.
+    while (cursor.y >= rows) {
+      scrollUp();
+      cursor.y--;
+    }
+    if (cursor.y >= 0 && cursor.x >= 0 && cursor.x < cols) {
       setCell(cursor.y, cursor.x, { char: ch, ...style });
     }
     cursor.x++;

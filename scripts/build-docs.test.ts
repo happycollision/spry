@@ -1,4 +1,4 @@
-import { test, expect, afterEach } from "bun:test";
+import { test, expect, afterAll } from "bun:test";
 import { join } from "node:path";
 import { mkdir, rm, readFile } from "node:fs/promises";
 import { assembleMarkdown, assembleHtml, buildDocsFromDisk } from "./build-docs.ts";
@@ -64,7 +64,10 @@ test("screen entries render as code blocks", () => {
 
 const tmpRoot = join(import.meta.dir, "../.test-tmp/build-docs-test");
 
-afterEach(async () => {
+// afterAll, not afterEach: each disk test uses its own subdirectory of tmpRoot,
+// and a per-test wipe would race with still-running sibling tests under
+// --concurrent. One wipe at the end suffices.
+afterAll(async () => {
   await rm(tmpRoot, { recursive: true, force: true });
 });
 

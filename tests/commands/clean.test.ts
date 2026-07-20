@@ -1,11 +1,14 @@
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterAll } from "bun:test";
 import { cleanCommand } from "../../src/commands/clean.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
+import { captureLogs, trapExit } from "../lib/capture.ts";
 import type { SpryContext, TestRepo } from "../lib/index.ts";
 
 const repos: TestRepo[] = [];
 
-afterEach(async () => {
+// afterAll, not afterEach: under --concurrent a per-test cleanup hook would delete
+// repos out from under still-running sibling tests.
+afterAll(async () => {
   while (repos.length > 0) {
     const r = repos.pop();
     if (r) await r.cleanup();
@@ -17,42 +20,6 @@ function makeCtx(repo: TestRepo): SpryContext {
   return {
     git: { run: (args, opts) => git.run(args, { ...opts, cwd: opts?.cwd ?? repo.path }) },
     gh: { run: async () => ({ stdout: "", stderr: "", exitCode: 0 }) },
-  };
-}
-
-function captureLogs(): { restore: () => void; out: string[]; err: string[] } {
-  const out: string[] = [];
-  const err: string[] = [];
-  const origLog = console.log;
-  const origErr = console.error;
-  console.log = (...args: unknown[]) => out.push(args.map(String).join(" "));
-  console.error = (...args: unknown[]) => err.push(args.map(String).join(" "));
-  return {
-    restore: () => {
-      console.log = origLog;
-      console.error = origErr;
-    },
-    out,
-    err,
-  };
-}
-
-function trapExit(): { exitCode: number | undefined; restore: () => void } {
-  const state: { exitCode: number | undefined } = { exitCode: undefined };
-  const origExit = process.exit;
-  // @ts-ignore
-  process.exit = (code: number) => {
-    state.exitCode = code;
-    throw new Error("process.exit");
-  };
-  return {
-    get exitCode() {
-      return state.exitCode;
-    },
-    restore: () => {
-      // @ts-ignore
-      process.exit = origExit;
-    },
   };
 }
 
@@ -97,7 +64,7 @@ describe("sp clean", () => {
     expect(await remoteSpryBranchExists(repo, "landed")).toBe(true);
 
     const ctx = makeCtx(repo);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await cleanCommand(ctx, { cwd: repo.path });
     } finally {
@@ -122,7 +89,7 @@ describe("sp clean", () => {
     expect(await remoteSpryBranchExists(repo, "unlanded")).toBe(true);
 
     const ctx = makeCtx(repo);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await cleanCommand(ctx, { cwd: repo.path });
     } finally {
@@ -144,7 +111,7 @@ describe("sp clean", () => {
     await pushSpryBranch(repo, "landed", landedSha);
 
     const ctx = makeCtx(repo);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await cleanCommand(ctx, { cwd: repo.path, dryRun: true });
     } finally {
@@ -176,7 +143,7 @@ describe("sp clean", () => {
     expect(await remoteSpryBranchExists(repo, "landed")).toBe(false);
 
     const ctx = makeCtx(repo);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await cleanCommand(ctx, { cwd: repo.path });
@@ -205,7 +172,7 @@ describe("sp clean", () => {
     await pushSpryBranch(repo, "good", landedSha);
 
     const ctx = makeCtx(repo);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     // Inject a delete fn: a non-benign failure for "bad", success for "good".
     const deleteBranch = async (branch: string) => {
@@ -236,7 +203,7 @@ describe("sp clean", () => {
     await repo.fetch();
 
     const ctx = makeCtx(repo);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await cleanCommand(ctx, { cwd: repo.path });

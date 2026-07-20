@@ -2,28 +2,6 @@
   "entries": [
     {
       "args": [
-        "pr",
-        "create",
-        "--title",
-        "Auth flow",
-        "--head",
-        "spry/dondenton/grp00001",
-        "--base",
-        "main",
-        "--body-file",
-        "-"
-      ],
-      "options": {
-        "stdin": ""
-      },
-      "result": {
-        "stdout": "https://github.com/happycollision/spry-check/pull/1025\n",
-        "stderr": "",
-        "exitCode": 0
-      }
-    },
-    {
-      "args": [
         "api",
         "graphql",
         "-F",
@@ -31,13 +9,34 @@
         "-F",
         "repo=spry-check",
         "-F",
-        "branch=spry/dondenton/grp00001",
+        "branch=spry/t-commands__sync--022/grp00001",
         "-f",
-        "query=\nquery($owner: String!, $repo: String!, $branch: String!) {\n  repository(owner: $owner, name: $repo) {\n    pullRequests(headRefName: $branch, first: 1, orderBy: {field: UPDATED_AT, direction: DESC}) {\n      nodes {\n        number\n        url\n        state\n        title\n        baseRefName\n        reviewDecision\n        reviewThreads(first: 100) {\n          totalCount\n          nodes { isResolved }\n        }\n        commits(last: 1) {\n          nodes {\n            commit {\n              statusCheckRollup {\n                contexts(first: 100) {\n                  nodes {\n                    __typename\n                    ... on CheckRun { status conclusion }\n                    ... on StatusContext { state }\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}"
+        "query=\nquery($owner: String!, $repo: String!, $branch: String!) {\n  repository(owner: $owner, name: $repo) {\n    pullRequests(headRefName: $branch, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) {\n      nodes {\n        number\n        url\n        state\n        title\n        baseRefName\n        reviewDecision\n        reviewThreads(first: 100) {\n          totalCount\n          nodes { isResolved }\n        }\n        commits(last: 1) {\n          nodes {\n            commit {\n              statusCheckRollup {\n                contexts(first: 100) {\n                  nodes {\n                    __typename\n                    ... on CheckRun { status conclusion }\n                    ... on StatusContext { state }\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}"
       ],
-      "options": {},
       "result": {
-        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1025,\"url\":\"https://github.com/happycollision/spry-check/pull/1025\",\"state\":\"OPEN\",\"title\":\"Auth flow\",\"baseRefName\":\"main\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":null}}]}}]}}}}",
+        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1001,\"url\":\"https://github.com/happycollision/spry-check/pull/1001\",\"state\":\"CLOSED\",\"title\":\"Auth flow\",\"baseRefName\":\"trunk/commands__sync--022\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}},{\"number\":1002,\"url\":\"https://github.com/happycollision/spry-check/pull/1002\",\"state\":\"CLOSED\",\"title\":\"Auth flow\",\"baseRefName\":\"trunk/commands__sync--022\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}}]}}}}",
+        "stderr": "",
+        "exitCode": 0
+      }
+    },
+    {
+      "args": [
+        "pr",
+        "create",
+        "--title",
+        "Auth flow",
+        "--head",
+        "spry/t-commands__sync--022/grp00001",
+        "--base",
+        "trunk/commands__sync--022",
+        "--body-file",
+        "-"
+      ],
+      "options": {
+        "stdin": ""
+      },
+      "result": {
+        "stdout": "https://github.com/happycollision/spry-check/pull/1003\n",
         "stderr": "",
         "exitCode": 0
       }

@@ -1,22 +1,30 @@
-import { test, expect, afterEach } from "bun:test";
+import { test, expect, afterAll } from "bun:test";
 import { join } from "node:path";
 import { rm, mkdir, writeFile, stat } from "node:fs/promises";
 import { withRecordLock, __lockDirFor } from "./record-lock.ts";
 
 const tmpDir = join(import.meta.dir, "../../.test-tmp/record-lock");
 
-afterEach(async () => {
+// Each test locks inside its own subdirectory so concurrently running tests
+// (bun test --concurrent) never contend on the same lock key or have their
+// lock dir wiped mid-test. The whole base dir is removed once at the end.
+let dirCounter = 0;
+const freshDir = () => join(tmpDir, `t${dirCounter++}`);
+
+afterAll(async () => {
   await rm(tmpDir, { recursive: true, force: true });
 });
 
 test("runs the body and returns its result", async () => {
-  const result = await withRecordLock("alpha", { dir: tmpDir }, async () => "done");
+  const dir = freshDir();
+  const result = await withRecordLock("alpha", { dir }, async () => "done");
   expect(result).toBe("done");
 });
 
 test("releases the lock after the body resolves", async () => {
-  await withRecordLock("alpha", { dir: tmpDir }, async () => {});
-  const lockDir = __lockDirFor(tmpDir, "alpha");
+  const dir = freshDir();
+  await withRecordLock("alpha", { dir }, async () => {});
+  const lockDir = __lockDirFor(dir, "alpha");
   const exists = await stat(lockDir).then(
     () => true,
     () => false,
@@ -25,13 +33,14 @@ test("releases the lock after the body resolves", async () => {
 });
 
 test("releases the lock even when the body throws", async () => {
+  const dir = freshDir();
   const boom = new Error("boom");
   await expect(
-    withRecordLock("alpha", { dir: tmpDir }, async () => {
+    withRecordLock("alpha", { dir }, async () => {
       throw boom;
     }),
   ).rejects.toThrow("boom");
-  const lockDir = __lockDirFor(tmpDir, "alpha");
+  const lockDir = __lockDirFor(dir, "alpha");
   const exists = await stat(lockDir).then(
     () => true,
     () => false,
@@ -40,9 +49,10 @@ test("releases the lock even when the body throws", async () => {
 });
 
 test("serializes concurrent holders of the same key", async () => {
+  const dir = freshDir();
   const events: string[] = [];
   const hold = (label: string, ms: number) =>
-    withRecordLock("shared", { dir: tmpDir, pollMs: 5 }, async () => {
+    withRecordLock("shared", { dir, pollMs: 5 }, async () => {
       events.push(`enter:${label}`);
       await Bun.sleep(ms);
       events.push(`exit:${label}`);
@@ -58,12 +68,13 @@ test("serializes concurrent holders of the same key", async () => {
 });
 
 test("different keys do not block each other", async () => {
+  const dir = freshDir();
   let bothInside = false;
-  const a = withRecordLock("k1", { dir: tmpDir, pollMs: 5 }, async () => {
+  const a = withRecordLock("k1", { dir, pollMs: 5 }, async () => {
     await Bun.sleep(20);
     bothInside = true;
   });
-  const b = withRecordLock("k2", { dir: tmpDir, pollMs: 5 }, async () => {
+  const b = withRecordLock("k2", { dir, pollMs: 5 }, async () => {
     await Bun.sleep(20);
   });
   await Promise.all([a, b]);
@@ -71,7 +82,8 @@ test("different keys do not block each other", async () => {
 });
 
 test("breaks a stale lock left by a dead holder", async () => {
-  const lockDir = __lockDirFor(tmpDir, "stale");
+  const dir = freshDir();
+  const lockDir = __lockDirFor(dir, "stale");
   await mkdir(lockDir, { recursive: true });
   // A meta file naming a PID that cannot be alive.
   await writeFile(join(lockDir, "owner.json"), JSON.stringify({ pid: 2147483646, ts: 1 }));
@@ -79,7 +91,7 @@ test("breaks a stale lock left by a dead holder", async () => {
   // Should reclaim the stale lock rather than hang.
   const result = await withRecordLock(
     "stale",
-    { dir: tmpDir, pollMs: 5, staleMs: 10 },
+    { dir, pollMs: 5, staleMs: 10 },
     async () => "reclaimed",
   );
   expect(result).toBe("reclaimed");

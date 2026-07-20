@@ -132,7 +132,14 @@ function flattenCheckContexts(
 
 export function parsePRResponse(json: string): PRInfo | null {
   const parsed = JSON.parse(json) as GraphQLResponse;
-  const node = parsed.data?.repository?.pullRequests?.nodes?.[0];
+  const nodes = parsed.data?.repository?.pullRequests?.nodes ?? [];
+  // A head branch can carry several PR records (GitHub never deletes a PR, so a
+  // reused branch keeps its stale CLOSED/MERGED records). Only one can be OPEN
+  // at a time, and that one is the branch's live PR — prefer it over any stale
+  // record, even if the stale one sorts first by UPDATED_AT (closing a PR bumps
+  // its timestamp). With no OPEN record, the newest node reflects the branch's
+  // outcome so sp view can still render MERGED/CLOSED.
+  const node = nodes.find((n) => n.state === "OPEN") ?? nodes[0];
   if (!node) return null;
 
   const threads = node.reviewThreads;
@@ -154,7 +161,7 @@ export function parsePRResponse(json: string): PRInfo | null {
 const PR_QUERY = `
 query($owner: String!, $repo: String!, $branch: String!) {
   repository(owner: $owner, name: $repo) {
-    pullRequests(headRefName: $branch, first: 1, orderBy: {field: UPDATED_AT, direction: DESC}) {
+    pullRequests(headRefName: $branch, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes {
         number
         url

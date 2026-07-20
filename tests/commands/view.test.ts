@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { createRealGitRunner, repoManager } from "../lib/index.ts";
+import { acquireOutputLock } from "../lib/capture.ts";
 import { viewCommand } from "../../src/commands/view.ts";
 import { saveGroupRecord } from "../../src/git/group-titles.ts";
 import { savePRCache } from "../../src/gh/pr-cache.ts";
@@ -8,8 +9,11 @@ import type { SpryContext } from "../../src/lib/context.ts";
 
 const repos = repoManager();
 
-// Helper to capture stdout/stderr from viewCommand
+// Helper to capture stdout/stderr from viewCommand. Patches process-global
+// console/exit, so it holds the shared output lock until it restores them —
+// otherwise concurrent tests would steal each other's output.
 async function captureView(ctx: SpryContext): Promise<{ stdout: string; exitCode: number }> {
+  const releaseLock = await acquireOutputLock();
   const chunks: string[] = [];
   const originalLog = console.log;
   const originalError = console.error;
@@ -31,6 +35,7 @@ async function captureView(ctx: SpryContext): Promise<{ stdout: string; exitCode
     console.log = originalLog;
     console.error = originalError;
     process.exit = originalExit;
+    releaseLock();
   }
 
   return { stdout: chunks.join("\n"), exitCode };

@@ -62,3 +62,60 @@ test("waitForText times out if text never appears", async () => {
 
   await term.close();
 });
+
+test("waitForExit resolves with the exit code once the process exits on its own", async () => {
+  const term = await createTerminalDriver("echo", ["Hello from PTY"], {
+    cols: 80,
+    rows: 24,
+  });
+
+  const code = await term.waitForExit();
+  expect(code).toBe(0);
+});
+
+test("waitForExit still allows capture() to read the rendered screen after exit", async () => {
+  const term = await createTerminalDriver("echo", ["Hello from PTY"], {
+    cols: 80,
+    rows: 24,
+  });
+
+  await term.waitForExit();
+  const screen = term.capture();
+  expect(screen.text).toContain("Hello from PTY");
+});
+
+test("capture after waitForExit shows the final lines when output exceeds the rows", async () => {
+  // Regression: the screen buffer used to drop everything once output ran past
+  // the last row (no scroll-on-overflow), so capture() after a long-running
+  // command was truncated to the FIRST `rows` lines and the final output —
+  // the part doc tests assert on — was missing.
+  const script =
+    "for (let i = 1; i <= 2000; i++) console.log('filler line ' + i); " +
+    "console.log('FINAL SENTINEL LINE');";
+  const term = await createTerminalDriver("bun", ["-e", script], {
+    cols: 80,
+    rows: 24,
+  });
+
+  expect(await term.waitForExit({ timeout: 10000 })).toBe(0);
+  const screen = term.capture();
+  expect(screen.text).toContain("FINAL SENTINEL LINE");
+  expect(screen.text).not.toContain("filler line 1\n");
+});
+
+test("waitForExit throws with a screen dump on timeout", async () => {
+  // cat with no input never exits on its own.
+  const term = await createTerminalDriver("cat", [], {
+    cols: 80,
+    rows: 24,
+  });
+
+  await Bun.sleep(100);
+  term.type("still running");
+  await term.waitForText("still running", { timeout: 2000 });
+
+  await expect(term.waitForExit({ timeout: 300 })).rejects.toThrow(/timeout/i);
+
+  // Clean up the still-running process.
+  await term.close();
+});

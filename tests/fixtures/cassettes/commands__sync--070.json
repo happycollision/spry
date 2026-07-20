@@ -9,13 +9,12 @@
         "-F",
         "repo=spry-check",
         "-F",
-        "branch=spry/dondenton/bbb22222",
+        "branch=spry/t-commands__sync--070/bbb22222",
         "-f",
-        "query=\nquery($owner: String!, $repo: String!, $branch: String!) {\n  repository(owner: $owner, name: $repo) {\n    pullRequests(headRefName: $branch, first: 1, orderBy: {field: UPDATED_AT, direction: DESC}) {\n      nodes {\n        number\n        url\n        state\n        title\n        baseRefName\n        reviewDecision\n        reviewThreads(first: 100) {\n          totalCount\n          nodes { isResolved }\n        }\n        commits(last: 1) {\n          nodes {\n            commit {\n              statusCheckRollup {\n                contexts(first: 100) {\n                  nodes {\n                    __typename\n                    ... on CheckRun { status conclusion }\n                    ... on StatusContext { state }\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}"
+        "query=\nquery($owner: String!, $repo: String!, $branch: String!) {\n  repository(owner: $owner, name: $repo) {\n    pullRequests(headRefName: $branch, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) {\n      nodes {\n        number\n        url\n        state\n        title\n        baseRefName\n        reviewDecision\n        reviewThreads(first: 100) {\n          totalCount\n          nodes { isResolved }\n        }\n        commits(last: 1) {\n          nodes {\n            commit {\n              statusCheckRollup {\n                contexts(first: 100) {\n                  nodes {\n                    __typename\n                    ... on CheckRun { status conclusion }\n                    ... on StatusContext { state }\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}"
       ],
-      "options": {},
       "result": {
-        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1084,\"url\":\"https://github.com/happycollision/spry-check/pull/1084\",\"state\":\"OPEN\",\"title\":\"B\",\"baseRefName\":\"spry/dondenton/aaa11111\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}}]}}}}",
+        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1001,\"url\":\"https://github.com/happycollision/spry-check/pull/1001\",\"state\":\"OPEN\",\"title\":\"B\",\"baseRefName\":\"spry/t-commands__sync--070/aaa11111\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"QUEUED\",\"conclusion\":null}]}}}}]}},{\"number\":1002,\"url\":\"https://github.com/happycollision/spry-check/pull/1002\",\"state\":\"CLOSED\",\"title\":\"B\",\"baseRefName\":\"trunk/commands__sync--070\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}},{\"number\":1003,\"url\":\"https://github.com/happycollision/spry-check/pull/1003\",\"state\":\"CLOSED\",\"title\":\"B\",\"baseRefName\":\"trunk/commands__sync--070\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}}]}}}}",
         "stderr": "",
         "exitCode": 0
       }
@@ -29,40 +28,54 @@
         "-F",
         "repo=spry-check",
         "-F",
-        "branch=spry/dondenton/aaa11111",
+        "branch=spry/t-commands__sync--070/aaa11111",
         "-f",
-        "query=\nquery($owner: String!, $repo: String!, $branch: String!) {\n  repository(owner: $owner, name: $repo) {\n    pullRequests(headRefName: $branch, first: 1, orderBy: {field: UPDATED_AT, direction: DESC}) {\n      nodes {\n        number\n        url\n        state\n        title\n        baseRefName\n        reviewDecision\n        reviewThreads(first: 100) {\n          totalCount\n          nodes { isResolved }\n        }\n        commits(last: 1) {\n          nodes {\n            commit {\n              statusCheckRollup {\n                contexts(first: 100) {\n                  nodes {\n                    __typename\n                    ... on CheckRun { status conclusion }\n                    ... on StatusContext { state }\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}"
+        "query=\nquery($owner: String!, $repo: String!, $branch: String!) {\n  repository(owner: $owner, name: $repo) {\n    pullRequests(headRefName: $branch, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) {\n      nodes {\n        number\n        url\n        state\n        title\n        baseRefName\n        reviewDecision\n        reviewThreads(first: 100) {\n          totalCount\n          nodes { isResolved }\n        }\n        commits(last: 1) {\n          nodes {\n            commit {\n              statusCheckRollup {\n                contexts(first: 100) {\n                  nodes {\n                    __typename\n                    ... on CheckRun { status conclusion }\n                    ... on StatusContext { state }\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}"
       ],
-      "options": {},
       "result": {
-        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1083,\"url\":\"https://github.com/happycollision/spry-check/pull/1083\",\"state\":\"OPEN\",\"title\":\"A\",\"baseRefName\":\"main\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"IN_PROGRESS\",\"conclusion\":null},{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}}]}}}}",
+        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1004,\"url\":\"https://github.com/happycollision/spry-check/pull/1004\",\"state\":\"OPEN\",\"title\":\"A\",\"baseRefName\":\"trunk/commands__sync--070\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"IN_PROGRESS\",\"conclusion\":null}]}}}}]}},{\"number\":1005,\"url\":\"https://github.com/happycollision/spry-check/pull/1005\",\"state\":\"CLOSED\",\"title\":\"A\",\"baseRefName\":\"spry/t-commands__sync--070/bbb22222\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}},{\"number\":1006,\"url\":\"https://github.com/happycollision/spry-check/pull/1006\",\"state\":\"CLOSED\",\"title\":\"A\",\"baseRefName\":\"spry/t-commands__sync--070/bbb22222\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}}]}}}}",
         "stderr": "",
         "exitCode": 0
       }
     },
     {
-      "args": ["pr", "edit", "1084", "--base", "main"],
-      "options": {},
+      "args": [
+        "pr",
+        "edit",
+        "1001",
+        "--base",
+        "trunk/commands__sync--070"
+      ],
       "result": {
-        "stdout": "https://github.com/happycollision/spry-check/pull/1084\n",
+        "stdout": "https://github.com/happycollision/spry-check/pull/1001\n",
         "stderr": "",
         "exitCode": 0
       }
     },
     {
-      "args": ["pr", "edit", "1084", "--base", "main"],
-      "options": {},
+      "args": [
+        "pr",
+        "edit",
+        "1001",
+        "--base",
+        "trunk/commands__sync--070"
+      ],
       "result": {
-        "stdout": "https://github.com/happycollision/spry-check/pull/1084\n",
+        "stdout": "https://github.com/happycollision/spry-check/pull/1001\n",
         "stderr": "",
         "exitCode": 0
       }
     },
     {
-      "args": ["pr", "edit", "1083", "--base", "spry/dondenton/bbb22222"],
-      "options": {},
+      "args": [
+        "pr",
+        "edit",
+        "1004",
+        "--base",
+        "spry/t-commands__sync--070/bbb22222"
+      ],
       "result": {
-        "stdout": "https://github.com/happycollision/spry-check/pull/1083\n",
+        "stdout": "https://github.com/happycollision/spry-check/pull/1004\n",
         "stderr": "",
         "exitCode": 0
       }

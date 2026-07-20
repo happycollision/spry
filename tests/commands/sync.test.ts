@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterAll } from "bun:test";
 import {
   syncCommand,
   buildOpenCandidates,
@@ -8,6 +8,7 @@ import {
 } from "../../src/commands/sync.ts";
 import type { PRUnit } from "../../src/parse/types.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
+import { captureLogs, trapExit } from "../lib/capture.ts";
 import type {
   CommandOptions,
   CommandResult,
@@ -22,7 +23,9 @@ import type { SpryConfig } from "../../src/git/config.ts";
 
 const repos: TestRepo[] = [];
 
-afterEach(async () => {
+// afterAll, not afterEach: under --concurrent a per-test cleanup hook would delete
+// repos out from under still-running sibling tests.
+afterAll(async () => {
   while (repos.length > 0) {
     const r = repos.pop();
     if (r) await r.cleanup();
@@ -68,23 +71,6 @@ function makeCtx(repo: TestRepo, gh: GhClient): SpryContext {
       run: (args, opts) => realGit.run(args, { ...opts, cwd: opts?.cwd ?? repo.path }),
     },
     gh,
-  };
-}
-
-function captureLogs(): { restore: () => void; out: string[]; err: string[] } {
-  const out: string[] = [];
-  const err: string[] = [];
-  const origLog = console.log;
-  const origErr = console.error;
-  console.log = (...args: unknown[]) => out.push(args.map(String).join(" "));
-  console.error = (...args: unknown[]) => err.push(args.map(String).join(" "));
-  return {
-    restore: () => {
-      console.log = origLog;
-      console.error = origErr;
-    },
-    out,
-    err,
   };
 }
 
@@ -142,31 +128,12 @@ function ghPRMap(
   };
 }
 
-function trapExit(): { exitCode: number | undefined; restore: () => void } {
-  const state: { exitCode: number | undefined } = { exitCode: undefined };
-  const origExit = process.exit;
-  // @ts-ignore
-  process.exit = (code: number) => {
-    state.exitCode = code;
-    throw new Error("process.exit");
-  };
-  return {
-    get exitCode() {
-      return state.exitCode;
-    },
-    restore: () => {
-      // @ts-ignore
-      process.exit = origExit;
-    },
-  };
-}
-
 describe("sp sync --all (guard rails)", () => {
   test("--all with --open is rejected and exits 1", async () => {
     const repo = await makeRepoWithConfig();
     const { gh } = stubGh(() => ({ stdout: "", stderr: "", exitCode: 0 }));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await syncCommand(ctx, { cwd: repo.path, all: true, open: null });
@@ -191,7 +158,7 @@ describe("syncCommand bare", () => {
       exitCode: 0,
     }));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await syncCommand(ctx, { cwd: repo.path });
     } finally {
@@ -211,7 +178,7 @@ describe("syncCommand bare", () => {
 
     const { gh } = stubGh(ghPRMap({}));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await syncCommand(ctx, { cwd: repo.path });
     } finally {
@@ -232,7 +199,7 @@ describe("syncCommand bare", () => {
 
     const { gh, calls } = stubGh(ghPRMap({}));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await syncCommand(ctx, { cwd: repo.path });
     } finally {
@@ -255,7 +222,7 @@ describe("syncCommand bare", () => {
 
     const { gh, calls } = stubGh(ghPRMap({}));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await syncCommand(ctx, { cwd: repo.path });
     } finally {
@@ -297,7 +264,7 @@ describe("syncCommand bare", () => {
         },
       },
     };
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await syncCommand(ctx, { cwd: repo.path });
     } finally {
@@ -328,7 +295,7 @@ describe("syncCommand bare", () => {
       ghPRMap({ "spry/test/aaa11111": { number: 10, baseRefName: "main" } }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await syncCommand(ctx, { cwd: repo.path });
     } finally {
@@ -369,7 +336,7 @@ describe("syncCommand bare", () => {
       }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await syncCommand(ctx, { cwd: repo.path });
     } finally {
@@ -400,7 +367,7 @@ describe("syncCommand bare", () => {
       exitCode: 127,
     }));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await syncCommand(ctx, { cwd: repo.path });
     } finally {
@@ -434,7 +401,7 @@ describe("syncCommand bare", () => {
 
     const { gh } = stubGh(ghPRMap({}));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     let exitCode = -1;
     const origExit = process.exit;
     process.exit = ((code: number) => {
@@ -495,7 +462,7 @@ describe("syncCommand bare", () => {
       return { stdout: "", stderr: "unexpected", exitCode: 1 };
     });
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     let exitCode = -1;
     const origExit = process.exit;
     process.exit = ((code: number) => {
@@ -535,7 +502,7 @@ describe("syncCommand bare", () => {
         },
       },
     };
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await syncCommand(ctx, { cwd: repo.path });
     } finally {
@@ -557,7 +524,7 @@ describe("syncCommand bare", () => {
 
     const { gh } = stubGh(ghPRMap({}));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     let exitCode = -1;
     const origExit = process.exit;
     process.exit = ((code: number) => {
@@ -610,7 +577,7 @@ describe("syncCommand --open <ids>", () => {
       return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
     });
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await syncCommand(ctx, { cwd: repo.path, open: "aaa11111" });
     } finally {
@@ -666,7 +633,7 @@ describe("syncCommand --open <ids>", () => {
       return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
     });
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await syncCommand(ctx, { cwd: repo.path, open: "aaa11111,bbb22222" });
     } finally {
@@ -692,7 +659,7 @@ describe("syncCommand --open <ids>", () => {
 
     const { gh } = stubGh(ghPRMap({ "spry/test/aaa11111": { number: 1, baseRefName: "main" } }));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     let exited = false;
     const origExit = process.exit;
     process.exit = ((code: number) => {
@@ -724,7 +691,7 @@ describe("syncCommand --open <ids>", () => {
 
     const { gh } = stubGh(ghPRMap({}));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const origExit = process.exit;
     process.exit = ((code: number) => {
       throw new Error(`__exit:${code}`);
@@ -779,7 +746,7 @@ describe("syncCommand --open <ids>", () => {
       return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
     });
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     let exitCode = -1;
     const origExit = process.exit;
     process.exit = ((code: number) => {
@@ -809,7 +776,7 @@ describe("syncCommand --open <ids>", () => {
 
     const { gh } = stubGh(ghPRMap({}));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const origExit = process.exit;
     process.exit = ((code: number) => {
       throw new Error(`__exit:${code}`);
@@ -835,7 +802,7 @@ describe("syncCommand --open <ids>", () => {
 
     const { gh } = stubGh(ghPRMap({}));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const origExit = process.exit;
     process.exit = ((code: number) => {
       throw new Error(`__exit:${code}`);
@@ -887,7 +854,7 @@ describe("syncCommand --open <ids>", () => {
       return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
     });
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const origExit = process.exit;
     process.exit = ((code: number) => {
       throw new Error(`__exit:${code}`);
@@ -963,7 +930,7 @@ describe("sp sync --all (loop)", () => {
 
     const { gh } = stubGh(() => ({ stdout: "", stderr: "", exitCode: 0 }));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await syncCommand(ctx, { cwd: repo.path, all: true });
@@ -1007,7 +974,7 @@ describe("sp sync --all (loop)", () => {
     // gh: no PRs found (empty), so retarget/cache do nothing.
     const { gh } = stubGh(ghPRMap({}));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await syncCommand(ctx, { cwd: repo.path, all: true });
@@ -1042,7 +1009,7 @@ describe("sp sync --all (loop)", () => {
 
     const { gh } = stubGh(ghPRMap({}));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await syncCommand(ctx, { cwd: repo.path, all: true });
@@ -1072,7 +1039,7 @@ describe("sp sync --all (loop)", () => {
 
     const { gh } = stubGh(ghPRMap({}));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await syncCommand(ctx, { cwd: repo.path, all: true });
@@ -1109,7 +1076,7 @@ describe("sp sync --all (loop)", () => {
 
     const { gh } = stubGh(ghPRMap({}));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await syncCommand(ctx, { cwd: repo.path, all: true });
@@ -1167,7 +1134,7 @@ describe("sp sync --all (loop)", () => {
     );
 
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await syncCommand(ctx, { cwd: repo.path, all: true });
@@ -1222,7 +1189,7 @@ describe("sp sync --all (loop)", () => {
       }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await syncCommand(ctx, { cwd: repo.path, all: true });
@@ -1279,7 +1246,7 @@ describe("sp sync --all (loop)", () => {
 
     const { gh } = stubGh(ghPRMap({}));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await syncCommand(ctx, { cwd: repo.path, all: true });
@@ -1319,7 +1286,7 @@ describe("PR cache", () => {
 
     const { gh } = stubGh(ghPRMap({ "spry/test/aaa11111": { number: 5, baseRefName: "main" } }));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await syncCommand(ctx, { cwd: repo.path });
     } finally {
@@ -1333,6 +1300,38 @@ describe("PR cache", () => {
     expect(cache["aaa11111"]?.state).toBe("OPEN");
     expect(cache["aaa11111"]?.branch).toBe("spry/test/aaa11111");
     expect(cache["aaa11111"]?.cachedAt).toBeDefined();
+  });
+
+  test("sync does not cache a stale MERGED/CLOSED PR for the branch", async () => {
+    // A head branch can carry a stale MERGED/CLOSED PR record (GitHub never
+    // deletes PRs). That record is not the unit's live PR — sync must not cache
+    // it, and must not print "Updated PR cache" for it. Only an OPEN PR counts.
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "Add login\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${head}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+
+    const { gh } = stubGh(
+      ghPRMap({ "spry/test/aaa11111": { number: 9, baseRefName: "main", state: "MERGED" } }),
+    );
+    const ctx = makeCtx(repo, gh);
+    const logs = await captureLogs();
+    try {
+      await syncCommand(ctx, { cwd: repo.path });
+    } finally {
+      logs.restore();
+    }
+
+    expect(logs.out.join("\n")).not.toContain("Updated PR cache");
+    const cache = await loadPRCache(git, { cwd: repo.path });
+    expect(Object.keys(cache)).toHaveLength(0);
   });
 
   test("sync does not write cache when gh is unavailable", async () => {
@@ -1354,7 +1353,7 @@ describe("PR cache", () => {
       exitCode: 127,
     }));
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await syncCommand(ctx, { cwd: repo.path });
     } finally {
@@ -1383,7 +1382,15 @@ describe("checkSync", () => {
     );
     const ctx = makeCtx(repo, gh);
 
-    const result = await checkSync(ctx, { cwd: repo.path });
+    // checkSync writes the PR cache internally, which logs "Updated PR
+    // cache" through console.log — hold the output lock while it runs.
+    const logs = await captureLogs();
+    let result: Awaited<ReturnType<typeof checkSync>>;
+    try {
+      result = await checkSync(ctx, { cwd: repo.path });
+    } finally {
+      logs.restore();
+    }
     expect(result.units.map((u) => u.id)).toEqual(["aaa11111"]);
     expect(calls.some((c) => c.args[0] === "pr" && c.args[1] === "edit")).toBe(false);
     expect(calls.some((c) => c.args[0] === "pr" && c.args[1] === "create")).toBe(false);
@@ -1447,20 +1454,28 @@ describe("parkMismatchedToTrunk", () => {
     ]);
     const { gh, calls } = stubGh(() => ({ stdout: "", stderr: "", exitCode: 0 }));
     const ctx = makeCtx(repo, gh);
-    const failed = await parkMismatchedToTrunk(
-      ctx,
-      config,
-      units,
-      ["spry/test/aaa11111", "spry/test/bbb22222"],
-      prMap,
-      repo.path,
-    );
+    const logs = await captureLogs();
+    let failed: Set<string>;
+    try {
+      failed = await parkMismatchedToTrunk(
+        ctx,
+        config,
+        units,
+        ["spry/test/aaa11111", "spry/test/bbb22222"],
+        prMap,
+        repo.path,
+      );
+    } finally {
+      logs.restore();
+    }
     const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
     expect(edits.map((c) => c.args)).toEqual([
       ["pr", "edit", "10", "--base", "main"],
       ["pr", "edit", "11", "--base", "main"],
     ]);
     expect(failed.size).toBe(0);
+    expect(logs.out.join("\n")).toContain("↻ parked PR #10 → main");
+    expect(logs.out.join("\n")).toContain("↻ parked PR #11 → main");
   });
 
   test("does not park a PR already on its correct stacked base", async () => {
@@ -1476,17 +1491,24 @@ describe("parkMismatchedToTrunk", () => {
     ]);
     const { gh, calls } = stubGh(() => ({ stdout: "", stderr: "", exitCode: 0 }));
     const ctx = makeCtx(repo, gh);
-    const failed = await parkMismatchedToTrunk(
-      ctx,
-      config,
-      units,
-      ["spry/test/aaa11111", "spry/test/bbb22222"],
-      prMap,
-      repo.path,
-    );
+    const logs = await captureLogs();
+    let failed: Set<string>;
+    try {
+      failed = await parkMismatchedToTrunk(
+        ctx,
+        config,
+        units,
+        ["spry/test/aaa11111", "spry/test/bbb22222"],
+        prMap,
+        repo.path,
+      );
+    } finally {
+      logs.restore();
+    }
     const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
     expect(edits).toHaveLength(0); // aaa already on trunk, bbb already correctly stacked
     expect(failed.size).toBe(0);
+    expect(logs.out.join("\n")).not.toContain("parked");
   });
 
   test("does not retarget a PR already based on trunk", async () => {
@@ -1497,17 +1519,24 @@ describe("parkMismatchedToTrunk", () => {
     ]);
     const { gh, calls } = stubGh(() => ({ stdout: "", stderr: "", exitCode: 0 }));
     const ctx = makeCtx(repo, gh);
-    const failed = await parkMismatchedToTrunk(
-      ctx,
-      config,
-      units,
-      ["spry/test/aaa11111"],
-      prMap,
-      repo.path,
-    );
+    const logs = await captureLogs();
+    let failed: Set<string>;
+    try {
+      failed = await parkMismatchedToTrunk(
+        ctx,
+        config,
+        units,
+        ["spry/test/aaa11111"],
+        prMap,
+        repo.path,
+      );
+    } finally {
+      logs.restore();
+    }
     const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
     expect(edits).toHaveLength(0);
     expect(failed.size).toBe(0);
+    expect(logs.out.join("\n")).not.toContain("parked");
   });
 
   test("records a failed park and does not throw", async () => {
@@ -1526,7 +1555,7 @@ describe("parkMismatchedToTrunk", () => {
       return { stdout: "", stderr: "", exitCode: 0 };
     });
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     let failed: Set<string>;
     try {
       failed = await parkMismatchedToTrunk(
@@ -1574,7 +1603,7 @@ describe("syncCommand reorder park", () => {
       }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await syncCommand(ctx, { cwd: repo.path });
     } finally {
@@ -1615,7 +1644,7 @@ describe("syncCommand reorder park", () => {
       ghPRMap({ "spry/test/aaa11111": { number: 10, baseRefName: "main" } }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await syncCommand(ctx, { cwd: repo.path });
     } finally {
@@ -1660,7 +1689,7 @@ describe("syncCommand park failure is fail-safe", () => {
       })(call);
     });
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     const trap = trapExit();
     try {
       await syncCommand(ctx, { cwd: repo.path });
@@ -1710,7 +1739,7 @@ describe("syncCommand --all reorder park", () => {
       }),
     );
     const ctx = makeCtx(repo, gh);
-    const logs = captureLogs();
+    const logs = await captureLogs();
     try {
       await syncCommand(ctx, { cwd: repo.path, all: true });
     } finally {

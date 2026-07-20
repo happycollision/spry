@@ -2,18 +2,20 @@ import { join } from "node:path";
 import { mkdir, writeFile, readFile, rm, stat } from "node:fs/promises";
 
 /**
- * Cross-process advisory lock for record-mode doc tests.
+ * Cross-process advisory lock for record-mode actors that mutate REPO-WIDE
+ * state on the shared `happycollision/spry-check` repo.
  *
- * The three live-fixture doc-test files (sync, land, group) all mutate the
- * SINGLE shared `happycollision/spry-check` repo, and Bun runs test files
- * concurrently across worker threads/processes. Under `SPRY_RECORD=1` that
- * concurrency races: while test A has pushed a branch and is waiting on CI,
- * test B's repo-wide `fixture.reset()` deletes A's branch/PR, and A fails.
+ * Most record-mode doc tests no longer need it: each fixture test runs in its
+ * own namespace (per-test trunk + branch prefix, see `setupDocRepo`), so they
+ * are mutually independent and record in parallel. The lock serializes the
+ * remaining repo-wide actors — the once-per-process suite-start `reset()` and
+ * the canonical land test's default-branch ff-push + baseline restore (see
+ * `withGitHubFixture`). Without it, a repo-wide op from one process could
+ * bulldoze another process's in-flight work.
  *
- * The critical section is a test's ENTIRE body — the opening `reset()`, the
- * `sp` invocation, the assertions, and the closing `reset()`. A lock held only
- * during `reset()` does NOT help, because tests interleave between reset and
- * their PR work. So callers wrap their whole body in {@link withRecordLock}.
+ * When an exclusive body IS wrapped, the critical section is its ENTIRE body
+ * — the `sp` invocation, the assertions, and the trailing main-restore — not
+ * just the mutation itself.
  *
  * Only record mode serializes. Offline replay never touches GitHub and must
  * stay fully parallel, so replay callers simply don't wrap (see

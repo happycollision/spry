@@ -5,8 +5,8 @@ import {
   docTest,
   createRepo,
   createTerminalDriver,
-  cassetteEnv,
   isRecording,
+  setupDocRepo,
   withGitHubFixture,
 } from "../lib/index.ts";
 
@@ -69,8 +69,8 @@ describe("sp group docs", () => {
 
     // Save
     term.press("Enter");
-    await term.waitForText("Groups updated", { timeout: 10000 });
-    await term.close();
+    expect(await term.waitForExit({ timeout: 10000 })).toBe(0);
+    expect(term.capture().text).toContain("Groups updated");
 
     expect(snapshot.text).toContain("Auth Flow");
   });
@@ -116,14 +116,15 @@ describe("sp group docs", () => {
     term.press(" "); // drop
     await Bun.sleep(100);
     term.press("Enter"); // save
-    // Wait for the FINAL message, not the mid-command "Reordered": the
-    // group-records save/push runs after "Reordered" prints, and close() kills
-    // the process — waiting on the early sentinel raced that write, making the
-    // repo's reflog commit count (and thus the doc-scrubber's SHA registry)
-    // flip between runs. See
+    // Wait for the process to exit rather than a mid-command sentinel +
+    // close(): the group-records save/push runs after "Reordered" prints, and
+    // a hard kill used to race that write, making the repo's reflog commit
+    // count (and thus the doc-scrubber's SHA registry) flip between runs. See
     // docs/investigations/2026-07-07-group-reflog-nondeterminism.md.
-    await term.waitForText("Groups updated", { timeout: 10000 });
-    await term.close();
+    expect(await term.waitForExit({ timeout: 10000 })).toBe(0);
+    // Pin the save path: a mistimed keystroke or a regression that exits
+    // cleanly without persisting must not pass as a successful reorder.
+    expect(term.capture().text).toContain("Groups updated");
   });
 
   docTest(
@@ -162,8 +163,9 @@ describe("sp group docs", () => {
       expect(snapshot.text).toContain("Space disabled");
 
       term.type("q");
-      await term.waitForText("Cancelled", { timeout: 5000 });
-      await term.close();
+      expect(await term.waitForExit({ timeout: 5000 })).toBe(0);
+      // Pin the cancel path: exit 0 alone is indistinguishable from a save.
+      expect(term.capture().text).toContain("Cancelled.");
     },
   );
 
@@ -218,8 +220,8 @@ describe("sp group docs", () => {
     term.press("Enter"); // confirm rename
     await Bun.sleep(150);
     term.press("Enter"); // save editor
-    await term.waitForText("Groups updated", { timeout: 10000 });
-    await term.close();
+    expect(await term.waitForExit({ timeout: 10000 })).toBe(0);
+    expect(term.capture().text).toContain("Groups updated");
   });
 
   docTest("Conflict prediction", { section: "commands/group", order: 30 }, async (doc) => {
@@ -271,13 +273,14 @@ describe("sp group docs", () => {
     term.press("Escape"); // cancel move
     await Bun.sleep(100);
     term.press("q"); // quit without saving
-    await term.waitForText("Cancelled", { timeout: 5000 });
-    await term.close();
+    expect(await term.waitForExit({ timeout: 5000 })).toBe(0);
+    // Pin the cancel path: exit 0 alone is indistinguishable from a save.
+    expect(term.capture().text).toContain("Cancelled.");
   });
 
   docTest(
     "Adopting a PR",
-    { section: "commands/group", order: 25, timeout: 60000 },
+    { section: "commands/group", order: 25, timeout: 180000 },
     async (doc) => {
       // Record mode publishes one real PR on spry-check (for the bottom commit)
       // and captures group's pre-editor PR lookup (findPRsForBranches); replay
@@ -286,19 +289,15 @@ describe("sp group docs", () => {
       // recorded traffic is the per-branch GraphQL lookups, keyed by branch name
       // and owner/repo (no SHA), which makes replay matching fully deterministic.
       const recording = isRecording();
-      await withGitHubFixture({ recording }, async () => {
-        const repo = await createRepo({ origin: recording ? "github" : "local" });
+      await withGitHubFixture({ recording }, async (fixture) => {
+        const { repo, env, trunkName, branchPrefix } = await setupDocRepo(doc, {
+          recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
+          section: "commands/group",
+          order: 25,
+        });
         repos.push(repo);
-        doc.scrub(repo);
-        doc.scrub(/https:\/\/github\.com\/[^/]+\/spry-check/g, "https://github.com/owner/repo");
-
-        await repo.git.run(["config", "spry.trunk", "main"]);
-        await repo.git.run(["config", "spry.remote", "origin"]);
-        await repo.git.run(["config", "spry.branchPrefix", "spry/dondenton"]);
-        // gh needs explicit owner/repo for its GraphQL query; pin to the slug the
-        // committed cassette was recorded against (see sync.doc.test.ts).
-        const repoSlug = `${process.env.SPRY_TEST_REPO_OWNER ?? "happycollision"}/${process.env.SPRY_TEST_REPO_NAME ?? "spry-check"}`;
-        await repo.git.run(["config", "spry.repo", repoSlug]);
 
         await repo.git.run(["checkout", "-b", "feature/auth"]);
         await repo.git.run([
@@ -317,10 +316,10 @@ describe("sp group docs", () => {
         // Pre-publish the bottom commit's branch and, in record mode, open its PR.
         // This is the open PR the new group will adopt; the top commit has none.
         const aSha = (await repo.git.run(["rev-parse", "HEAD~1"])).stdout.trim();
-        await repo.git.run(["push", "origin", `${aSha}:refs/heads/spry/dondenton/aaa11111`]);
+        await repo.git.run(["push", "origin", `${aSha}:refs/heads/${branchPrefix}/aaa11111`]);
         if (recording) {
           const { $ } = await import("bun");
-          await $`gh pr create --title ${"Add login form"} --head spry/dondenton/aaa11111 --base main --body ${"Login form PR"}`
+          await $`gh pr create --title ${"Add login form"} --head ${`${branchPrefix}/aaa11111`} --base ${trunkName} --body ${"Login form PR"}`
             .cwd(repo.path)
             .quiet();
         }
@@ -332,7 +331,7 @@ describe("sp group docs", () => {
         const term = await createTerminalDriver("bun", [adoptHarnessPath, repo.path], {
           cols: 80,
           rows: 20,
-          env: cassetteEnv({ section: "commands/group", order: 25 }),
+          env,
         });
 
         await term.waitForText("Stack:", { timeout: 15000 });
@@ -346,17 +345,17 @@ describe("sp group docs", () => {
         term.press("ArrowRight");
         await Bun.sleep(150);
 
-        // Save — adoption runs on the way out, before "Groups updated".
+        // Save — adoption runs on the way out, before "Groups updated" (the
+        // harness's final message, printed right before groupCommand
+        // returns and the process exits).
         term.press("Enter");
-        await term.waitForText("Groups updated", { timeout: 15000 });
+        await term.waitForExit({ timeout: 15000 });
 
         const snap = term.capture();
         const lines = snap.lines
           .map((l) => l.trimEnd())
           .filter((l) => l.includes("adopted PR") || l.includes("Groups updated"));
         doc.output(lines.join("\n") + "\n");
-
-        await term.close();
 
         const { expect } = await import("bun:test");
         expect(snap.text).toContain("adopted PR");

@@ -103,16 +103,22 @@ const nouns = [
   "hen",
 ];
 
-let rng: () => number = Math.random;
-
-export function seedUniqueId(seed: string): void {
+/**
+ * Deterministic rng from a string seed (FNV-1a hash -> mulberry32).
+ *
+ * Returned as a standalone function — there is deliberately no module-level
+ * mutable rng, so seeded id generation cannot race between concurrently
+ * running tests. Pass the result to `generateUniqueId` (or
+ * `createRepo({ uniqueIdRng })`) where determinism is needed.
+ */
+export function createSeededRng(seed: string): () => number {
   let h = 2166136261;
   for (let i = 0; i < seed.length; i++) {
     h ^= seed.charCodeAt(i);
     h = Math.imul(h, 16777619);
   }
   let a = h >>> 0;
-  rng = () => {
+  return () => {
     a |= 0;
     a = (a + 0x6d2b79f5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
@@ -121,11 +127,7 @@ export function seedUniqueId(seed: string): void {
   };
 }
 
-export function resetUniqueIdSeed(): void {
-  rng = Math.random;
-}
-
-export function generateUniqueId(): string {
+export function generateUniqueId(rng: () => number = Math.random): string {
   const adj = adjectives[Math.floor(rng() * adjectives.length)] ?? "happy";
   const noun = nouns[Math.floor(rng() * nouns.length)] ?? "penguin";
   const suffix = rng().toString(36).slice(2, 5);
