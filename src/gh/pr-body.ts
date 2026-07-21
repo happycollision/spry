@@ -125,3 +125,41 @@ export function generateStackLinks(
   });
   return lines.join("\n");
 }
+
+export interface BuildInitialBodyOptions {
+  unit: PRUnit;
+  commits: CommitInfo[];
+  /** Rendered stack-links block (from generateStackLinks); "" to omit. */
+  stackLinks: string;
+  /** Repo PR template, seeded ONCE into the user region under the body. */
+  prTemplate?: string;
+}
+
+/**
+ * Full PR body for a brand-new PR: info line, spry:body, optional PR template
+ * (user region, seeded only here), optional spry:stack-links, spry:footer.
+ * The stack-links section omits its markers entirely when empty, so the later
+ * splice step can append them if the stack gains PRs. (An empty body still
+ * emits its begin/end markers, adjacent.)
+ */
+export function buildInitialBody(opts: BuildInitialBodyOptions): string {
+  const { unit, commits, stackLinks, prTemplate } = opts;
+  const parts: string[] = [MARKERS.INFO, ""];
+
+  const bodyContent = generateBodyContent(unit, commits);
+  parts.push(MARKERS.BODY_BEGIN);
+  if (bodyContent) parts.push(bodyContent);
+  parts.push(MARKERS.BODY_END, "");
+
+  const template = prTemplate?.trim();
+  if (template) {
+    parts.push(template, "");
+  }
+
+  if (stackLinks) {
+    parts.push(MARKERS.STACK_LINKS_BEGIN, stackLinks, MARKERS.STACK_LINKS_END, "");
+  }
+
+  parts.push(MARKERS.FOOTER_BEGIN, generateFooter(), MARKERS.FOOTER_END);
+  return parts.join("\n");
+}

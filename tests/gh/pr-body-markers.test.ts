@@ -5,6 +5,7 @@ import {
   generateBodyContent,
   generateFooter,
   generateStackLinks,
+  buildInitialBody,
 } from "../../src/gh/pr-body.ts";
 import type { CommitInfo, PRUnit } from "../../src/parse/types.ts";
 
@@ -125,5 +126,75 @@ describe("generateStackLinks", () => {
   test("no this-PR marker when currentUnitId has no PR yet", () => {
     const out = generateStackLinks(["u1", "u2"], new Map([["u1", 1500]]), "u2", "main");
     expect(out).toBe("**Stack** (newest → oldest, targeting `main`):\n1\\. #1500");
+  });
+});
+
+describe("buildInitialBody", () => {
+  const unit = singleUnit("u1", "abc", "Add login page");
+  const commits = [commit("abc", "Add login page", "Implements OAuth.\n\nSpry-Commit-Id: u1")];
+
+  test("assembles info, body, stack-links, footer in canonical order", () => {
+    const body = buildInitialBody({
+      unit,
+      commits,
+      stackLinks: "**Stack** (newest → oldest, targeting `main`):\n1\\. #1001 ← this PR",
+    });
+    expect(body).toBe(
+      [
+        MARKERS.INFO,
+        "",
+        MARKERS.BODY_BEGIN,
+        "Implements OAuth.",
+        MARKERS.BODY_END,
+        "",
+        MARKERS.STACK_LINKS_BEGIN,
+        "**Stack** (newest → oldest, targeting `main`):\n1\\. #1001 ← this PR",
+        MARKERS.STACK_LINKS_END,
+        "",
+        MARKERS.FOOTER_BEGIN,
+        BETA_WARNING,
+        MARKERS.FOOTER_END,
+      ].join("\n"),
+    );
+  });
+
+  test("seeds the PR template in the user region under the body when provided", () => {
+    const body = buildInitialBody({
+      unit,
+      commits,
+      stackLinks: "",
+      prTemplate: "## Testing\n\n- [ ]",
+    });
+    expect(body).toContain(`${MARKERS.BODY_END}\n\n## Testing\n\n- [ ]\n`);
+    expect(body).not.toContain(MARKERS.STACK_LINKS_BEGIN);
+    expect(body).toContain(MARKERS.FOOTER_BEGIN);
+  });
+
+  test("omits stack-links markers entirely when stackLinks is empty", () => {
+    const body = buildInitialBody({ unit, commits, stackLinks: "" });
+    expect(body).not.toContain(MARKERS.STACK_LINKS_BEGIN);
+  });
+
+  test("orders body, then template (user region), then stack-links", () => {
+    const links = "**Stack** (newest → oldest, targeting `main`):\n1\\. #1001 ← this PR";
+    const body = buildInitialBody({
+      unit,
+      commits,
+      stackLinks: links,
+      prTemplate: "## Testing\n\n- [ ]",
+    });
+    const iBody = body.indexOf(MARKERS.BODY_END);
+    const iTemplate = body.indexOf("## Testing");
+    const iLinks = body.indexOf(MARKERS.STACK_LINKS_BEGIN);
+    expect(iBody).toBeGreaterThan(-1);
+    expect(iTemplate).toBeGreaterThan(iBody);
+    expect(iLinks).toBeGreaterThan(iTemplate);
+  });
+
+  test("empty body content leaves body markers adjacent with no inner content line", () => {
+    const emptyUnit = singleUnit("u9", "zzz", "Subject only");
+    const emptyCommits = [commit("zzz", "Subject only", "Spry-Commit-Id: u9")];
+    const body = buildInitialBody({ unit: emptyUnit, commits: emptyCommits, stackLinks: "" });
+    expect(body).toContain(`${MARKERS.BODY_BEGIN}\n${MARKERS.BODY_END}`);
   });
 });
