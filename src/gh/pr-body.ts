@@ -129,7 +129,7 @@ export function generateStackLinks(
 export interface BuildInitialBodyOptions {
   unit: PRUnit;
   commits: CommitInfo[];
-  /** Rendered stack-links block (from generateStackLinks); "" to omit. */
+  /** Rendered stack-links block (from generateStackLinks); "" for an empty region. */
   stackLinks: string;
   /** Repo PR template, seeded ONCE into the user region under the body. */
   prTemplate?: string;
@@ -137,10 +137,14 @@ export interface BuildInitialBodyOptions {
 
 /**
  * Full PR body for a brand-new PR: info line, spry:body, optional PR template
- * (user region, seeded only here), optional spry:stack-links, spry:footer.
- * The stack-links section omits its markers entirely when empty, so the later
- * splice step can append them if the stack gains PRs. (An empty body still
- * emits its begin/end markers, adjacent.)
+ * (user region, seeded only here), spry:stack-links, spry:footer.
+ * The stack-links markers are ALWAYS emitted, even when stackLinks is empty
+ * (as it always is for a fresh bottom/solo PR, whose own PR number doesn't
+ * exist yet at create time), so the region sits in its correct place — before
+ * the footer — from creation. If we omitted an empty region here, the later
+ * same-run updateStackBodies splice would find no markers and APPEND the
+ * region after the footer instead (wrong order). (An empty body still emits
+ * its begin/end markers, adjacent, for the same reason.)
  */
 export function buildInitialBody(opts: BuildInitialBodyOptions): string {
   const { unit, commits, stackLinks, prTemplate } = opts;
@@ -156,8 +160,17 @@ export function buildInitialBody(opts: BuildInitialBodyOptions): string {
     parts.push(template, "");
   }
 
+  // Always emit the stack-links markers, even when empty, so the region sits in
+  // its correct place (before the footer) from creation. If we omitted an empty
+  // region here, the end-of-sync updateStackBodies pass would later find no
+  // markers and APPEND the region after the footer (wrong order). Emitting it
+  // now means spliceBody fills it IN PLACE. The empty shape (BEGIN\nEND, no blank
+  // line between) must match replaceRegion's empty output exactly so a
+  // create-then-sync round-trip is a byte-for-byte no-op.
   if (stackLinks) {
     parts.push(MARKERS.STACK_LINKS_BEGIN, stackLinks, MARKERS.STACK_LINKS_END, "");
+  } else {
+    parts.push(`${MARKERS.STACK_LINKS_BEGIN}\n${MARKERS.STACK_LINKS_END}`, "");
   }
 
   parts.push(MARKERS.FOOTER_BEGIN, generateFooter(), MARKERS.FOOTER_END);
@@ -248,10 +261,13 @@ export function spliceBody(existing: string, opts: SpliceBodyOptions): string {
     if (opts.bodyContent) appends.push(opts.bodyContent);
     appends.push(MARKERS.BODY_END);
   }
-  // Append the stack-links region only when there ARE links — matches
-  // buildInitialBody, which omits empty stack-links markers. (An already-present
-  // stack-links region is handled by the replace path above and keeps its
-  // markers even when emptied.)
+  // Append the stack-links region only when there ARE links. This path is only
+  // reached for bodies with no well-formed stack-links markers at all (e.g. a
+  // legacy pre-marker PR body, or a healed orphan) — buildInitialBody now always
+  // emits the markers (empty or not), so a spry-created body never falls through
+  // to this append; it hits the replaceRegion path above instead. Skipping the
+  // append when there are no links avoids adding an empty region to a body that
+  // never had the marker pair in the first place.
   if (!hasLinks && opts.stackLinks) {
     appends.push(MARKERS.STACK_LINKS_BEGIN, opts.stackLinks, MARKERS.STACK_LINKS_END);
   }

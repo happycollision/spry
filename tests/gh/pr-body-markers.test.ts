@@ -167,13 +167,27 @@ describe("buildInitialBody", () => {
       prTemplate: "## Testing\n\n- [ ]",
     });
     expect(body).toContain(`${MARKERS.BODY_END}\n\n## Testing\n\n- [ ]\n`);
-    expect(body).not.toContain(MARKERS.STACK_LINKS_BEGIN);
+    expect(body).toContain(`${MARKERS.STACK_LINKS_BEGIN}\n${MARKERS.STACK_LINKS_END}`);
     expect(body).toContain(MARKERS.FOOTER_BEGIN);
   });
 
-  test("omits stack-links markers entirely when stackLinks is empty", () => {
+  test("emits empty stack-links markers when stackLinks is empty", () => {
     const body = buildInitialBody({ unit, commits, stackLinks: "" });
-    expect(body).not.toContain(MARKERS.STACK_LINKS_BEGIN);
+    expect(body).toContain(`${MARKERS.STACK_LINKS_BEGIN}\n${MARKERS.STACK_LINKS_END}`);
+  });
+
+  test("create-then-splice round-trips byte-identically (empty and non-empty stack-links)", () => {
+    for (const stackLinks of [
+      "",
+      "**Stack** (newest → oldest, targeting `main`):\n1\\. #1001 ← this PR",
+    ]) {
+      const created = buildInitialBody({ unit, commits, stackLinks });
+      const respliced = spliceBody(created, {
+        bodyContent: generateBodyContent(unit, commits),
+        stackLinks,
+      });
+      expect(respliced).toBe(created);
+    }
   });
 
   test("orders body, then template (user region), then stack-links", () => {

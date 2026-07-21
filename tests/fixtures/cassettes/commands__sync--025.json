@@ -14,7 +14,7 @@
         "query=\nquery($owner: String!, $repo: String!, $branch: String!) {\n  repository(owner: $owner, name: $repo) {\n    pullRequests(headRefName: $branch, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) {\n      nodes {\n        number\n        url\n        state\n        title\n        baseRefName\n        reviewDecision\n        reviewThreads(first: 100) {\n          totalCount\n          nodes { isResolved }\n        }\n        commits(last: 1) {\n          nodes {\n            commit {\n              statusCheckRollup {\n                contexts(first: 100) {\n                  nodes {\n                    __typename\n                    ... on CheckRun { status conclusion }\n                    ... on StatusContext { state }\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}"
       ],
       "result": {
-        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1001,\"url\":\"https://github.com/happycollision/spry-check/pull/1001\",\"state\":\"CLOSED\",\"title\":\"Add login\",\"baseRefName\":\"trunk/commands__sync--025\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}},{\"number\":1002,\"url\":\"https://github.com/happycollision/spry-check/pull/1002\",\"state\":\"CLOSED\",\"title\":\"Add login\",\"baseRefName\":\"trunk/commands__sync--025\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}},{\"number\":1003,\"url\":\"https://github.com/happycollision/spry-check/pull/1003\",\"state\":\"CLOSED\",\"title\":\"Add login\",\"baseRefName\":\"trunk/commands__sync--025\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}},{\"number\":1004,\"url\":\"https://github.com/happycollision/spry-check/pull/1004\",\"state\":\"CLOSED\",\"title\":\"Add login\",\"baseRefName\":\"trunk/commands__sync--025\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}},{\"number\":1005,\"url\":\"https://github.com/happycollision/spry-check/pull/1005\",\"state\":\"CLOSED\",\"title\":\"Add login\",\"baseRefName\":\"trunk/commands__sync--025\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}},{\"number\":1006,\"url\":\"https://github.com/happycollision/spry-check/pull/1006\",\"state\":\"CLOSED\",\"title\":\"Add login\",\"baseRefName\":\"trunk/commands__sync--025\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}}]}}}}",
+        "stdout": "{\"data\":{\"repository\":{\"pullRequests\":{\"nodes\":[{\"number\":1001,\"url\":\"https://github.com/happycollision/spry-check/pull/1001\",\"state\":\"CLOSED\",\"title\":\"Add login\",\"baseRefName\":\"trunk/commands__sync--025\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}},{\"number\":1002,\"url\":\"https://github.com/happycollision/spry-check/pull/1002\",\"state\":\"CLOSED\",\"title\":\"Add login\",\"baseRefName\":\"trunk/commands__sync--025\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}},{\"number\":1003,\"url\":\"https://github.com/happycollision/spry-check/pull/1003\",\"state\":\"CLOSED\",\"title\":\"Add login\",\"baseRefName\":\"trunk/commands__sync--025\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}},{\"number\":1004,\"url\":\"https://github.com/happycollision/spry-check/pull/1004\",\"state\":\"CLOSED\",\"title\":\"Add login\",\"baseRefName\":\"trunk/commands__sync--025\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}},{\"number\":1005,\"url\":\"https://github.com/happycollision/spry-check/pull/1005\",\"state\":\"CLOSED\",\"title\":\"Add login\",\"baseRefName\":\"trunk/commands__sync--025\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}},{\"number\":1006,\"url\":\"https://github.com/happycollision/spry-check/pull/1006\",\"state\":\"CLOSED\",\"title\":\"Add login\",\"baseRefName\":\"trunk/commands__sync--025\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}},{\"number\":1007,\"url\":\"https://github.com/happycollision/spry-check/pull/1007\",\"state\":\"CLOSED\",\"title\":\"Add login\",\"baseRefName\":\"trunk/commands__sync--025\",\"reviewDecision\":null,\"reviewThreads\":{\"totalCount\":0,\"nodes\":[]},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}}}}]}}]}}}}",
         "stderr": "",
         "exitCode": 0
       }
@@ -33,10 +33,10 @@
         "-"
       ],
       "options": {
-        "stdin": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
+        "stdin": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:stack-links:begin -->\n<!-- spry:stack-links:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
       },
       "result": {
-        "stdout": "https://github.com/happycollision/spry-check/pull/1007\n",
+        "stdout": "https://github.com/happycollision/spry-check/pull/1008\n",
         "stderr": "",
         "exitCode": 0
       }
@@ -45,14 +45,14 @@
       "args": [
         "pr",
         "view",
-        "1007",
+        "1008",
         "--json",
         "body",
         "--jq",
         ".body"
       ],
       "result": {
-        "stdout": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->\n",
+        "stdout": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:stack-links:begin -->\n<!-- spry:stack-links:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->\n",
         "stderr": "",
         "exitCode": 0
       }
@@ -61,15 +61,15 @@
       "args": [
         "pr",
         "edit",
-        "1007",
+        "1008",
         "--body-file",
         "-"
       ],
       "options": {
-        "stdin": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->\n\n<!-- spry:stack-links:begin -->\n**Stack** (newest → oldest, targeting `trunk/commands__sync--025`):\n1\\. #1007 ← this PR\n<!-- spry:stack-links:end -->"
+        "stdin": "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->\n\n<!-- spry:body:begin -->\n<!-- spry:body:end -->\n\n<!-- spry:stack-links:begin -->\n**Stack** (newest → oldest, targeting `trunk/commands__sync--025`):\n1\\. #1008 ← this PR\n<!-- spry:stack-links:end -->\n\n<!-- spry:footer:begin -->\n<sub>Created with [Spry](https://github.com/happycollision/spry) (beta). Do not manually merge stacked PRs.</sub>\n<!-- spry:footer:end -->"
       },
       "result": {
-        "stdout": "https://github.com/happycollision/spry-check/pull/1007\n",
+        "stdout": "https://github.com/happycollision/spry-check/pull/1008\n",
         "stderr": "",
         "exitCode": 0
       }
