@@ -80,3 +80,48 @@ export function generateBodyContent(unit: PRUnit, commits: CommitInfo[]): string
 export function generateFooter(): string {
   return BETA_WARNING;
 }
+
+/**
+ * Stack-links block for the spry:stack-links region.
+ *
+ * @param stackUnitIds unit IDs in stack order, oldest -> newest.
+ * @param prNumbers    unitId -> PR number, ONLY for units with an open PR.
+ * @param currentUnitId the unit whose PR this body belongs to.
+ * @param trunk        the target branch name, shown in the header.
+ *
+ * Renders newest-at-top with MANUAL descending ordinals, matching the
+ * convention popularized by Graphite. GitHub-Flavored Markdown renumbers
+ * ordered-list items ascending from the first marker no matter what numbers
+ * are written, so a literal `3. / 2. / 1.` would render as 3, 4, 5 — the
+ * escaped period (`3\.`) is what forces the descending numbers to survive
+ * rendering. Only units that have a PR are listed; ordinals count the LISTED
+ * PRs, top = count, bottom = 1. Returns "" when no unit has a PR.
+ */
+export function generateStackLinks(
+  stackUnitIds: string[],
+  prNumbers: ReadonlyMap<string, number>,
+  currentUnitId: string,
+  trunk: string,
+): string {
+  // Filter + resolve in one pass so the type system proves prNumber is defined
+  // (no non-null assertion, no dead guard).
+  const listed = stackUnitIds.flatMap((id) => {
+    const prNumber = prNumbers.get(id);
+    return prNumber === undefined ? [] : [{ id, prNumber }];
+  });
+  if (listed.length === 0) return "";
+
+  const lines = [`**Stack** (newest → oldest, targeting \`${trunk}\`):`];
+  // Emit newest-first. Ordinals are DESCENDING and manually written, with the
+  // period escaped (`3\.`) so GitHub does NOT render them as an ordered list —
+  // GFM renumbers list markers ascending from the first, which would turn
+  // 3/2/1 into 3/4/5. Escaped, each line is literal text; single newlines in a
+  // PR body hard-break, so the lines still stack vertically. This is the only
+  // way to force descending numbering, as the feature requires.
+  [...listed].reverse().forEach(({ id, prNumber }, i) => {
+    const ordinal = listed.length - i;
+    const marker = id === currentUnitId ? " ← this PR" : "";
+    lines.push(`${ordinal}\\. #${prNumber}${marker}`);
+  });
+  return lines.join("\n");
+}
