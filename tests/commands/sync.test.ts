@@ -17,6 +17,7 @@ import type {
   TestRepo,
 } from "../lib/index.ts";
 import { loadPRCache } from "../../src/gh/pr-cache.ts";
+import { MARKERS } from "../../src/gh/pr-body.ts";
 import { registerBranch, loadTrackedBranches } from "../../src/git/tracked-branches.ts";
 import type { PRInfo } from "../../src/gh/pr.ts";
 import type { SpryConfig } from "../../src/git/config.ts";
@@ -597,7 +598,13 @@ describe("syncCommand --open <ids>", () => {
       "--body-file",
       "-",
     ]);
-    expect(create?.stdin).toBe("Description text");
+    // Body is now the marked create-time body (buildInitialBody), not the raw
+    // commit description text; the marker structure itself is covered in depth
+    // by tests/gh/pr-body-markers.test.ts. Here we only check that this
+    // unit's description text made it into the body region.
+    expect(create?.stdin).toContain(MARKERS.BODY_BEGIN);
+    expect(create?.stdin).toContain("Description text");
+    expect(create?.stdin).toContain(MARKERS.FOOTER_BEGIN);
     expect(logs.out.join("\n")).toContain("Created PR #55");
     expect(logs.out.join("\n")).toContain("https://github.com/owner/repo/pull/55");
   });

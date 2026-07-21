@@ -36,7 +36,9 @@ import {
   retargetPR,
   createPR,
   formatPRTitle,
-  formatPRBody,
+  buildInitialBody,
+  generateStackLinks,
+  findPRTemplate,
   classifyGhInfraError,
 } from "../gh/index.ts";
 import { fetchPRCache, savePRCache, pushPRCache, loadPRCache } from "../gh/pr-cache.ts";
@@ -263,6 +265,7 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
           withTrailers,
           checked.preFetchRemoteTips,
           cwd,
+          checked.prMap,
         );
       }
     } else {
@@ -279,6 +282,7 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
         withTrailers,
         checked.preFetchRemoteTips,
         cwd,
+        checked.prMap,
       );
     }
     if (opened) {
@@ -440,12 +444,16 @@ async function openPRs(
   commits: CommitWithTrailers[],
   preFetchTips: Map<string, string>,
   cwd: string | undefined,
+  prMap: Map<string, PRInfo | null> | undefined,
 ): Promise<OpenPRsResult> {
   const targetSet = new Set(targetIds);
   const failedPushTargets = new Set<string>();
   const branches: string[] = [];
   let hadFailure = false;
   const commitInfos = commits;
+  const prTemplate = await findPRTemplate(cwd);
+  const prNumbers = collectOpenPRNumbers(units, prMap, config);
+  const stackUnitIds = units.map((u) => u.id);
 
   for (let i = 0; i < units.length; i++) {
     const unit = units[i];
@@ -490,12 +498,18 @@ async function openPRs(
     const base = prev ? branchForUnit(prev, config) : config.trunk;
 
     const title = formatPRTitle(unit, commitInfos);
-    const body = formatPRBody(unit, commitInfos);
+    // Stack-links at create time may be incomplete (siblings opened later in
+    // this same run); the updateStackBodies pass at the end of sync corrects
+    // every sibling body, so the run converges.
+    const stackLinks = generateStackLinks(stackUnitIds, prNumbers, unit.id, config.trunk);
+    const body = buildInitialBody({ unit, commits: commitInfos, stackLinks, prTemplate });
     try {
       const pr = await createPR(ctx, { title, head: branch, base, body }, { cwd });
       console.log(`✓ Created PR #${pr.number}: ${title}`);
       console.log(`  ${pr.url}`);
       branches.push(branch);
+      // Record the just-created PR so later siblings in this run link to it.
+      prNumbers.set(unit.id, pr.number);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`⚠ Failed to create PR for ${branch}: ${message}`);
@@ -525,6 +539,21 @@ export function stackHasReorder(
     if (pr.baseRefName !== sharedExpectedBaseFor(unit, units, config)) return true;
   }
   return false;
+}
+
+/** unitId -> PR number, for units whose PR is currently OPEN. */
+function collectOpenPRNumbers(
+  units: PRUnit[],
+  prMap: Map<string, PRInfo | null> | undefined,
+  config: SpryConfig,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!prMap) return out;
+  for (const unit of units) {
+    const pr = prMap.get(branchForUnit(unit, config));
+    if (pr && pr.state === "OPEN") out.set(unit.id, pr.number);
+  }
+  return out;
 }
 
 /**
