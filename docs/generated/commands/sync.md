@@ -35,11 +35,12 @@ sp sync --open aaaa1111
 ↑ pushed spry/dondenton/aaaa1111
 ✓ Created PR #42: Add login
   https://github.com/owner/repo/pull/42
+✎ updated PR #42 body
 ✓ Sync complete
 
 ```
 
-When you group commits with `sp group`, `sp sync --open <group-id>` publishes the whole group as a single PR. The PR title is the group's title and its body is left empty by design — the individual commit messages carry the detail:
+When you group commits with `sp group`, `sp sync --open <group-id>` publishes the whole group as a single PR. The PR title is the group's title and its body lists the grouped commits' subjects inside spry's managed body region:
 
 ```
 sp sync --open grp00001
@@ -49,6 +50,7 @@ sp sync --open grp00001
 ↑ pushed spry/dondenton/grp00001
 ✓ Created PR #42: Auth flow
   https://github.com/owner/repo/pull/42
+✎ updated PR #42 body
 ✓ Sync complete
 
 ```
@@ -69,6 +71,36 @@ Select units to open (space toggle, a all, enter confirm, esc cancel):
 ↑ pushed spry/dondenton/aaaa1111
 ✓ Created PR #42: Add login
   https://github.com/owner/repo/pull/42
+✓ Sync complete
+
+```
+
+`sp sync --open` seeds every new PR's body with spry-owned marker regions — an info line, a `spry:body` section holding the commit's prose, and a `spry:footer` section:
+
+```
+sp sync --open aaaa1111
+```
+
+```
+↑ pushed spry/dondenton/aaaa1111
+✓ Created PR #42: Add release notes page
+  https://github.com/owner/repo/pull/42
+✎ updated PR #42 body
+✓ Sync complete
+
+```
+
+Spry owns only the bytes between its markers. Editing the commit and re-running `sp sync` rewrites the `spry:body` region in place — anything written outside the markers (like a hand-added note) is preserved byte-for-byte:
+
+```
+sp sync
+```
+
+```
+✓ Updated PR cache (1 PR)
+↑ pushed spry/dondenton/aaaa1111
+✓ Updated PR cache (1 PR)
+✎ updated PR #42 body
 ✓ Sync complete
 
 ```
@@ -127,6 +159,8 @@ sp sync
 ↻ retargeted PR #42 → main
 ↻ retargeted PR #42 → spry/dondenton/bbbb2222
 ✓ Updated PR cache (2 PRs)
+✎ updated PR #42 body
+✎ updated PR #42 body
 ✓ Sync complete
 
 ```

@@ -8,10 +8,14 @@ export interface RecordingClient extends GitRunner {
 
 /**
  * Anchored patterns that unambiguously reference a GitHub PR number:
- * `pull/<n>` in URLs and `"number":<n>` in JSON payloads. Deliberately NOT a
- * bare numeric replace — fields like `"totalCount":<n>` would collide.
+ * `pull/<n>` in URLs, `"number":<n>` in JSON payloads, and `<ordinal>\. #<n>`
+ * in a spry stack-links body section (see `generateStackLinks` in
+ * `src/gh/pr-body.ts`, which renders lines like `2\. #1234 ← this PR`).
+ * Deliberately NOT a bare `#<n>` or numeric replace — a bare hash-number
+ * could collide with an unrelated issue/PR mention or markdown heading, and a
+ * bare numeric field like `"totalCount":<n>` would collide too.
  */
-const PR_NUMBER_PATTERN = /(pull\/|"number":)(\d+)/g;
+const PR_NUMBER_PATTERN = /(pull\/|"number":|\d+\\\. #)(\d+)/g;
 
 /**
  * Normalize GitHub-minted PR numbers to a deterministic sequence (1001,

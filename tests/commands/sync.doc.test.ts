@@ -6,6 +6,7 @@ import {
   createRepo,
   createRealGitRunner,
   createTerminalDriver,
+  cassetteEnv,
   isRecording,
   setupDocRepo,
   withGitHubFixture,
@@ -172,7 +173,7 @@ describe("sp sync docs", () => {
         });
 
         doc.prose(
-          "When you group commits with `sp group`, `sp sync --open <group-id>` publishes the whole group as a single PR. The PR title is the group's title and its body is left empty by design — the individual commit messages carry the detail:",
+          "When you group commits with `sp group`, `sp sync --open <group-id>` publishes the whole group as a single PR. The PR title is the group's title and its body lists the grouped commits' subjects inside spry's managed body region:",
         );
 
         const { command, result } = await runSp(repo.path, "sync", ["--open", "grp00001"], {
@@ -182,7 +183,8 @@ describe("sp sync docs", () => {
         doc.output(result.stdout);
 
         // Recording is the real-gh validation: confirm the live PR was opened with
-        // the group title and an empty body before a later reset tears it down.
+        // the group title and a marked body listing the grouped commits' subjects
+        // before a later reset tears it down.
         if (recording) {
           const { $ } = await import("bun");
           const view =
@@ -192,7 +194,10 @@ describe("sp sync docs", () => {
           const pr = JSON.parse(view.stdout.toString()) as { title: string; body: string };
           const { expect } = await import("bun:test");
           expect(pr.title).toBe("Auth flow");
-          expect(pr.body).toBe("");
+          expect(pr.body).toContain("<!-- spry:body:begin -->");
+          expect(pr.body).toContain("- Add login form");
+          expect(pr.body).toContain("- Add session handling");
+          expect(pr.body).toContain("<!-- spry:footer:begin -->");
         }
 
         const { expect } = await import("bun:test");
@@ -312,6 +317,135 @@ describe("sp sync docs", () => {
         // rendered doc to pull/42 for stability; they don't touch syncLines.)
         expect(syncLines.join("\n")).toMatch(/Created PR #\d+/);
         expect(syncLines.join("\n")).toMatch(/pull\/\d+/);
+      });
+    },
+  );
+
+  docTest(
+    "Reusable PR bodies: spry-owned regions survive re-sync alongside user edits",
+    { section: "commands/sync", order: 26, timeout: 180000 },
+    async (doc) => {
+      // Record mode publishes one real PR on spry-check, hand-edits its body
+      // via the real gh seam (proving the round trip through actual GitHub
+      // storage, not just the in-process splice unit), then amends the commit
+      // and re-syncs. Replay serves it offline.
+      //
+      // IMPORTANT: each `runSp` call is a separate subprocess with its own
+      // seamed gh client, and `createRecordingClient` starts empty and
+      // persists cumulatively WITHIN one process — it does not read or merge
+      // with a prior process's already-written cassette. So two `runSp` calls
+      // that shared one cassette file (one per doc order) would leave only the
+      // LAST process's gh traffic on disk, making the FIRST call's outcome
+      // unreplayable. Every other multi-`runSp` test in this file (orders 25,
+      // 60, 70) works around that by asserting only the final call's result.
+      // This test instead gives its second `runSp` call its OWN cassette file
+      // (order 27) via an explicit `cassetteEnv` override — same repo/branch
+      // prefix/PR-cache-refs namespace (still order 26's `env`), just a
+      // separate gh-traffic recording — so BOTH calls replay cleanly and both
+      // outcomes can be asserted unconditionally, and the generated doc shows
+      // a clean "Created PR" / "Sync complete" for the first command instead
+      // of a replay-only warning.
+      const recording = isRecording();
+      await withGitHubFixture({ recording }, async (fixture) => {
+        const { repo, repoSlug, env, branchPrefix } = await setupDocRepo(doc, {
+          recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
+          section: "commands/sync",
+          order: 26,
+        });
+        repos.push(repo);
+        // Second `runSp` call's own gh cassette (order 27) — see note above.
+        const env2 = { ...env, ...cassetteEnv({ section: "commands/sync", order: 27, recording }) };
+
+        await repo.git.run(["checkout", "-b", "feature/notes"]);
+        await repo.git.run([
+          "commit",
+          "--allow-empty",
+          "-m",
+          "Add release notes page\n\nDocuments the new release process.\n\nSpry-Commit-Id: ccc33333",
+        ]);
+
+        doc.prose(
+          "`sp sync --open` seeds every new PR's body with spry-owned marker regions — an info line, a `spry:body` section holding the commit's prose, and a `spry:footer` section:",
+        );
+
+        const { command, result } = await runSp(repo.path, "sync", ["--open", "ccc33333"], {
+          env,
+        });
+        doc.command(command);
+        doc.output(result.stdout);
+
+        const { expect } = await import("bun:test");
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout).toContain("Created PR #");
+        expect(result.stdout).toContain("Sync complete");
+
+        // Recording is the real-gh validation: confirm the created PR has the
+        // marked structure, then hand-edit it through the SAME gh path a real
+        // user would use, so the next sync's preservation guarantee is proven
+        // against actual GitHub storage, not just the in-process splice unit.
+        let prNumber: number | undefined;
+        if (recording) {
+          const { $ } = await import("bun");
+
+          const branch = `${branchPrefix}/ccc33333`;
+          const view = await $`gh pr view ${branch} --repo ${repoSlug} --json number,body`
+            .cwd(repo.path)
+            .quiet();
+          const pr = JSON.parse(view.stdout.toString()) as { number: number; body: string };
+          prNumber = pr.number;
+
+          expect(pr.body).toContain("<!-- spry:info");
+          expect(pr.body).toContain("<!-- spry:body:begin -->");
+          expect(pr.body).toContain("Documents the new release process.");
+          expect(pr.body).toContain("<!-- spry:footer:begin -->");
+
+          // Simulate a user hand-editing the PR body outside spry's markers:
+          // insert a note right after the footer region, through the same
+          // `gh pr edit --body-file -` path spry itself uses.
+          const userEdited = `${pr.body}\n\n<!-- USER NOTE: keep me -->\n`;
+          await $`gh pr edit ${pr.number} --repo ${repoSlug} --body-file - < ${Buffer.from(userEdited)}`
+            .cwd(repo.path)
+            .quiet();
+        }
+
+        // Change the commit's prose (keeping the same Spry-Commit-Id, so the
+        // unit/branch identity — and therefore the cassette key — is
+        // unchanged) and re-sync without --open, using this call's own
+        // cassette (env2, order 27 — see the note above).
+        await repo.git.run([
+          "commit",
+          "--amend",
+          "--allow-empty",
+          "-m",
+          "Add release notes page\n\nExplains the release process end to end.\n\nSpry-Commit-Id: ccc33333",
+        ]);
+
+        doc.prose(
+          "Spry owns only the bytes between its markers. Editing the commit and re-running `sp sync` rewrites the `spry:body` region in place — anything written outside the markers (like a hand-added note) is preserved byte-for-byte:",
+        );
+
+        const { command: command2, result: result2 } = await runSp(repo.path, "sync", [], {
+          env: env2,
+        });
+        doc.command(command2);
+        doc.output(result2.stdout);
+
+        expect(result2.exitCode).toBe(0);
+        expect(result2.stdout).toMatch(/✎ updated PR #\d+ body/);
+        expect(result2.stdout).toContain("Sync complete");
+
+        if (recording) {
+          const { $ } = await import("bun");
+          const view2 = await $`gh pr view ${prNumber} --repo ${repoSlug} --json body`
+            .cwd(repo.path)
+            .quiet();
+          const pr2 = JSON.parse(view2.stdout.toString()) as { body: string };
+          expect(pr2.body).toContain("Explains the release process end to end.");
+          expect(pr2.body).not.toContain("Documents the new release process.");
+          expect(pr2.body).toContain("<!-- USER NOTE: keep me -->");
+        }
       });
     },
   );

@@ -187,6 +187,7 @@ export async function setupDocRepo(
   doc.scrub(/pull\/\d+/g, "pull/42");
   doc.scrub(/parked PR #\d+/g, "parked PR #42");
   doc.scrub(/retargeted PR #\d+/g, "retargeted PR #42");
+  doc.scrub(/✎ updated PR #\d+/g, "✎ updated PR #42");
   // 4. Per-test namespace canonicalization: the generated docs keep telling
   //    the `main` + `spry/dondenton` story no matter which namespace the test
   //    actually ran in.

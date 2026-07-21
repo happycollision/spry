@@ -235,6 +235,52 @@ test("replay of a normalized cassette matches replay-time derived args", async (
   expect(edited.stdout).toBe("https://github.com/o/r/pull/1001\n");
 });
 
+test("normalizes a PR number appearing in a spry stack-links line", async () => {
+  // generateStackLinks (src/gh/pr-body.ts) renders bare `#<n>` references like
+  // `1\. #4242 ← this PR` inside a PR body — these show up in gh's own stdout
+  // (`pr view --json body`) and in the stdin spry sends to `pr edit
+  // --body-file -`. Neither is a `pull/<n>` URL nor a `"number":<n>` JSON
+  // field, so this is a distinct anchor from the other two.
+  const inner = scriptedInner([
+    ok("https://github.com/o/r/pull/4242\n"),
+    ok("1\\. #4242 ← this PR\n"),
+  ]);
+  const cassettePath = join(tmpDir, "normalize-stack-links.json");
+  const recording = createRecordingClient(inner, cassettePath);
+
+  await recording.run(["pr", "create", "--title", "x"]);
+  await recording.run(["pr", "view", "4242", "--json", "body", "--jq", ".body"]);
+  await recording.flush();
+
+  const cassette = await readCassette(cassettePath);
+  expect(cassette.entries[1]!.args).toEqual([
+    "pr",
+    "view",
+    "1001",
+    "--json",
+    "body",
+    "--jq",
+    ".body",
+  ]);
+  expect(cassette.entries[1]!.result.stdout).toBe("1\\. #1001 ← this PR\n");
+});
+
+test("does not normalize a bare hash-number that isn't a stack-links ordinal", async () => {
+  // A bare `#<n>` with no preceding `<ordinal>\.` marker is NOT a spry
+  // stack-links reference (could be an issue mention, a markdown heading,
+  // etc.) and must survive untouched even when the number was otherwise seen.
+  const inner = scriptedInner([ok("https://github.com/o/r/pull/4242\n"), ok("see also #4242\n")]);
+  const cassettePath = join(tmpDir, "normalize-bare-hash.json");
+  const recording = createRecordingClient(inner, cassettePath);
+
+  await recording.run(["pr", "create", "--title", "x"]);
+  await recording.run(["pr", "view", "--json", "body", "--jq", ".body"]);
+  await recording.flush();
+
+  const cassette = await readCassette(cassettePath);
+  expect(cassette.entries[1]!.result.stdout).toBe("see also #4242\n");
+});
+
 test("passes through results from inner client", async () => {
   const inner: GitRunner = {
     async run() {
