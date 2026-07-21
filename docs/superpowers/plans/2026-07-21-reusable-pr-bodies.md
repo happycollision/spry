@@ -72,14 +72,14 @@ describe("generateBodyContent", () => {
   test("single: drops the subject line and trailers, keeps prose", () => {
     const unit = singleUnit("aaa11111", "abc", "Add login page");
     const commits = [
-      commit("abc", "Add login page", "Add login page\n\nImplements OAuth.\n\nSpry-Commit-Id: aaa11111"),
+      commit("abc", "Add login page", "Implements OAuth.\n\nSpry-Commit-Id: aaa11111"),
     ];
     expect(generateBodyContent(unit, commits)).toBe("Implements OAuth.");
   });
 
   test("single: empty when body is only subject + trailers", () => {
     const unit = singleUnit("aaa11111", "abc", "Subject");
-    const commits = [commit("abc", "Subject", "Subject\n\nSpry-Commit-Id: aaa11111")];
+    const commits = [commit("abc", "Subject", "Spry-Commit-Id: aaa11111")];
     expect(generateBodyContent(unit, commits)).toBe("");
   });
 
@@ -136,8 +136,10 @@ export function generateBodyContent(unit: PRUnit, commits: CommitInfo[]): string
   if (unit.type === "single") {
     const commit = commits.find((c) => c.hash === unit.commits[0]);
     if (!commit) return "";
-    const withoutSubject = commit.body.split("\n").slice(1).join("\n");
-    return stripTrailers(withoutSubject).trim();
+    // commit.body is git's %b — the subject line is NOT included (see
+    // parseCommitLog in src/git/queries.ts). So we only strip trailers, exactly
+    // like the existing formatPRBody. Do NOT drop a "first line": %b has none.
+    return stripTrailers(commit.body).trim();
   }
   return unit.subjects.map((s) => `- ${s}`).join("\n");
 }
@@ -184,9 +186,9 @@ describe("generateStackLinks", () => {
     const out = generateStackLinks(stackUnitIds, prNumbers, "u2", "main");
     expect(out).toBe(
       "**Stack** (newest → oldest, targeting `main`):\n" +
-        "3. #1440\n" +
-        "2. #1433 ← this PR\n" +
-        "1. #1428",
+        "3\\. #1440\n" +
+        "2\\. #1433 ← this PR\n" +
+        "1\\. #1428",
     );
   });
 
@@ -196,8 +198,8 @@ describe("generateStackLinks", () => {
     const out = generateStackLinks(stackUnitIds, prNumbers, "u3", "main");
     expect(out).toBe(
       "**Stack** (newest → oldest, targeting `main`):\n" +
-        "2. #1440 ← this PR\n" +
-        "1. #1428",
+        "2\\. #1440 ← this PR\n" +
+        "1\\. #1428",
     );
   });
 
@@ -245,7 +247,11 @@ export function generateStackLinks(
     const id = listed[i]!;
     const ordinal = i + 1;
     const marker = id === currentUnitId ? " ← this PR" : "";
-    lines.push(`${ordinal}. #${prNumbers.get(id)!}${marker}`);
+    // Escape the period so GitHub does NOT treat this as an ordered-list
+    // item (GFM renumbers list markers ascending from the first). `3\.`
+    // renders as literal text; single newlines in PR bodies hard-break, so
+    // the lines still stack. This is how we force DESCENDING manual numbers.
+    lines.push(`${ordinal}\\. #${prNumbers.get(id)!}${marker}`);
   }
   return lines.join("\n");
 }
@@ -281,13 +287,13 @@ import { buildInitialBody } from "../../src/gh/pr-body.ts";
 
 describe("buildInitialBody", () => {
   const unit = singleUnit("u1", "abc", "Add login page");
-  const commits = [commit("abc", "Add login page", "Add login page\n\nImplements OAuth.\n\nSpry-Commit-Id: u1")];
+  const commits = [commit("abc", "Add login page", "Implements OAuth.\n\nSpry-Commit-Id: u1")];
 
   test("assembles info, body, stack-links, footer in canonical order", () => {
     const body = buildInitialBody({
       unit,
       commits,
-      stackLinks: "**Stack** (newest → oldest, targeting `main`):\n1. #1001 ← this PR",
+      stackLinks: "**Stack** (newest → oldest, targeting `main`):\n1\\. #1001 ← this PR",
     });
     expect(body).toBe(
       [
@@ -298,7 +304,7 @@ describe("buildInitialBody", () => {
         MARKERS.BODY_END,
         "",
         MARKERS.STACK_LINKS_BEGIN,
-        "**Stack** (newest → oldest, targeting `main`):\n1. #1001 ← this PR",
+        "**Stack** (newest → oldest, targeting `main`):\n1\\. #1001 ← this PR",
         MARKERS.STACK_LINKS_END,
         "",
         MARKERS.FOOTER_BEGIN,
@@ -403,7 +409,7 @@ Append to `tests/gh/pr-body-markers.test.ts`:
 import { spliceBody } from "../../src/gh/pr-body.ts";
 
 describe("spliceBody", () => {
-  const links = "**Stack** (newest → oldest, targeting `main`):\n1. #1001 ← this PR";
+  const links = "**Stack** (newest → oldest, targeting `main`):\n1\\. #1001 ← this PR";
 
   test("replaces content inside each marker pair, preserves everything else verbatim", () => {
     const existing = [
