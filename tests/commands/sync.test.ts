@@ -82,6 +82,13 @@ function ghPRMap(
     if (call.args[0] === "pr" && call.args[1] === "edit") {
       return { stdout: "", stderr: "", exitCode: 0 };
     }
+    // sp sync fetches each open PR's body (fetchPRBody: `pr view <n> --json body
+    // --jq .body`) then may rewrite it (fetchPRBody strips one trailing newline).
+    // An empty body is a valid starting point — spliceBody will build the full
+    // structure and the subsequent `pr edit` (handled above) succeeds.
+    if (call.args[0] === "pr" && call.args[1] === "view") {
+      return { stdout: "", stderr: "", exitCode: 0 };
+    }
     if (call.args[0] !== "api" || call.args[1] !== "graphql") {
       return {
         stdout: "",
@@ -303,8 +310,10 @@ describe("syncCommand bare", () => {
       logs.restore();
     }
     expect(logs.out.join("\n")).toContain("pushed spry/test/aaa11111");
-    // base is correct → no retarget call (only the graphql lookup)
-    const editCalls = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
+    // base is correct → no retarget call (only the graphql lookup + body update)
+    const editCalls = calls.filter(
+      (c) => c.args[0] === "pr" && c.args[1] === "edit" && c.args.includes("--base"),
+    );
     expect(editCalls).toHaveLength(0);
   });
 
@@ -343,7 +352,9 @@ describe("syncCommand bare", () => {
     } finally {
       logs.restore();
     }
-    const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
+    const edits = calls.filter(
+      (c) => c.args[0] === "pr" && c.args[1] === "edit" && c.args.includes("--base"),
+    );
     expect(edits).toHaveLength(1);
     expect(edits[0]?.args).toEqual(["pr", "edit", "11", "--base", "spry/test/aaa11111"]);
     expect(logs.out.join("\n")).toMatch(/retargeted PR #11/);
@@ -575,6 +586,14 @@ describe("syncCommand --open <ids>", () => {
           exitCode: 0,
         };
       }
+      // The end-of-sync body pass fetches the just-created PR's body; return
+      // it unchanged so no further `pr edit --body-file` call is required.
+      if (call.args[0] === "pr" && call.args[1] === "view") {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "edit" && call.args.includes("--body-file")) {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
       return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
     });
     const ctx = makeCtx(repo, gh);
@@ -636,6 +655,14 @@ describe("syncCommand --open <ids>", () => {
           stderr: "",
           exitCode: 0,
         };
+      }
+      // The end-of-sync body pass fetches each just-created PR's body; return
+      // it unchanged so no further `pr edit --body-file` call is required.
+      if (call.args[0] === "pr" && call.args[1] === "view") {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "edit" && call.args.includes("--body-file")) {
+        return { stdout: "", stderr: "", exitCode: 0 };
       }
       return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
     });
@@ -857,6 +884,14 @@ describe("syncCommand --open <ids>", () => {
           stderr: "",
           exitCode: 0,
         };
+      }
+      // The end-of-sync body pass fetches the just-created PR's body; return
+      // it unchanged so no further `pr edit --body-file` call is required.
+      if (call.args[0] === "pr" && call.args[1] === "view") {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "edit" && call.args.includes("--body-file")) {
+        return { stdout: "", stderr: "", exitCode: 0 };
       }
       return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
     });
@@ -1207,7 +1242,9 @@ describe("sp sync --all (loop)", () => {
       logs.restore();
     }
 
-    const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
+    const edits = calls.filter(
+      (c) => c.args[0] === "pr" && c.args[1] === "edit" && c.args.includes("--base"),
+    );
     expect(edits).toHaveLength(2);
     const editArgs = edits.map((e) => e.args);
     expect(editArgs).toContainEqual(["pr", "edit", "11", "--base", "spry/test/aaa11111"]);
@@ -1657,7 +1694,9 @@ describe("syncCommand reorder park", () => {
     } finally {
       logs.restore();
     }
-    const edits = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "edit");
+    const edits = calls.filter(
+      (c) => c.args[0] === "pr" && c.args[1] === "edit" && c.args.includes("--base"),
+    );
     expect(edits).toHaveLength(0);
     expect(logs.out.join("\n")).not.toContain("parked");
   });
@@ -1759,5 +1798,207 @@ describe("syncCommand --all reorder park", () => {
     expect(edits).toContain("pr edit 11 --base spry/test/aaa11111"); // re-stack B
     // The park log line is unique to Phase 1 (finishSyncAll's retarget logs "↻ retargeted").
     expect(logs.out.join("\n")).toContain("↻ parked PR #10 → main");
+  });
+});
+
+describe("updateStackBodies (end-of-sync PR body pass)", () => {
+  test("sync --open links a new PR into a pre-existing sibling's body in the same run", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "First\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    await git.run(["commit", "--allow-empty", "-m", "Second\n\nSpry-Commit-Id: bbb22222"], {
+      cwd: repo.path,
+    });
+
+    // Unit 1 (aaa11111) already has an OPEN PR published; unit 2 (bbb22222) is
+    // unpublished and will be opened by this sync.
+    const aSha = (await git.run(["rev-parse", "HEAD~1"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${aSha}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+
+    // Sibling PR #10's current body already has the spry marker regions, but
+    // with STALE stack-links content — proves the splice actually changes it.
+    const staleBody = [
+      MARKERS.INFO,
+      "",
+      MARKERS.BODY_BEGIN,
+      "First",
+      MARKERS.BODY_END,
+      "",
+      MARKERS.STACK_LINKS_BEGIN,
+      "1\\. #10 ← this PR",
+      MARKERS.STACK_LINKS_END,
+      "",
+      MARKERS.FOOTER_BEGIN,
+      "footer",
+      MARKERS.FOOTER_END,
+    ].join("\n");
+
+    const { gh, calls } = stubGh((call) => {
+      if (call.args[0] === "api" && call.args[1] === "graphql") {
+        return ghPRMap({ "spry/test/aaa11111": { number: 10, baseRefName: "main" } })(call);
+      }
+      if (call.args[0] === "pr" && call.args[1] === "create") {
+        return { stdout: "https://github.com/owner/repo/pull/11\n", stderr: "", exitCode: 0 };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "view") {
+        const num = call.args[2];
+        // Sibling PR #10 returns its stale real body; the brand-new PR #11
+        // returns "" (its create-time body is not modeled by this stub — the
+        // splice will build a fresh region set for it either way).
+        return { stdout: num === "10" ? staleBody : "", stderr: "", exitCode: 0 };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "edit") {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
+    });
+    const ctx = makeCtx(repo, gh);
+    const logs = await captureLogs();
+    try {
+      await syncCommand(ctx, { cwd: repo.path, open: "bbb22222" });
+    } finally {
+      logs.restore();
+    }
+
+    // The sibling PR (#10, NOT the just-created #11) got its body rewritten
+    // via `pr edit --body-file -` because its stack-links were stale.
+    const bodyEdits = calls.filter(
+      (c) => c.args[0] === "pr" && c.args[1] === "edit" && c.args.includes("--body-file"),
+    );
+    expect(bodyEdits.some((c) => c.args[2] === "10")).toBe(true);
+    expect(logs.out.join("\n")).toContain("✎ updated PR #10 body");
+
+    // The sibling's rewritten body must now link the just-created PR #11 —
+    // this is what fails if createdPRs aren't merged into the body pass's map.
+    const pr10Edit = calls.find(
+      (c) =>
+        c.args[0] === "pr" &&
+        c.args[1] === "edit" &&
+        c.args[2] === "10" &&
+        c.args.includes("--body-file"),
+    );
+    expect(pr10Edit?.stdin).toContain("#11");
+  });
+
+  test("skips the body update when the spliced result is unchanged", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "C\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${head}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+
+    // First sync: `pr view` returns "" (empty), which necessarily differs from
+    // the spliced full-marker body, so a `pr edit --body-file -` fires. Capture
+    // exactly what it sent — that's the byte-for-byte stable spliced body.
+    let sentBody: string | undefined;
+    const { gh: gh1 } = stubGh((call) => {
+      if (call.args[0] === "api" && call.args[1] === "graphql") {
+        return ghPRMap({ "spry/test/aaa11111": { number: 10, baseRefName: "main" } })(call);
+      }
+      if (call.args[0] === "pr" && call.args[1] === "view") {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "edit" && call.args.includes("--body-file")) {
+        sentBody = call.stdin;
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "edit") {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
+    });
+    const ctx1 = makeCtx(repo, gh1);
+    const logs1 = await captureLogs();
+    try {
+      await syncCommand(ctx1, { cwd: repo.path });
+    } finally {
+      logs1.restore();
+    }
+    expect(logs1.out.join("\n")).toContain("✎ updated PR #10 body");
+    expect(sentBody).toBeDefined();
+
+    // Second sync: the stub now returns the EXACT body the first sync just
+    // wrote. Nothing in the stack changed, so the freshly-spliced result must
+    // equal `sentBody` byte-for-byte, and no further body edit should fire.
+    const { gh: gh2, calls } = stubGh((call) => {
+      if (call.args[0] === "api" && call.args[1] === "graphql") {
+        return ghPRMap({ "spry/test/aaa11111": { number: 10, baseRefName: "main" } })(call);
+      }
+      if (call.args[0] === "pr" && call.args[1] === "view") {
+        return { stdout: sentBody ?? "", stderr: "", exitCode: 0 };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "edit") {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
+    });
+    const ctx2 = makeCtx(repo, gh2);
+    const logs2 = await captureLogs();
+    try {
+      await syncCommand(ctx2, { cwd: repo.path });
+    } finally {
+      logs2.restore();
+    }
+
+    const bodyEdits = calls.filter(
+      (c) => c.args[0] === "pr" && c.args[1] === "edit" && c.args.includes("--body-file"),
+    );
+    expect(bodyEdits).toHaveLength(0);
+    expect(logs2.out.join("\n")).not.toContain("✎ updated");
+  });
+
+  test("body update failure logs a warning and flips the exit code", async () => {
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "C\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${head}:refs/heads/spry/test/aaa11111`], {
+      cwd: repo.path,
+    });
+
+    const { gh } = stubGh((call) => {
+      if (call.args[0] === "api" && call.args[1] === "graphql") {
+        return ghPRMap({ "spry/test/aaa11111": { number: 10, baseRefName: "main" } })(call);
+      }
+      // Body needs updating (empty existing body differs from the spliced
+      // result), but the `pr edit --body-file -` call itself fails.
+      if (call.args[0] === "pr" && call.args[1] === "view") {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "edit" && call.args.includes("--body-file")) {
+        return { stdout: "", stderr: "You are not logged into any GitHub hosts.", exitCode: 4 };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "edit") {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
+    });
+    const ctx = makeCtx(repo, gh);
+    const logs = await captureLogs();
+    const trap = trapExit();
+    try {
+      await syncCommand(ctx, { cwd: repo.path });
+    } catch (e) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBe(1);
+    expect(logs.err.join("\n")).toMatch(/Could not update PR #10 body/);
   });
 });

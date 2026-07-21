@@ -40,6 +40,10 @@ import {
   generateStackLinks,
   findPRTemplate,
   classifyGhInfraError,
+  spliceBody,
+  generateBodyContent,
+  fetchPRBody,
+  updatePRBody,
 } from "../gh/index.ts";
 import { fetchPRCache, savePRCache, pushPRCache, loadPRCache } from "../gh/pr-cache.ts";
 import type { PRCache } from "../gh/pr-cache.ts";
@@ -245,6 +249,7 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   // 5. --open: open new PRs (with their own pushes)
   let openedBranches: string[] = [];
   let openHadFailure = false;
+  let createdPRs: Array<{ branch: string; pr: PRInfo }> = [];
   if (opts.open !== undefined) {
     let opened: OpenPRsResult | undefined;
     if (opts.open === null) {
@@ -288,6 +293,7 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
     if (opened) {
       openedBranches = opened.branches;
       openHadFailure = opened.hadFailure;
+      createdPRs = opened.created;
     }
   }
 
@@ -307,8 +313,22 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
     await writePRCache(ctx, config, units, prMap, cwd);
   }
 
+  // Merge just-created PRs into the map the body pass sees, so a `sync --open`
+  // run links every sibling to the new PRs and gives the new PRs their own
+  // stack-links immediately — the run converges without waiting for next sync.
+  const bodyPrMap = prMap && createdPRs.length > 0 ? new Map(prMap) : prMap;
+  if (bodyPrMap && createdPRs.length > 0) {
+    for (const { branch, pr } of createdPRs) bodyPrMap.set(branch, pr);
+  }
+
+  const bodyHadFailure = await updateStackBodies(ctx, config, units, withTrailers, bodyPrMap, cwd);
+
   const hadFailure =
-    pushResult.hadFailure || openHadFailure || retargetHadFailure || parkFailed.size > 0;
+    pushResult.hadFailure ||
+    openHadFailure ||
+    retargetHadFailure ||
+    parkFailed.size > 0 ||
+    bodyHadFailure;
   if (hadFailure) {
     console.log("⚠ Sync completed with warnings");
     process.exit(1);
@@ -434,6 +454,7 @@ function resolveOpenTargets(
 interface OpenPRsResult {
   branches: string[];
   hadFailure: boolean;
+  created: Array<{ branch: string; pr: PRInfo }>;
 }
 
 async function openPRs(
@@ -449,6 +470,7 @@ async function openPRs(
   const targetSet = new Set(targetIds);
   const failedPushTargets = new Set<string>();
   const branches: string[] = [];
+  const created: Array<{ branch: string; pr: PRInfo }> = [];
   let hadFailure = false;
   const commitInfos = commits;
   const prTemplate = await findPRTemplate(cwd);
@@ -498,9 +520,10 @@ async function openPRs(
     const base = prev ? branchForUnit(prev, config) : config.trunk;
 
     const title = formatPRTitle(unit, commitInfos);
-    // Stack-links at create time may be incomplete (siblings opened later in
-    // this same run); the updateStackBodies pass at the end of sync corrects
-    // every sibling body, so the run converges.
+    // Create-time stack-links include earlier siblings opened in this same run
+    // (prNumbers is updated after each create). Later siblings and pre-existing
+    // PRs are reconciled by the end-of-sync updateStackBodies pass, which sees
+    // these just-created PRs merged into its prMap — so the run converges.
     const stackLinks = generateStackLinks(stackUnitIds, prNumbers, unit.id, config.trunk);
     const body = buildInitialBody({ unit, commits: commitInfos, stackLinks, prTemplate });
     try {
@@ -510,6 +533,22 @@ async function openPRs(
       branches.push(branch);
       // Record the just-created PR so later siblings in this run link to it.
       prNumbers.set(unit.id, pr.number);
+      // Synthesize a minimal OPEN PRInfo so the end-of-sync body pass (which
+      // only reads .state and .number) treats this brand-new PR as live and
+      // links siblings to it in the SAME run.
+      created.push({
+        branch,
+        pr: {
+          number: pr.number,
+          url: pr.url,
+          state: "OPEN",
+          title,
+          baseRefName: base,
+          checksStatus: "none",
+          reviewDecision: "none",
+          reviewThreads: { resolved: 0, total: 0 },
+        },
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`⚠ Failed to create PR for ${branch}: ${message}`);
@@ -517,7 +556,7 @@ async function openPRs(
     }
   }
 
-  return { branches, hadFailure };
+  return { branches, hadFailure, created };
 }
 
 /**
@@ -640,6 +679,55 @@ async function retargetMismatched(
   return hadFailure;
 }
 
+/**
+ * Rewrite the spry-owned regions of every OPEN PR's body in the stack. For each
+ * open PR: fetch its current body, splice fresh body-content + stack-links in
+ * place (preserving user regions), and push via updatePRBody ONLY when the
+ * result differs byte-for-byte. Best-effort: failures warn and flip the return
+ * flag; they never abort the sync. Runs over ALL open PRs (not just pushed
+ * ones) because opening/moving any PR changes sibling stack-links.
+ *
+ * The comparison is `spliced !== existing` against the JUST-FETCHED body, so any
+ * one-time server-side normalization (e.g. a web-UI edit storing CRLF, which
+ * splice rewrites to LF inside spry regions) self-heals in a single sync rather
+ * than churning every run.
+ */
+async function updateStackBodies(
+  ctx: SpryContext,
+  config: SpryConfig,
+  units: PRUnit[],
+  commits: CommitWithTrailers[],
+  prMap: Map<string, PRInfo | null> | undefined,
+  cwd: string | undefined,
+): Promise<boolean> {
+  if (!prMap) return false;
+  const prNumbers = collectOpenPRNumbers(units, prMap, config);
+  const stackUnitIds = units.map((u) => u.id);
+  let hadFailure = false;
+
+  for (const unit of units) {
+    const pr = prMap.get(branchForUnit(unit, config));
+    if (!pr || pr.state !== "OPEN") continue;
+    try {
+      const existing = await fetchPRBody(ctx, pr.number, { cwd });
+      const stackLinks = generateStackLinks(stackUnitIds, prNumbers, unit.id, config.trunk);
+      const next = spliceBody(existing, {
+        bodyContent: generateBodyContent(unit, commits),
+        stackLinks,
+      });
+      if (next !== existing) {
+        await updatePRBody(ctx, pr.number, next, { cwd });
+        console.log(`✎ updated PR #${pr.number} body`);
+      }
+    } catch (err) {
+      hadFailure = true;
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`⚠ Could not update PR #${pr.number} body: ${message}`);
+    }
+  }
+  return hadFailure;
+}
+
 async function writePRCache(
   ctx: SpryContext,
   config: SpryConfig,
@@ -676,6 +764,7 @@ interface StackState {
   branch: string;
   units: PRUnit[];
   pushed: string[];
+  commits: CommitWithTrailers[];
 }
 
 async function syncAllCommand(
@@ -759,7 +848,7 @@ async function syncAllCommand(
     }
 
     // 3. Parse only — push happens after the batched PR lookup + park below.
-    stacks.push({ branch, units: result.units, pushed: [] });
+    stacks.push({ branch, units: result.units, pushed: [], commits: withTrailers });
   }
 
   // Batched PR lookup BEFORE any push, so each stack can park its mismatched
@@ -848,6 +937,12 @@ async function finishSyncAll(
   // unique).
   const combinedUnits = stacks.flatMap((s) => s.units);
   await writePRCache(ctx, config, combinedUnits, prMap, cwd);
+
+  // Per-stack body pass — best-effort; failures are logged inline, consistent
+  // with how retarget failures above are already treated as non-fatal here.
+  for (const stack of stacks) {
+    await updateStackBodies(ctx, config, stack.units, stack.commits, prMap, cwd);
+  }
 }
 
 function retargetingFallbackHint(err: unknown): string {
