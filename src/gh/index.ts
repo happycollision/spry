@@ -5,6 +5,8 @@ export {
   determineReviewDecision,
   createPR,
   retargetPR,
+  fetchPRBody,
+  updatePRBody,
 } from "./pr.ts";
 export type {
   PRInfo,
@@ -29,7 +31,20 @@ export type {
   DeleteRemoteBranchOptions,
   DeleteRemoteBranchResult,
 } from "./push.ts";
-export { formatPRTitle, formatPRBody, stripTrailers } from "./pr-body.ts";
+export {
+  formatPRTitle,
+  formatPRBody,
+  stripTrailers,
+  MARKERS,
+  BETA_WARNING,
+  generateBodyContent,
+  generateStackLinks,
+  generateFooter,
+  buildInitialBody,
+  spliceBody,
+} from "./pr-body.ts";
+export type { BuildInitialBodyOptions, SpliceBodyOptions } from "./pr-body.ts";
+export { findPRTemplate } from "./pr-template.ts";
 export {
   loadPRCache,
   savePRCache,

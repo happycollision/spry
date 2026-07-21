@@ -325,3 +325,37 @@ export async function retargetPR(
   const result = await withRetry(() => ctx.gh.run(args, { cwd: options?.cwd }), ghRetryPredicate);
   if (result.exitCode !== 0) throwForFailure(result);
 }
+
+/**
+ * Fetch a single PR's current body text. Uses `--jq .body` so gh emits the raw
+ * body string (not wrapped in JSON), giving us exactly what GitHub stored.
+ */
+export async function fetchPRBody(
+  ctx: SpryContext,
+  prNumber: number,
+  options?: { cwd?: string },
+): Promise<string> {
+  const args = ["pr", "view", String(prNumber), "--json", "body", "--jq", ".body"];
+  const result = await withRetry(() => ctx.gh.run(args, { cwd: options?.cwd }), ghRetryPredicate);
+  if (result.exitCode !== 0) throwForFailure(result);
+  // gh --jq emits the value followed by a trailing newline; strip exactly one.
+  return result.stdout.replace(/\n$/, "");
+}
+
+/**
+ * Replace a PR's body. Sends the new body on stdin via `--body-file -` so bodies
+ * with any content (quotes, markdown, newlines) are passed safely.
+ */
+export async function updatePRBody(
+  ctx: SpryContext,
+  prNumber: number,
+  body: string,
+  options?: { cwd?: string },
+): Promise<void> {
+  const args = ["pr", "edit", String(prNumber), "--body-file", "-"];
+  const result = await withRetry(
+    () => ctx.gh.run(args, { cwd: options?.cwd, stdin: body }),
+    ghRetryPredicate,
+  );
+  if (result.exitCode !== 0) throwForFailure(result);
+}
