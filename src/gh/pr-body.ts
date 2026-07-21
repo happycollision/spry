@@ -163,3 +163,104 @@ export function buildInitialBody(opts: BuildInitialBodyOptions): string {
   parts.push(MARKERS.FOOTER_BEGIN, generateFooter(), MARKERS.FOOTER_END);
   return parts.join("\n");
 }
+
+export interface SpliceBodyOptions {
+  bodyContent: string;
+  /** Rendered stack-links block; "" replaces an existing region's content with empty. */
+  stackLinks: string;
+}
+
+/**
+ * Replace the content between a single begin/end marker pair, in place, leaving
+ * every other byte of `body` untouched. Returns null when the pair is absent or
+ * malformed (end before begin), so the caller can decide to append.
+ */
+function replaceRegion(body: string, begin: string, end: string, content: string): string | null {
+  const b = body.indexOf(begin);
+  if (b === -1) return null;
+  const e = body.indexOf(end, b + begin.length);
+  if (e === -1) return null;
+  const before = body.slice(0, b + begin.length);
+  const after = body.slice(e);
+  const inner = content ? `\n${content}\n` : "\n";
+  return `${before}${inner}${after}`;
+}
+
+/** Remove every occurrence of a spry marker string (spry-owned, safe to delete). */
+function stripMarker(body: string, marker: string): string {
+  return body.split(marker).join("");
+}
+
+/**
+ * Splice fresh spry content into an existing PR body IN PLACE.
+ *
+ * Spry owns only the info line and the bytes between each begin/end pair. For
+ * each spry region present (well-formed) in `existing`, its inner content is
+ * replaced; user bytes outside the markers are preserved verbatim. A region
+ * whose pair is absent or MALFORMED (e.g. the user deleted one marker) is
+ * healed: any orphaned begin/end marker of that region is stripped, then a
+ * fresh complete region is APPENDED in canonical order (info, body,
+ * stack-links, footer). Stripping the orphan first prevents a later splice from
+ * pairing it with the appended region's opposite marker and eating user text.
+ */
+export function spliceBody(existing: string, opts: SpliceBodyOptions): string {
+  let out = existing;
+
+  const bodyReplaced = replaceRegion(out, MARKERS.BODY_BEGIN, MARKERS.BODY_END, opts.bodyContent);
+  if (bodyReplaced !== null) out = bodyReplaced;
+
+  const linksReplaced = replaceRegion(
+    out,
+    MARKERS.STACK_LINKS_BEGIN,
+    MARKERS.STACK_LINKS_END,
+    opts.stackLinks,
+  );
+  if (linksReplaced !== null) out = linksReplaced;
+
+  const footerReplaced = replaceRegion(
+    out,
+    MARKERS.FOOTER_BEGIN,
+    MARKERS.FOOTER_END,
+    generateFooter(),
+  );
+  if (footerReplaced !== null) out = footerReplaced;
+
+  const hasBody = bodyReplaced !== null;
+  const hasLinks = linksReplaced !== null;
+  const hasFooter = footerReplaced !== null;
+
+  // Heal: strip orphaned markers of any region we are about to append, so a
+  // stray BEGIN/END left by a hand-edit can't pair with the fresh region later.
+  if (!hasBody) {
+    out = stripMarker(stripMarker(out, MARKERS.BODY_BEGIN), MARKERS.BODY_END);
+  }
+  if (!hasLinks) {
+    out = stripMarker(stripMarker(out, MARKERS.STACK_LINKS_BEGIN), MARKERS.STACK_LINKS_END);
+  }
+  if (!hasFooter) {
+    out = stripMarker(stripMarker(out, MARKERS.FOOTER_BEGIN), MARKERS.FOOTER_END);
+  }
+
+  const appends: string[] = [];
+  if (!out.includes(MARKERS.INFO)) appends.push(MARKERS.INFO);
+  if (!hasBody) {
+    appends.push(MARKERS.BODY_BEGIN);
+    if (opts.bodyContent) appends.push(opts.bodyContent);
+    appends.push(MARKERS.BODY_END);
+  }
+  // Append the stack-links region only when there ARE links — matches
+  // buildInitialBody, which omits empty stack-links markers. (An already-present
+  // stack-links region is handled by the replace path above and keeps its
+  // markers even when emptied.)
+  if (!hasLinks && opts.stackLinks) {
+    appends.push(MARKERS.STACK_LINKS_BEGIN, opts.stackLinks, MARKERS.STACK_LINKS_END);
+  }
+  if (!hasFooter) {
+    appends.push(MARKERS.FOOTER_BEGIN, generateFooter(), MARKERS.FOOTER_END);
+  }
+
+  if (appends.length === 0) return out;
+
+  const sep = out.trim().length > 0 ? `${out.replace(/\s+$/, "")}\n\n` : "";
+  return `${sep}${appends.join("\n")}`;
+}

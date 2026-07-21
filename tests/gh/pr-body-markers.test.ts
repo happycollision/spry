@@ -6,6 +6,7 @@ import {
   generateFooter,
   generateStackLinks,
   buildInitialBody,
+  spliceBody,
 } from "../../src/gh/pr-body.ts";
 import type { CommitInfo, PRUnit } from "../../src/parse/types.ts";
 
@@ -196,5 +197,136 @@ describe("buildInitialBody", () => {
     const emptyCommits = [commit("zzz", "Subject only", "Spry-Commit-Id: u9")];
     const body = buildInitialBody({ unit: emptyUnit, commits: emptyCommits, stackLinks: "" });
     expect(body).toContain(`${MARKERS.BODY_BEGIN}\n${MARKERS.BODY_END}`);
+  });
+});
+
+describe("spliceBody", () => {
+  const links = "**Stack** (newest → oldest, targeting `main`):\n1\\. #1001 ← this PR";
+
+  test("replaces content inside each marker pair, preserves everything else verbatim", () => {
+    const existing = [
+      "User preamble kept.",
+      "",
+      MARKERS.INFO,
+      "",
+      MARKERS.BODY_BEGIN,
+      "OLD body",
+      MARKERS.BODY_END,
+      "",
+      "User middle text kept exactly.",
+      "",
+      MARKERS.STACK_LINKS_BEGIN,
+      "OLD links",
+      MARKERS.STACK_LINKS_END,
+      "",
+      MARKERS.FOOTER_BEGIN,
+      "OLD footer",
+      MARKERS.FOOTER_END,
+      "",
+      "User trailing text kept.",
+    ].join("\n");
+
+    const out = spliceBody(existing, { bodyContent: "NEW body", stackLinks: links });
+
+    expect(out).toContain("User preamble kept.");
+    expect(out).toContain("User middle text kept exactly.");
+    expect(out).toContain("User trailing text kept.");
+    expect(out).toContain(`${MARKERS.BODY_BEGIN}\nNEW body\n${MARKERS.BODY_END}`);
+    expect(out).toContain(`${MARKERS.STACK_LINKS_BEGIN}\n${links}\n${MARKERS.STACK_LINKS_END}`);
+    expect(out).toContain(`${MARKERS.FOOTER_BEGIN}\n${BETA_WARNING}\n${MARKERS.FOOTER_END}`);
+    expect(out).not.toContain("OLD body");
+    expect(out).not.toContain("OLD links");
+    expect(out).not.toContain("OLD footer");
+  });
+
+  test("is idempotent: splicing the same content twice yields identical output", () => {
+    const existing = [
+      MARKERS.INFO,
+      "",
+      MARKERS.BODY_BEGIN,
+      "NEW body",
+      MARKERS.BODY_END,
+      "",
+      MARKERS.STACK_LINKS_BEGIN,
+      links,
+      MARKERS.STACK_LINKS_END,
+      "",
+      MARKERS.FOOTER_BEGIN,
+      BETA_WARNING,
+      MARKERS.FOOTER_END,
+    ].join("\n");
+    const once = spliceBody(existing, { bodyContent: "NEW body", stackLinks: links });
+    const twice = spliceBody(once, { bodyContent: "NEW body", stackLinks: links });
+    expect(twice).toBe(once);
+    expect(once).toBe(existing);
+  });
+
+  test("appends missing sections in canonical order without clobbering user text", () => {
+    const existing = "Just my hand-written PR description.\n\n## Testing\n- [x] done";
+    const out = spliceBody(existing, { bodyContent: "NEW body", stackLinks: links });
+
+    expect(out.startsWith("Just my hand-written PR description.\n\n## Testing\n- [x] done")).toBe(
+      true,
+    );
+    const iInfo = out.indexOf(MARKERS.INFO);
+    const iBody = out.indexOf(MARKERS.BODY_BEGIN);
+    const iLinks = out.indexOf(MARKERS.STACK_LINKS_BEGIN);
+    const iFooter = out.indexOf(MARKERS.FOOTER_BEGIN);
+    expect(iInfo).toBeGreaterThan(-1);
+    expect(iInfo).toBeLessThan(iBody);
+    expect(iBody).toBeLessThan(iLinks);
+    expect(iLinks).toBeLessThan(iFooter);
+    expect(out).toContain(`${MARKERS.BODY_BEGIN}\nNEW body\n${MARKERS.BODY_END}`);
+  });
+
+  test("appends only the missing section when some markers are present", () => {
+    const existing = [MARKERS.INFO, "", MARKERS.BODY_BEGIN, "OLD", MARKERS.BODY_END].join("\n");
+    const out = spliceBody(existing, { bodyContent: "NEW body", stackLinks: links });
+    expect(out).toContain(`${MARKERS.BODY_BEGIN}\nNEW body\n${MARKERS.BODY_END}`);
+    expect(out).toContain(MARKERS.STACK_LINKS_BEGIN); // appended
+    expect(out).toContain(MARKERS.FOOTER_BEGIN); // appended
+    expect(out.split(MARKERS.INFO).length - 1).toBe(1); // info not duplicated
+  });
+
+  test("empty stackLinks removes an existing stack-links region's content but keeps markers", () => {
+    const existing = [MARKERS.STACK_LINKS_BEGIN, "OLD links", MARKERS.STACK_LINKS_END].join("\n");
+    const out = spliceBody(existing, { bodyContent: "b", stackLinks: "" });
+    expect(out).toContain(`${MARKERS.STACK_LINKS_BEGIN}\n${MARKERS.STACK_LINKS_END}`);
+    expect(out).not.toContain("OLD links");
+  });
+
+  test("heals an orphaned marker: user text survives a second splice", () => {
+    // User deleted BODY_END, leaving an orphan BODY_BEGIN and their own note.
+    const existing = [
+      MARKERS.INFO,
+      "",
+      MARKERS.BODY_BEGIN,
+      "stale",
+      "",
+      "USER NOTE below the orphan begin",
+    ].join("\n");
+    const once = spliceBody(existing, { bodyContent: "NEW body", stackLinks: "" });
+    const twice = spliceBody(once, { bodyContent: "NEW body", stackLinks: "" });
+    // The user's note must survive BOTH splices.
+    expect(twice).toContain("USER NOTE below the orphan begin");
+    // Exactly one well-formed body region, no orphan left to re-pair.
+    expect(twice.split(MARKERS.BODY_BEGIN).length - 1).toBe(1);
+    expect(twice.split(MARKERS.BODY_END).length - 1).toBe(1);
+  });
+
+  test("does not append an empty stack-links region when there are no links", () => {
+    const existing = [
+      MARKERS.INFO,
+      "",
+      MARKERS.BODY_BEGIN,
+      "b",
+      MARKERS.BODY_END,
+      "",
+      MARKERS.FOOTER_BEGIN,
+      BETA_WARNING,
+      MARKERS.FOOTER_END,
+    ].join("\n");
+    const out = spliceBody(existing, { bodyContent: "b", stackLinks: "" });
+    expect(out).not.toContain(MARKERS.STACK_LINKS_BEGIN);
   });
 });
