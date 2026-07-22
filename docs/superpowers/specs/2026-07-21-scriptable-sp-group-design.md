@@ -209,13 +209,26 @@ state and live state, and each token is **required iff its transition would
 occur, and forbidden otherwise**:
 
 - **`prAction: "CLOSE"`** — required on the unit whose identity currently holds an
-  open PR when this apply would **abandon** that PR's identity. "Abandon" covers:
-  (a) the unit is reissued (`reissueId: true`); (b) a member holding an open PR is
-  absorbed into a group that does **not** adopt it (the group takes a different
-  identity); (c) a group holding an open PR is dissolved (its members listed
-  top-level) or otherwise loses its identity. Present where no such abandonment
-  occurs → error. **No open PR is ever silently orphaned** — every abandonment
-  must be acknowledged.
+  open PR when this apply would **abandon** that PR's identity. Formally: an id
+  with an open PR is _abandoned_ if, after the apply, no unit still **holds** it
+  (a non-reissued top-level commit with that id, or a group whose resolved id is
+  that id). "Abandon" covers: (a) the unit is reissued (`reissueId: true`); (b) a
+  member holding an open PR is absorbed into a group that does **not** adopt it
+  (the group takes a different identity). In both (a) and (b) a node with that id
+  survives in the doc to carry the `prAction: "CLOSE"`. Present where no such
+  abandonment occurs → error. **No open PR is ever silently orphaned.**
+- **Dissolving a group whose _own_ id holds an open PR** is a special case of
+  abandonment with no node to carry the acknowledgment, and its handling depends
+  on the group's id:
+  - If the group's id is an **adopted member id**, that member (or its commit)
+    typically reappears elsewhere in the doc — if the id is still held (member
+    kept top-level) the PR simply reverts to that unit (no close); if that member
+    is itself reissued or absorbed, the close is acknowledged on _that_ node as in
+    (a)/(b) above.
+  - If the group's id is a **minted, non-member id** (from a prior `id: null`
+    create), dissolution leaves **no node** that can carry a `prAction: "CLOSE"` —
+    so this is a **hard error**: the caller must reissue or restructure rather
+    than dissolve while the group's PR is open.
 - **`prAction: "ADOPT"`** — required on a **new** group that declares an existing
   member's real id in order to take over that member's open PR. Present where the
   declared id has no open PR to adopt, or on a group that already held that
