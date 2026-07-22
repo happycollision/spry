@@ -81,6 +81,45 @@ test("duplicate commit id across positions errors", () => {
   ).toMatch(/duplicate/i);
 });
 
+test("two groups sharing the same id errors", () => {
+  expect(
+    err(
+      JSON.stringify({
+        stack: [
+          {
+            type: "group",
+            id: "aaaaaaaa",
+            commits: [{ type: "commit", id: "aaaaaaaa" }],
+          },
+          {
+            type: "group",
+            id: "aaaaaaaa",
+            commits: [{ type: "commit", id: "bbbbbbbb" }],
+          },
+        ],
+      }),
+    ),
+  ).toMatch(/duplicate group id/i);
+});
+
+test("a group id equal to one of its own members is NOT a duplicate", () => {
+  const r = parseApplyDoc(
+    JSON.stringify({
+      stack: [
+        {
+          type: "group",
+          id: "aaaaaaaa",
+          commits: [
+            { type: "commit", id: "aaaaaaaa" },
+            { type: "commit", id: "bbbbbbbb" },
+          ],
+        },
+      ],
+    }),
+  );
+  expect(r.ok).toBe(true);
+});
+
 test("title tri-state: omitted -> {set:false}, null -> {set:true,null}, string -> {set:true,value}", () => {
   const omitted = ok(
     JSON.stringify({

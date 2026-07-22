@@ -116,6 +116,7 @@ export function parseApplyDoc(json: string): ParseResult {
 
   const stack: ParsedNode[] = [];
   const seenIds = new Set<string>();
+  const seenGroupIds = new Set<string>();
   for (let i = 0; i < root.stack.length; i++) {
     const raw = root.stack[i];
     if (!isObj(raw)) return { ok: false, error: `stack[${i}]: expected an object` };
@@ -134,6 +135,13 @@ export function parseApplyDoc(json: string): ParseResult {
     for (const id of ids) {
       if (seenIds.has(id)) return { ok: false, error: `Duplicate commit id: ${id}` };
       seenIds.add(id);
+    }
+    // duplicate GROUP id detection (a group id equal to one of its OWN members is
+    // legal — the adoption case — and is not flagged here; two groups sharing an
+    // id is the error).
+    if (node.kind === "group" && node.id !== null) {
+      if (seenGroupIds.has(node.id)) return { ok: false, error: `Duplicate group id: ${node.id}` };
+      seenGroupIds.add(node.id);
     }
     stack.push(node);
   }
