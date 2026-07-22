@@ -16,7 +16,7 @@ import { createRealGitRunner, createRepo } from "../lib/index.ts";
 import type { SpryContext, TestRepo } from "../lib/index.ts";
 import { captureLogs, trapExit } from "../lib/capture.ts";
 import { loadGroupRecords } from "../../src/git/group-titles.ts";
-import { savePRCache } from "../../src/gh/pr-cache.ts";
+import { loadPRCache, savePRCache } from "../../src/gh/pr-cache.ts";
 import type { PRCache } from "../../src/gh/pr-cache.ts";
 
 const repos: TestRepo[] = [];
@@ -204,9 +204,18 @@ test("--apply reissues a top-level commit id when reissueId:true (id changes)", 
   });
   expect(res.code).toBeUndefined();
   const ids = await liveIds(repo);
-  expect(ids).toContain("bbbbbbbb");
-  expect(ids).not.toContain("aaaaaaaa"); // reissued to a fresh id
-  expect(ids.some((id) => /^[0-9a-f]{8}$/.test(id) && id !== "bbbbbbbb")).toBe(true);
+  // Pin count + membership: nothing dropped, exactly the base + sibling +
+  // one fresh reissued id survive. (A weaker "some id matches /^[0-9a-f]{8}$/"
+  // check would be vacuously satisfied by "cccccccc" alone, which is always
+  // present — it wouldn't catch a bug that dropped the reissued commit
+  // entirely.)
+  expect(ids).toHaveLength(3);
+  expect(ids).toContain("cccccccc"); // base, unchanged
+  expect(ids).toContain("bbbbbbbb"); // sibling, unchanged
+  expect(ids).not.toContain("aaaaaaaa"); // reissued away
+  const fresh = ids.filter((id) => id !== "cccccccc" && id !== "bbbbbbbb");
+  expect(fresh).toHaveLength(1);
+  expect(fresh[0]).toMatch(/^[0-9a-f]{8}$/);
 });
 
 test("--apply group adopts a member's open PR with pr:ADOPT (seeded cache)", async () => {
@@ -414,4 +423,68 @@ test("--apply never calls gh (offline canonical proof)", async () => {
     ],
   });
   expect(res.code).toBeUndefined();
+});
+
+test("--apply with reissue + pr:CLOSE marks the cached PR entry CLOSED", async () => {
+  const repo = await makeRepo();
+  await repo.commitFiles({ "base.txt": "b" }, "base\n\nSpry-Commit-Id: cccccccc");
+  await repo.commitFiles({ "a.txt": "A" }, "feat: a\n\nSpry-Commit-Id: aaaaaaaa");
+  await repo.commitFiles({ "b.txt": "B" }, "feat: b\n\nSpry-Commit-Id: bbbbbbbb");
+  // Seed an OPEN PR for aaaaaaaa: reissuing a commit with an open PR requires
+  // pr:CLOSE (reconcile's checkPr rejects the reissue otherwise), and that is
+  // exactly the transition this test exercises.
+  await savePRCache(repo.git, seedOpenPR("aaaaaaaa", repo.defaultBranch), { cwd: repo.path });
+
+  const res = await applyDoc(repo, {
+    stack: [
+      { type: "commit", id: "cccccccc" },
+      { type: "commit", id: "aaaaaaaa", reissueId: true, pr: "CLOSE" },
+      { type: "commit", id: "bbbbbbbb" },
+    ],
+  });
+  expect(res.code).toBeUndefined();
+  const after = await loadPRCache(repo.git, { cwd: repo.path });
+  expect(after.aaaaaaaa?.state).toBe("CLOSED");
+});
+
+test("--apply reads the doc from stdin when apply is '-'", async () => {
+  const repo = await makeRepo();
+  await repo.commitFiles({ "base.txt": "b" }, "base\n\nSpry-Commit-Id: cccccccc");
+  await repo.commitFiles({ "a.txt": "A" }, "feat: a\n\nSpry-Commit-Id: aaaaaaaa");
+  await repo.commitFiles({ "b.txt": "B" }, "feat: b\n\nSpry-Commit-Id: bbbbbbbb");
+
+  const doc = JSON.stringify({
+    stack: [
+      { type: "commit", id: "cccccccc" },
+      {
+        type: "group",
+        id: null,
+        title: "Via stdin",
+        commits: [
+          { type: "commit", id: "aaaaaaaa" },
+          { type: "commit", id: "bbbbbbbb" },
+        ],
+      },
+    ],
+  });
+  const ctx = makeCtx(repo);
+  const logs = await captureLogs("group-apply-stdin");
+  const trap = trapExit();
+  try {
+    await groupCommand(ctx, { cwd: repo.path, apply: "-", readStdin: async () => doc });
+  } catch (e: unknown) {
+    if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+  } finally {
+    trap.restore();
+    logs.restore();
+  }
+
+  expect(trap.exitCode).toBeUndefined();
+  const records = await loadGroupRecords(repo.git, { cwd: repo.path });
+  const ids = Object.keys(records);
+  expect(ids).toHaveLength(1);
+  const gid = ids[0];
+  expect(gid).toBeDefined();
+  if (!gid) throw new Error("no group record found");
+  expect(records[gid]?.title).toBe("Via stdin");
 });
