@@ -432,8 +432,11 @@ This phase repairs the interactive `sp group` reorder as a bonus, independent of
   `--json` branch in `viewCommand` (`src/commands/view.ts`) that serializes the
   parsed + PR-cache-enriched stack into the tree and prints it instead of
   `formatStackView`.
-- Tests: `tests/commands/view.doc.test.ts` covers `--json` output shape
-  (offline; PR state comes from the cache).
+- Tests: a **plain CLI integration test** (regular `bun test`, not `docTest`)
+  covers the `--json` output shape against a scratch repo with a pre-seeded PR
+  cache — fully offline, no cassettes. `--json` is machine-only output with no
+  human reader, so it needs no doc fragment; the existing human `view` output
+  keeps its current `view.doc.test.ts` coverage untouched.
 
 ---
 
@@ -460,20 +463,44 @@ New pure module `src/parse/apply-doc.ts` (no git, fully unit-testable):
 
 CLI: add `--apply <json>` to the `group` command in `src/cli/index.ts`.
 
-### Tests
+### Tests — no doc tests, no cassettes
 
-- Unit tests for `parseApplyDoc` + `reconcile` covering **every** error in the
-  taxonomy (pure, offline).
-- `tests/commands/group.doc.test.ts` (extend/add) drives the **real `sp`
-  binary** non-interactively via stdin JSON (no TTY → agent-runnable):
-  create group (fresh `id: null`), dissolve (members ungrouped), reissue
-  (`reissueId: true`), reorder, group adoption (`id` = member id + `pr: "ADOPT"`),
-  and the `pr: "CLOSE"`/`pr: "ADOPT"` acknowledgment paths — including the
-  required/forbidden-token error cases (verifying intent is persisted locally;
-  actual PR mutation is a sync concern).
-- Pure grouping/reorder/reissue stays fully offline (no cassettes). Any path
-  that reads PR state uses the existing cache; `--apply` adds no `gh` calls, so
-  no new cassettes are required for the core.
+`--apply` is an agent/test-only surface with no human reader, so it gets **no
+`docTest` / `docs/generated/` fragments** — its documentation lives in the CLI's
+own `--help` and error text. (This is a deliberate carve-out from AGENTS.md's
+"every user-facing command/UI output must have doc-producing tests" rule:
+`--apply` and `view --json` are machine-only outputs, not user-facing UI, so the
+rule does not apply to them. The human `view`/`group` outputs keep their doc
+tests.) And because `--apply` **never calls `gh`**, its
+tests need **no cassettes or recordings**: any PR state the reconciliation reads
+is **seeded directly into the local PR cache** (`refs/spry/prs`) as a fixture —
+exactly the state `sp sync` would have pulled down — so the tests drive real
+GitHub-response replay to zero.
+
+- **Unit tests** for `parseApplyDoc` + `reconcile` covering **every** error in
+  the taxonomy (pure, offline, no git).
+- **Plain CLI integration tests** (`tests/commands/group.apply.test.ts`, regular
+  `bun test` — _not_ `docTest`) drive the **real `sp` binary** non-interactively
+  via stdin JSON (no TTY → agent-runnable), against a scratch repo whose PR cache
+  is pre-seeded: create group (fresh `id: null`), dissolve (members ungrouped),
+  reissue (`reissueId: true`), reorder, group adoption (`id` = member id +
+  `pr: "ADOPT"`), and the `pr: "CLOSE"`/`pr: "ADOPT"` acknowledgment paths —
+  including required/forbidden-token error cases. Assertions verify intent is
+  persisted to local state (`refs/spry/groups`, reissued ids); actual PR mutation
+  is a `sync` concern and out of scope here.
+
+**Two assumptions to verify at plan-writing time** (the user explicitly asked to
+be checked on these):
+
+1. The PR cache (`refs/spry/prs`) can be **seeded directly in a test** with no
+   `gh` round-trip — i.e. a writable local-ref path exists (`loadPRCache` /
+   `savePRCache` or equivalent) that a test helper can populate. If not, the plan
+   must add a small seeding helper.
+2. `--apply`'s reconciliation reads PR state **only** from that cache and makes
+   **no** direct `gh` lookup on the apply path. (The current `groupCommand` does
+   a best-effort `findPRsForBranches` `gh` call for the _interactive_ adoption
+   prompt — the `--apply` path must bypass it entirely, or a cassette would creep
+   back in.)
 
 ---
 
