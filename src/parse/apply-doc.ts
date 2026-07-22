@@ -12,13 +12,13 @@ export interface ParsedCommit {
   kind: "commit";
   id: string;
   reissueId: boolean;
-  pr?: "CLOSE" | "ADOPT";
+  prAction?: "CLOSE" | "ADOPT";
 }
 export interface ParsedGroup {
   kind: "group";
   id: string | null;
   reissueId: boolean;
-  pr?: "CLOSE" | "ADOPT";
+  prAction?: "CLOSE" | "ADOPT";
   titleField: { set: false } | { set: true; value: string | null };
   members: ParsedCommit[];
 }
@@ -47,9 +47,11 @@ function parsePr(raw: Record<string, unknown>, where: string): PrParseResult {
 function parseCommit(raw: unknown, where: string): ParsedCommit | string {
   if (!isObj(raw)) return `${where}: expected an object`;
   if (raw.type !== "commit") return `${where}: expected type "commit"`;
-  // "sha", "subject", and "pr" (the output PR-state object) are output-only
-  // fields from `sp view --json` and are silently ignored on input — this is
-  // what lets a raw view --json node pass straight through --apply verbatim.
+  // Unknown fields are generally ignored on input; the notable ones are the
+  // output-only fields from `sp view --json` — "sha", "subject", and "pr" (the
+  // output PR-state object, distinct from the "prAction" input directive) —
+  // which is what lets a raw view --json node pass straight through --apply
+  // verbatim.
   if (!("id" in raw)) return `${where}: missing required "id" (omission is not null)`;
   if (raw.id === null)
     return `${where}: commit id may not be null (only a new group may use id:null)`;
@@ -59,12 +61,18 @@ function parseCommit(raw: unknown, where: string): ParsedCommit | string {
   const reissueId = "reissueId" in raw ? raw.reissueId === true : false;
   const prResult = parsePr(raw, where);
   if (!prResult.ok) return prResult.error;
-  return { kind: "commit", id: raw.id, reissueId, ...(prResult.pr ? { pr: prResult.pr } : {}) };
+  return {
+    kind: "commit",
+    id: raw.id,
+    reissueId,
+    ...(prResult.pr ? { prAction: prResult.pr } : {}),
+  };
 }
 
 function parseGroup(raw: Record<string, unknown>, where: string): ParsedGroup | string {
-  // "sha", "subject", and "pr" (the output PR-state object) are output-only
-  // fields from `sp view --json` and are silently ignored on input.
+  // Unknown fields are generally ignored on input; the notable ones are the
+  // output-only fields from `sp view --json` — "sha", "subject", and "pr" (the
+  // output PR-state object) — which are silently ignored here.
   if (!("id" in raw)) return `${where}: missing required "id" (use null to mint a new group)`;
   const id = raw.id;
   if (id !== null && typeof id !== "string") return `${where}: group "id" must be a string or null`;
@@ -106,7 +114,7 @@ function parseGroup(raw: Record<string, unknown>, where: string): ParsedGroup | 
     reissueId,
     titleField,
     members,
-    ...(prResult.pr ? { pr: prResult.pr } : {}),
+    ...(prResult.pr ? { prAction: prResult.pr } : {}),
   };
 }
 
@@ -198,32 +206,23 @@ export function reconcile(doc: ParsedDoc, live: LiveState): ReconcileResult {
   const prCloses: string[] = [];
   const prAdopts: string[] = [];
 
+  // heldIds: every id that a unit holds as its identity after this apply —
+  // top-level commit ids (not reissued) plus every group's resolved id. Used
+  // below to detect abandoned PRs (an open-PR id that ends up held by nothing).
+  const heldIds = new Set<string>();
+
   // Per-node validation + record building.
   for (const node of doc.stack) {
     if (node.kind === "commit") {
       handleReissueAndClose(node, live, reissueIds, prCloses);
       const err = checkPr(node, live);
       if (err) return { ok: false, error: err };
+      if (!node.reissueId) heldIds.add(node.id);
       continue;
     }
 
     // group
     const memberIds = node.members.map((m) => m.id);
-
-    // member-level reissue/close directives (directives attach to identity, incl. nested).
-    // v1: reissuing a GROUPED member is forbidden — the trailer rewrite would mint a new
-    // id that the group record's member list (built from old ids) can't track. Ungroup,
-    // reissue, then regroup across separate applies if truly needed.
-    for (const m of node.members) {
-      if (m.reissueId) {
-        return {
-          ok: false,
-          error: `Cannot reissue ${m.id}: it is a member of a group. Ungroup it first (reissuing a grouped member is not supported).`,
-        };
-      }
-      const err = checkPr(m, live);
-      if (err) return { ok: false, error: err };
-    }
 
     // resolve group id + adoption
     //
@@ -240,26 +239,32 @@ export function reconcile(doc: ParsedDoc, live: LiveState): ReconcileResult {
     // is a foreign-identity error.
     let groupId: string;
     if (node.id === null) {
-      // new group, fresh mint. pr must not be ADOPT (nothing to adopt).
-      if (node.pr === "ADOPT")
-        return { ok: false, error: `New group (id:null) cannot pr:ADOPT — it inherits no PR` };
+      // new group, fresh mint. prAction must not be ADOPT (nothing to adopt).
+      if (node.prAction === "ADOPT")
+        return {
+          ok: false,
+          error: `New group (id:null) cannot prAction:ADOPT — it inherits no PR`,
+        };
       groupId = generateCommitId();
     } else if (node.id in live.liveGroups) {
       // (2) existing group — steady-state edit. Identity already held; no
-      // adoption transition occurs, so pr:ADOPT is forbidden here.
+      // adoption transition occurs, so prAction:ADOPT is forbidden here.
       groupId = node.id;
-      if (node.pr === "ADOPT")
-        return { ok: false, error: `Group ${node.id} already holds its PR; remove pr:ADOPT` };
+      if (node.prAction === "ADOPT")
+        return {
+          ok: false,
+          error: `Group ${node.id} already holds its PR; remove prAction:ADOPT`,
+        };
     } else if (memberIds.includes(node.id)) {
       // (3) new adoption of a member's identity. Requires an actual open PR to
-      // adopt AND explicit pr:ADOPT acknowledgment (adoption transition).
+      // adopt AND explicit prAction:ADOPT acknowledgment (adoption transition).
       groupId = node.id;
       if (!live.openPrIds.has(node.id))
         return { ok: false, error: `Group id ${node.id} has no open PR to adopt` };
-      if (node.pr !== "ADOPT")
+      if (node.prAction !== "ADOPT")
         return {
           ok: false,
-          error: `Group adopts PR of ${node.id}; add "pr":"ADOPT" to acknowledge`,
+          error: `Group adopts PR of ${node.id}; add "prAction":"ADOPT" to acknowledge`,
         };
       prAdopts.push(groupId);
     } else {
@@ -268,6 +273,54 @@ export function reconcile(doc: ParsedDoc, live: LiveState): ReconcileResult {
         ok: false,
         error: `Group id ${node.id} is not a member of its own group (foreign identity)`,
       };
+    }
+
+    heldIds.add(groupId);
+
+    // member-level reissue/close directives (directives attach to identity, incl. nested).
+    // v1: reissuing a GROUPED member is forbidden — the trailer rewrite would mint a new
+    // id that the group record's member list (built from old ids) can't track. Ungroup,
+    // reissue, then regroup across separate applies if truly needed.
+    for (const m of node.members) {
+      if (m.reissueId) {
+        return {
+          ok: false,
+          error: `Cannot reissue ${m.id}: it is a member of a group. Ungroup it first (reissuing a grouped member is not supported).`,
+        };
+      }
+      // ADOPT is never valid on a member node — adoption is a group-level
+      // directive (it lives on the group node whose id equals the adopted
+      // member's id; see case 3 above).
+      if (m.prAction === "ADOPT") {
+        return {
+          ok: false,
+          error: `prAction:"ADOPT" is only valid on a group that adopts a member's PR`,
+        };
+      }
+
+      // Abandonment (case 1): a member with an open PR whose id is NOT the
+      // group's resolved identity loses its PR — the group either minted a
+      // fresh id or adopted a *different* member. That lost identity must be
+      // acknowledged with prAction:"CLOSE" on the member node itself. (A
+      // member's id can never be reissued — see the check above — so the only
+      // way a member's PR closes is via this absorption path, not via
+      // handleReissueAndClose's reissue-close path.)
+      if (live.openPrIds.has(m.id) && m.id !== groupId) {
+        if (m.prAction !== "CLOSE") {
+          return {
+            ok: false,
+            error: `Member ${m.id} has an open PR that would be abandoned (absorbed into group ${groupId}); add "prAction":"CLOSE" to acknowledge`,
+          };
+        }
+        prCloses.push(m.id);
+      } else if (m.prAction === "CLOSE") {
+        // Member acknowledges a CLOSE but its PR isn't actually abandoned
+        // (either no open PR, or it IS the group's resolved identity).
+        return {
+          ok: false,
+          error: `prAction:"CLOSE" on ${m.id} but nothing would close`,
+        };
+      }
     }
 
     // v1: reissuing a GROUP identity is not supported — the group record's
@@ -289,6 +342,23 @@ export function reconcile(doc: ParsedDoc, live: LiveState): ReconcileResult {
     }
 
     records[groupId] = { title, members: memberIds };
+  }
+
+  // Abandonment (case 2): a live GROUP id that has an open PR but is not the
+  // resolved identity of any group node in the doc, and is not held by a
+  // top-level commit either, means the group was dissolved (its members are
+  // now listed top-level or absorbed elsewhere) while its own PR is still
+  // open. There is no node left in the final-state doc that can carry a
+  // prAction:"CLOSE" for it — dissolution cannot acknowledge a PR close — so
+  // this is a hard error instructing the user to reissue or restructure
+  // instead of silently orphaning (or silently closing) the PR.
+  for (const id of live.openPrIds) {
+    if (id in live.liveGroups && !heldIds.has(id)) {
+      return {
+        ok: false,
+        error: `Group ${id} holds an open PR but is being dissolved; dissolution cannot acknowledge a PR close. Reissue or restructure instead.`,
+      };
+    }
   }
 
   // Build newOrder if the flattened order differs from live.
@@ -318,22 +388,27 @@ function handleReissueAndClose(
 ): void {
   if (node.reissueId) {
     reissueIds.push(node.id);
-    if (live.openPrIds.has(node.id) && node.pr === "CLOSE") prCloses.push(node.id);
+    if (live.openPrIds.has(node.id) && node.prAction === "CLOSE") prCloses.push(node.id);
   }
 }
 
-// Validate a unit's pr directive against whether a transition actually occurs.
+// Validate a top-level commit unit's prAction directive against whether a
+// transition actually occurs. (Group members are validated inline in the
+// group member loop, where the group's resolved id is known — see the
+// abandonment handling above; this function is only called on top-level
+// commit nodes and covers the reissue-close and commit-ADOPT cases.)
 function checkPr(node: ParsedCommit, live: LiveState): string | null {
   const hasOpen = live.openPrIds.has(node.id);
-  if (node.pr === "CLOSE") {
+  if (node.prAction === "CLOSE") {
     // CLOSE is only valid if this apply would close an open PR: i.e. reissue of a unit with an open PR.
     const wouldClose = node.reissueId && hasOpen;
-    if (!wouldClose) return `pr:"CLOSE" on ${node.id} but nothing would close`;
+    if (!wouldClose) return `prAction:"CLOSE" on ${node.id} but nothing would close`;
   }
-  if (node.reissueId && hasOpen && node.pr !== "CLOSE") {
-    return `Reissuing ${node.id} closes its open PR; add "pr":"CLOSE"`;
+  if (node.reissueId && hasOpen && node.prAction !== "CLOSE") {
+    return `Reissuing ${node.id} closes its open PR; add "prAction":"CLOSE"`;
   }
   // ADOPT is not valid on a commit unit.
-  if (node.pr === "ADOPT") return `pr:"ADOPT" is only valid on a group that adopts a member's PR`;
+  if (node.prAction === "ADOPT")
+    return `prAction:"ADOPT" is only valid on a group that adopts a member's PR`;
   return null;
 }

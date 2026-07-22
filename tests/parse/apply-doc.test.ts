@@ -111,7 +111,7 @@ test("output pr object (ignored) plus prAction directive (honored) both present 
   );
   const node = doc.stack[0]!;
   if (node.kind !== "commit") throw new Error("commit");
-  expect(node.pr).toBe("CLOSE");
+  expect(node.prAction).toBe("CLOSE");
 });
 
 test("duplicate commit id across positions errors", () => {
@@ -646,4 +646,120 @@ test("reconcile: reissue + reorder in one doc -> error", () => {
       { ...LIVE2, openPrIds: ["aaaaaaaa"] },
     ),
   ).toMatch(/reorder.*reissue|separate/i);
+});
+
+// --- PR abandonment (Task 15) ---
+
+test("reconcile: member with open PR absorbed into a new group without prAction:CLOSE -> error", () => {
+  expect(
+    recErr(
+      JSON.stringify({
+        stack: [
+          {
+            type: "group",
+            id: null,
+            title: "G",
+            commits: [
+              { type: "commit", id: "aaaaaaaa" },
+              { type: "commit", id: "bbbbbbbb" },
+            ],
+          },
+        ],
+      }),
+      { ...LIVE2, openPrIds: ["aaaaaaaa"] },
+    ),
+  ).toMatch(/abandon|close/i);
+});
+
+test("reconcile: member with open PR absorbed into a new group WITH prAction:CLOSE -> ok, prCloses set", () => {
+  const plan = recOk(
+    JSON.stringify({
+      stack: [
+        {
+          type: "group",
+          id: null,
+          title: "G",
+          commits: [
+            { type: "commit", id: "aaaaaaaa", prAction: "CLOSE" },
+            { type: "commit", id: "bbbbbbbb" },
+          ],
+        },
+      ],
+    }),
+    { ...LIVE2, openPrIds: ["aaaaaaaa"] },
+  );
+  expect(plan.prCloses).toContain("aaaaaaaa");
+});
+
+test("reconcile: member with open PR that the group ADOPTS -> not abandoned, no CLOSE needed", () => {
+  const plan = recOk(
+    JSON.stringify({
+      stack: [
+        {
+          type: "group",
+          id: "aaaaaaaa",
+          title: "G",
+          prAction: "ADOPT",
+          commits: [
+            { type: "commit", id: "aaaaaaaa" },
+            { type: "commit", id: "bbbbbbbb" },
+          ],
+        },
+      ],
+    }),
+    { ...LIVE2, openPrIds: ["aaaaaaaa"] },
+  );
+  expect(plan.prAdopts).toEqual(["aaaaaaaa"]);
+  expect(plan.prCloses).not.toContain("aaaaaaaa");
+});
+
+test("reconcile: dissolving a group whose (minted, non-member) group-id has an open PR -> error", () => {
+  // The group's id is "99999999", a minted id from a prior id:null create (not
+  // equal to any of its own members). Dissolving it — listing aaaaaaaa/bbbbbbbb
+  // top-level — leaves nothing in the doc holding "99999999" as an identity, so
+  // its still-open PR would be orphaned.
+  const liveGroups: GroupRecords = {
+    "99999999": { title: "G", members: ["aaaaaaaa", "bbbbbbbb"] },
+  };
+  expect(
+    recErr(
+      JSON.stringify({
+        stack: [
+          { type: "commit", id: "aaaaaaaa" },
+          { type: "commit", id: "bbbbbbbb" },
+        ],
+      }),
+      { ...LIVE2, liveGroups, openPrIds: ["99999999"] },
+    ),
+  ).toMatch(/dissolv|open PR/i);
+});
+
+test("reconcile: dissolving a group with NO open PR -> ok (regression)", () => {
+  const liveGroups: GroupRecords = {
+    "99999999": { title: "G", members: ["aaaaaaaa", "bbbbbbbb"] },
+  };
+  const plan = recOk(
+    JSON.stringify({
+      stack: [
+        { type: "commit", id: "aaaaaaaa" },
+        { type: "commit", id: "bbbbbbbb" },
+      ],
+    }),
+    { ...LIVE2, liveGroups },
+  );
+  expect(plan.records).toEqual({});
+});
+
+test('reconcile: old-name pr:"CLOSE" (not prAction) on a reissue-with-open-PR node is ignored -> error', () => {
+  expect(
+    recErr(
+      JSON.stringify({
+        stack: [
+          { type: "commit", id: "aaaaaaaa", reissueId: true, pr: "CLOSE" },
+          { type: "commit", id: "bbbbbbbb" },
+        ],
+      }),
+      { ...LIVE2, openPrIds: ["aaaaaaaa"] },
+    ),
+  ).toMatch(/prAction/i);
 });
