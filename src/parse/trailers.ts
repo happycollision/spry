@@ -58,6 +58,30 @@ export async function addTrailers(
   return result.stdout.trimEnd();
 }
 
+export async function replaceCommitId(
+  message: string,
+  newId: string,
+  git: GitRunner,
+): Promise<string> {
+  const normalized = message.endsWith("\n") ? message : message + "\n";
+  const result = await git.run(
+    [
+      "interpret-trailers",
+      "--if-exists",
+      "replace",
+      "--if-missing",
+      "add",
+      "--trailer",
+      `Spry-Commit-Id: ${newId}`,
+    ],
+    { stdin: normalized },
+  );
+  if (result.exitCode !== 0) {
+    throw new Error(`git interpret-trailers (replace) failed: ${result.stderr}`);
+  }
+  return result.stdout.trimEnd();
+}
+
 export async function parseCommitTrailers(
   commits: CommitInfo[],
   git: GitRunner,
