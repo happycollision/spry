@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
-import { parseApplyDoc } from "../../src/parse/apply-doc.ts";
+import { parseApplyDoc, reconcile } from "../../src/parse/apply-doc.ts";
+import type { GroupRecords } from "../../src/parse/types.ts";
 
 function ok(json: string) {
   const r = parseApplyDoc(json);
@@ -135,4 +136,348 @@ test("valid minimal doc parses", () => {
   const doc = ok(JSON.stringify({ stack: [{ type: "commit", id: "aaaaaaaa" }] }));
   expect(doc.stack).toHaveLength(1);
   expect(doc.stack[0]!).toMatchObject({ kind: "commit", id: "aaaaaaaa", reissueId: false });
+});
+
+test("parseApplyDoc: missing/non-array stack root errors", () => {
+  expect(err("{}")).toMatch(/stack/i);
+  expect(err(JSON.stringify({ stack: {} }))).toMatch(/stack/i);
+});
+test("parseApplyDoc: nested member missing id errors with path", () => {
+  expect(
+    err(JSON.stringify({ stack: [{ type: "group", id: null, commits: [{ type: "commit" }] }] })),
+  ).toMatch(/id/i);
+});
+test("parseApplyDoc: nested group inside group commits errors", () => {
+  expect(
+    err(
+      JSON.stringify({
+        stack: [
+          {
+            type: "group",
+            id: null,
+            commits: [{ type: "group", id: null, commits: [{ type: "commit", id: "aaaaaaaa" }] }],
+          },
+        ],
+      }),
+    ),
+  ).toMatch(/commit/i);
+});
+
+function recOk(
+  json: string,
+  live: {
+    liveIds: string[];
+    liveHashById: Record<string, string>;
+    liveGroups?: GroupRecords;
+    openPrIds?: string[];
+  },
+) {
+  const p = parseApplyDoc(json);
+  if (!p.ok) throw new Error(`parse failed: ${p.error}`);
+  const r = reconcile(p.doc, {
+    liveIds: live.liveIds,
+    liveHashById: live.liveHashById,
+    liveGroups: live.liveGroups ?? {},
+    openPrIds: new Set(live.openPrIds ?? []),
+  });
+  if (!r.ok) throw new Error(`reconcile failed: ${r.error}`);
+  return r.plan;
+}
+function recErr(
+  json: string,
+  live: {
+    liveIds: string[];
+    liveHashById: Record<string, string>;
+    liveGroups?: GroupRecords;
+    openPrIds?: string[];
+  },
+): string {
+  const p = parseApplyDoc(json);
+  if (!p.ok) return p.error;
+  const r = reconcile(p.doc, {
+    liveIds: live.liveIds,
+    liveHashById: live.liveHashById,
+    liveGroups: live.liveGroups ?? {},
+    openPrIds: new Set(live.openPrIds ?? []),
+  });
+  return r.ok ? "" : r.error;
+}
+
+const LIVE2 = {
+  liveIds: ["aaaaaaaa", "bbbbbbbb"],
+  liveHashById: { aaaaaaaa: "h_a", bbbbbbbb: "h_b" },
+};
+
+test("reconcile: doc omits a live commit -> missing-id error", () => {
+  expect(recErr(JSON.stringify({ stack: [{ type: "commit", id: "aaaaaaaa" }] }), LIVE2)).toMatch(
+    /missing|account/i,
+  );
+});
+
+test("reconcile: doc names a non-live id -> unknown-id error", () => {
+  expect(
+    recErr(
+      JSON.stringify({
+        stack: [
+          { type: "commit", id: "aaaaaaaa" },
+          { type: "commit", id: "bbbbbbbb" },
+          { type: "commit", id: "cccccccc" },
+        ],
+      }),
+      LIVE2,
+    ),
+  ).toMatch(/unknown|not.*live|not present/i);
+});
+
+test("reconcile: complete ungrouped doc -> empty records, order matches -> newOrder null", () => {
+  const plan = recOk(
+    JSON.stringify({
+      stack: [
+        { type: "commit", id: "aaaaaaaa" },
+        { type: "commit", id: "bbbbbbbb" },
+      ],
+    }),
+    LIVE2,
+  );
+  expect(plan.records).toEqual({});
+  expect(plan.newOrder).toBeNull();
+});
+
+test("reconcile: reversed order -> newOrder is hashes in doc order", () => {
+  const plan = recOk(
+    JSON.stringify({
+      stack: [
+        { type: "commit", id: "bbbbbbbb" },
+        { type: "commit", id: "aaaaaaaa" },
+      ],
+    }),
+    LIVE2,
+  );
+  expect(plan.newOrder).toEqual(["h_b", "h_a"]);
+});
+
+test("reconcile: new group (id:null) -> minted 8-hex id, members recorded", () => {
+  const plan = recOk(
+    JSON.stringify({
+      stack: [
+        {
+          type: "group",
+          id: null,
+          title: "G",
+          commits: [
+            { type: "commit", id: "aaaaaaaa" },
+            { type: "commit", id: "bbbbbbbb" },
+          ],
+        },
+      ],
+    }),
+    LIVE2,
+  );
+  const ids = Object.keys(plan.records);
+  expect(ids).toHaveLength(1);
+  expect(ids[0]).toMatch(/^[0-9a-f]{8}$/);
+  expect(plan.records[ids[0]!]).toEqual({ title: "G", members: ["aaaaaaaa", "bbbbbbbb"] });
+});
+
+test("reconcile: title omitted on existing group -> retains stored title", () => {
+  const liveGroups: GroupRecords = {
+    aaaaaaaa: { title: "Old", members: ["aaaaaaaa", "bbbbbbbb"] },
+  };
+  const plan = recOk(
+    JSON.stringify({
+      stack: [
+        {
+          type: "group",
+          id: "aaaaaaaa",
+          commits: [
+            { type: "commit", id: "aaaaaaaa" },
+            { type: "commit", id: "bbbbbbbb" },
+          ],
+        },
+      ],
+    }),
+    { ...LIVE2, liveGroups, openPrIds: ["aaaaaaaa"] },
+  );
+  expect(plan.records["aaaaaaaa"]!.title).toBe("Old");
+});
+
+test("reconcile: title null on group -> wiped to empty", () => {
+  const liveGroups: GroupRecords = {
+    aaaaaaaa: { title: "Old", members: ["aaaaaaaa", "bbbbbbbb"] },
+  };
+  const plan = recOk(
+    JSON.stringify({
+      stack: [
+        {
+          type: "group",
+          id: "aaaaaaaa",
+          title: null,
+          commits: [
+            { type: "commit", id: "aaaaaaaa" },
+            { type: "commit", id: "bbbbbbbb" },
+          ],
+        },
+      ],
+    }),
+    { ...LIVE2, liveGroups, openPrIds: ["aaaaaaaa"] },
+  );
+  expect(plan.records["aaaaaaaa"]!.title).toBe("");
+});
+
+test("reconcile: reissue a commit with open PR without pr:CLOSE -> error", () => {
+  expect(
+    recErr(
+      JSON.stringify({
+        stack: [
+          { type: "commit", id: "aaaaaaaa", reissueId: true },
+          { type: "commit", id: "bbbbbbbb" },
+        ],
+      }),
+      { ...LIVE2, openPrIds: ["aaaaaaaa"] },
+    ),
+  ).toMatch(/close|acknowledge/i);
+});
+
+test("reconcile: reissue with pr:CLOSE -> reissueIds + prCloses set", () => {
+  const plan = recOk(
+    JSON.stringify({
+      stack: [
+        { type: "commit", id: "aaaaaaaa", reissueId: true, pr: "CLOSE" },
+        { type: "commit", id: "bbbbbbbb" },
+      ],
+    }),
+    { ...LIVE2, openPrIds: ["aaaaaaaa"] },
+  );
+  expect(plan.reissueIds).toContain("aaaaaaaa");
+  expect(plan.prCloses).toContain("aaaaaaaa");
+});
+
+test("reconcile: pr:CLOSE where nothing would close -> error", () => {
+  expect(
+    recErr(
+      JSON.stringify({
+        stack: [
+          { type: "commit", id: "aaaaaaaa", pr: "CLOSE" },
+          { type: "commit", id: "bbbbbbbb" },
+        ],
+      }),
+      LIVE2,
+    ),
+  ).toMatch(/nothing.*close|no.*pr/i);
+});
+
+test("reconcile: group adopts member PR (id=member) requires pr:ADOPT", () => {
+  expect(
+    recErr(
+      JSON.stringify({
+        stack: [
+          {
+            type: "group",
+            id: "aaaaaaaa",
+            commits: [
+              { type: "commit", id: "aaaaaaaa" },
+              { type: "commit", id: "bbbbbbbb" },
+            ],
+          },
+        ],
+      }),
+      { ...LIVE2, openPrIds: ["aaaaaaaa"] },
+    ),
+  ).toMatch(/adopt/i);
+});
+
+test("reconcile: pr:ADOPT where declared id has no open PR -> error", () => {
+  expect(
+    recErr(
+      JSON.stringify({
+        stack: [
+          {
+            type: "group",
+            id: "aaaaaaaa",
+            pr: "ADOPT",
+            commits: [
+              { type: "commit", id: "aaaaaaaa" },
+              { type: "commit", id: "bbbbbbbb" },
+            ],
+          },
+        ],
+      }),
+      LIVE2,
+    ),
+  ).toMatch(/adopt|no.*pr/i);
+});
+
+test("reconcile: group id equal to a NON-member live id -> foreign identity error", () => {
+  const live3 = {
+    liveIds: ["aaaaaaaa", "bbbbbbbb", "cccccccc"],
+    liveHashById: { aaaaaaaa: "h_a", bbbbbbbb: "h_b", cccccccc: "h_c" },
+  };
+  expect(
+    recErr(
+      JSON.stringify({
+        stack: [
+          {
+            type: "group",
+            id: "cccccccc",
+            pr: "ADOPT",
+            commits: [
+              { type: "commit", id: "aaaaaaaa" },
+              { type: "commit", id: "bbbbbbbb" },
+            ],
+          },
+          { type: "commit", id: "cccccccc" },
+        ],
+      }),
+      { ...live3, openPrIds: ["cccccccc"] },
+    ),
+  ).toMatch(/foreign|not a member|member/i);
+});
+
+test("reconcile: existing group with a MINTED (non-member) id is editable, no ADOPT needed", () => {
+  // A group created earlier with id:null got a minted id "99999999" that is NOT
+  // any member's id. A round-tripped doc references it by that id; editing it
+  // (e.g. renaming) must succeed WITHOUT pr:ADOPT and WITHOUT a foreign-identity error.
+  const liveGroups: GroupRecords = {
+    "99999999": { title: "Old", members: ["aaaaaaaa", "bbbbbbbb"] },
+  };
+  const plan = recOk(
+    JSON.stringify({
+      stack: [
+        {
+          type: "group",
+          id: "99999999",
+          title: "Renamed",
+          commits: [
+            { type: "commit", id: "aaaaaaaa" },
+            { type: "commit", id: "bbbbbbbb" },
+          ],
+        },
+      ],
+    }),
+    { ...LIVE2, liveGroups },
+  );
+  expect(plan.records["99999999"]).toEqual({ title: "Renamed", members: ["aaaaaaaa", "bbbbbbbb"] });
+  expect(plan.prAdopts).not.toContain("99999999");
+});
+
+test("reconcile: pr:ADOPT on an already-existing (already-held) group -> error", () => {
+  const liveGroups: GroupRecords = { aaaaaaaa: { title: "G", members: ["aaaaaaaa", "bbbbbbbb"] } };
+  expect(
+    recErr(
+      JSON.stringify({
+        stack: [
+          {
+            type: "group",
+            id: "aaaaaaaa",
+            pr: "ADOPT",
+            commits: [
+              { type: "commit", id: "aaaaaaaa" },
+              { type: "commit", id: "bbbbbbbb" },
+            ],
+          },
+        ],
+      }),
+      { ...LIVE2, liveGroups, openPrIds: ["aaaaaaaa"] },
+    ),
+  ).toMatch(/already holds|remove pr:ADOPT|adopt/i);
 });
