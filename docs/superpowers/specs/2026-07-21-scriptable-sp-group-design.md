@@ -103,8 +103,12 @@ member order). Grouping is expressed by nesting.
 
 ### `sp group --apply` input
 
-The **same tree**, but callers omit anything irrelevant to the write. The
-document describes **desired final state**, not a diff.
+The **same tree**. Callers may omit the read-only fields that only appear on
+output (`sha`, `subject`, and the output-shape `pr` state object). Required
+structural/identity fields (`type`, `id`, group `commits`) must always be
+present — omission is an error, never a silent default (see "omission ≠ null"
+below). The document describes **desired final state**, not a diff, with the
+single exception of `title` (PATCH-retain on omission).
 
 ```jsonc
 {
@@ -118,18 +122,48 @@ document describes **desired final state**, not a diff.
 }
 ```
 
-Minimum fields:
+### Governing principle: omission ≠ null (PUT vs PATCH)
 
-- `commit`: `id` (a real Spry-Commit-Id) **or** `id: null`/omitted (= reissue).
-- `group`: `commits[]` (non-empty). `id` optional (`null`/omitted → mint a fresh
-  group id). `title` is **tri-state** — omitted = retain former title, `null`/`""`
-  = wipe, string = set (see "Group title" below).
+**For every field, an omitted key is NEVER coerced to `null`.** This is the
+PUT-vs-PATCH distinction:
 
-**Note the `pr` field has two distinct shapes by direction** (intentional; do
+- **`null` (or a present value)** is always _intentional_ — the caller is
+  declaring a specific outcome for that field.
+- **Omission** is either a mistake or a deliberate "leave alone," and its
+  meaning is the field's own identity-level default — which, for fields that
+  govern identity or structure, is a **hard error**, not a silent default.
+
+Per-field behavior on `--apply` input follows directly:
+
+| Field             | present value           | `null`                 | omitted                  |
+| ----------------- | ----------------------- | ---------------------- | ------------------------ |
+| `type`            | `"commit"` / `"group"`  | — (error)              | **error** (required)     |
+| `id`              | keep this identity      | **reissue** (new id)   | **error** (must declare) |
+| `commits` (group) | member list (non-empty) | — (error)              | **error** (required)     |
+| `title` (group)   | set to string           | **wipe** (clear title) | **retain** former title  |
+| `pr`              | `"CLOSE"` directive     | — (error)              | **no closure intent**    |
+
+Notes:
+
+- **`id` omitted is a hard error** naming the unit. Every commit and group must
+  declare its identity: a real Spry-Commit-Id (keep) or explicit `null`
+  (reissue). Round-tripping `view --json` always emits ids, so this only catches
+  hand-written docs that forgot. There is **no** "omit == reissue" shortcut.
+- **`title` is the only PATCH-retain field** — omitted means "don't touch the
+  stored title." Legitimate because a group always has a prior state to retain;
+  a brand-new group with omitted title simply has no title (see fallback below),
+  which is well-defined, not a coercion.
+- **`pr` omitted = "I am not acknowledging any closure."** This is a real,
+  non-`null` meaning (not a default coercion): it is exactly what makes the
+  "would-close-an-open-PR without `pr:\"CLOSE\"`" check fire.
+- On input, `title: ""` is treated the same as `title: null` (wipe). `""` is
+  never a valid stored title.
+
+**The `pr` field also has two distinct shapes by direction** (intentional; do
 not unify): on `view --json` **output** it is a _state object_ (`{number, state}`
 or `null`) describing the current PR; on `--apply` **input** it is a _directive_
-— the only accepted value is the string literal `"CLOSE"`, acknowledging an
-intended closure. Any other `pr` value on input is a schema error.
+— the only accepted value is the string literal `"CLOSE"`. Any other `pr` value
+on input is a schema error.
 
 ---
 
@@ -142,8 +176,9 @@ identity, uniformly for commits and groups:
 
 - **Keep identity (`id: "<existing>"`)** → same id → same branch
   (`<prefix>/<id>`) → the open PR follows the unit. (inherit)
-- **Reissue (`id: null`/omitted)** → spry mints a fresh id → new branch → the
-  old identity's open PR becomes closeable. (reissue)
+- **Reissue (`id: null`)** → spry mints a fresh id → new branch → the old
+  identity's open PR becomes closeable. (reissue) — `null` only; an **omitted**
+  `id` is a hard error, never a silent reissue (see "omission ≠ null" above).
 
 A **group preserves a member's PR by setting the group's `id` to that member's
 id** — the group then publishes on that member's branch and holds its PR. A
@@ -152,10 +187,10 @@ expected**, not a duplicate-id collision.
 
 ### Reissue rewrites history (in scope, safe)
 
-Reissuing an id rewrites that commit's `Spry-Commit-Id` trailer — a commit
-rewrite, like `injectMissingIds`. So a doc containing any `id: null` triggers a
-chain rewrite **even with no reordering**. This is expected and safe; the
-Phase 1 engine work (below) makes chain rewrites content-preserving.
+Reissuing an id (`id: null`) rewrites that commit's `Spry-Commit-Id` trailer — a
+commit rewrite, like `injectMissingIds`. So a doc containing any `id: null`
+triggers a chain rewrite **even with no reordering**. This is expected and safe;
+the Phase 1 engine work (below) makes chain rewrites content-preserving.
 
 ### PR closure is acknowledged here, executed by `sp sync`
 
@@ -168,10 +203,11 @@ the intent. `--apply` validates and persists that intent into local state
 the bright line: `group` is offline/local, `sync` is the only PR mutator. It
 also keeps the `--apply` core fully offline-testable (no cassettes).
 
-### Group title: tri-state (omit ≠ null)
+### Group title: the PATCH-retain field
 
-`title` is the one field where **omit does not equal null** — it is a
-deliberate carve-out from the otherwise-final-state model:
+Under the governing "omission ≠ null" principle, `title` is the field whose
+**omission means retain** (all others error or carry a specific meaning — see the
+table above):
 
 - **omitted** → **retain** the group's currently stored title (from
   `refs/spry/groups`). "Don't touch."
@@ -181,17 +217,14 @@ deliberate carve-out from the otherwise-final-state model:
 So the parser **must distinguish "key absent" from "key present with a
 null/empty value"** — `parseApplyDoc` cannot model `title` as a plain optional
 that defaults; it must track field _presence_ (e.g. a discriminated
-`{ set: true, value } | { set: false }`).
+`{ set: true, value } | { set: false }`). (This presence-tracking discipline is
+required by the governing principle for _every_ field, not just `title` — it is
+just most visible here because `title` has three live outcomes.)
 
 When a group ends up with **no** stored title (wiped, or never set),
 **PR-open time (in `sp sync`) falls back to the last member commit's title.**
 The fallback lives in the sync/PR-open path that reads the group record;
 `--apply` only stores (or clears) the title.
-
-**Contrast with `id`** (intentional asymmetry, do not assume uniform "omit ==
-null"): for `id`, **omit == null == reissue** — there is no retain semantics,
-because a commit/group always has an identity, and omitting it means "mint a
-new one." Only `title` has the absent-vs-empty distinction.
 
 ### Reorder is conflict-gated, never lossy, never dirty-guarded
 
@@ -212,8 +245,11 @@ rewrite.
 
 ### Schema / well-formedness (pure, no live state)
 
-- Malformed JSON, unknown `type`, missing required field
-  (`group` with no `commits`) → error.
+- Malformed JSON, unknown `type` → error.
+- **Omitted required field is an error, distinct from a present `null`**
+  (omission ≠ null): a missing `type`, a missing `id` on any unit, or a `group`
+  with no `commits` key → error naming the unit. An omitted `id` is **never**
+  coerced to reissue — reissue requires an explicit `id: null`.
 - Empty group (`commits: []`) → error. (Dissolution is expressed by listing
   former members as ungrouped commits, never as an empty shell.)
 - Duplicate **commit id** across two stack positions → error.
