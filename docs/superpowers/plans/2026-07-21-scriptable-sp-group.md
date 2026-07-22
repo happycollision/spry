@@ -1041,6 +1041,31 @@ test("reconcile: group id equal to a NON-member live id -> foreign identity erro
     ] }), { ...live3, openPrIds: ["cccccccc"] }),
   ).toMatch(/foreign|not a member|member/i);
 });
+
+test("reconcile: existing group with a MINTED (non-member) id is editable, no ADOPT needed", () => {
+  // A group created earlier with id:null got a minted id "99999999" that is NOT
+  // any member's id. A round-tripped doc references it by that id; editing it
+  // (e.g. renaming) must succeed WITHOUT pr:ADOPT and WITHOUT a foreign-identity error.
+  const liveGroups: GroupRecords = { "99999999": { title: "Old", members: ["aaaaaaaa", "bbbbbbbb"] } };
+  const plan = recOk(JSON.stringify({ stack: [
+    { type: "group", id: "99999999", title: "Renamed", commits: [
+      { type: "commit", id: "aaaaaaaa" }, { type: "commit", id: "bbbbbbbb" },
+    ] },
+  ] }), { ...LIVE2, liveGroups });
+  expect(plan.records["99999999"]).toEqual({ title: "Renamed", members: ["aaaaaaaa", "bbbbbbbb"] });
+  expect(plan.prAdopts).not.toContain("99999999");
+});
+
+test("reconcile: pr:ADOPT on an already-existing (already-held) group -> error", () => {
+  const liveGroups: GroupRecords = { aaaaaaaa: { title: "G", members: ["aaaaaaaa", "bbbbbbbb"] } };
+  expect(
+    recErr(JSON.stringify({ stack: [
+      { type: "group", id: "aaaaaaaa", pr: "ADOPT", commits: [
+        { type: "commit", id: "aaaaaaaa" }, { type: "commit", id: "bbbbbbbb" },
+      ] },
+    ] }), { ...LIVE2, liveGroups, openPrIds: ["aaaaaaaa"] }),
+  ).toMatch(/already holds|remove pr:ADOPT|adopt/i);
+});
 ```
 
 - [ ] **Step 2: Run to verify failures**
@@ -1119,37 +1144,48 @@ export function reconcile(doc: ParsedDoc, live: LiveState): ReconcileResult {
     }
 
     // resolve group id + adoption
+    //
+    // A group id can be legitimate in three ways:
+    //   1. id:null            -> a brand-new group; mint a fresh id.
+    //   2. id in liveGroups   -> an EXISTING group (its id may be a minted
+    //                            non-member id from a prior `id:null` create,
+    //                            OR a member id it adopted earlier). Editing an
+    //                            existing group is always allowed regardless of
+    //                            membership — this is the steady-state edit path.
+    //   3. id is a live commit id that is one of this group's own members
+    //                          -> a NEW adoption of that member's identity/PR.
+    // Anything else (a real id that is neither an existing group nor a member)
+    // is a foreign-identity error.
     let groupId: string;
     if (node.id === null) {
       // new group, fresh mint. pr must not be ADOPT (nothing to adopt).
       if (node.pr === "ADOPT")
         return { ok: false, error: `New group (id:null) cannot pr:ADOPT — it inherits no PR` };
       groupId = generateCommitId();
-    } else {
-      // real id: must be one of this group's own members (adoption identity).
-      if (!memberIds.includes(node.id))
+    } else if (node.id in live.liveGroups) {
+      // (2) existing group — steady-state edit. Identity already held; no
+      // adoption transition occurs, so pr:ADOPT is forbidden here.
+      groupId = node.id;
+      if (node.pr === "ADOPT")
+        return { ok: false, error: `Group ${node.id} already holds its PR; remove pr:ADOPT` };
+    } else if (memberIds.includes(node.id)) {
+      // (3) new adoption of a member's identity. Requires an actual open PR to
+      // adopt AND explicit pr:ADOPT acknowledgment (adoption transition).
+      groupId = node.id;
+      if (!live.openPrIds.has(node.id))
+        return { ok: false, error: `Group id ${node.id} has no open PR to adopt` };
+      if (node.pr !== "ADOPT")
         return {
           ok: false,
-          error: `Group id ${node.id} is not a member of its own group (foreign identity)`,
+          error: `Group adopts PR of ${node.id}; add "pr":"ADOPT" to acknowledge`,
         };
-      groupId = node.id;
-      const alreadyHeld = node.id in live.liveGroups;
-      const memberHasOpenPr = live.openPrIds.has(node.id);
-      if (!alreadyHeld) {
-        // adoption transition: requires pr:ADOPT and an actual open PR to adopt.
-        if (!memberHasOpenPr)
-          return { ok: false, error: `Group id ${node.id} has no open PR to adopt` };
-        if (node.pr !== "ADOPT")
-          return {
-            ok: false,
-            error: `Group adopts PR of ${node.id}; add "pr":"ADOPT" to acknowledge`,
-          };
-        prAdopts.push(groupId);
-      } else {
-        // steady state: adopting again is forbidden.
-        if (node.pr === "ADOPT")
-          return { ok: false, error: `Group ${node.id} already holds its PR; remove pr:ADOPT` };
-      }
+      prAdopts.push(groupId);
+    } else {
+      // real id that is neither an existing group nor one of its own members.
+      return {
+        ok: false,
+        error: `Group id ${node.id} is not a member of its own group (foreign identity)`,
+      };
     }
 
     // group reissue
