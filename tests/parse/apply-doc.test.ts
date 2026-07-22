@@ -524,7 +524,7 @@ test("reconcile: group newly adopts a member's open PR -> prAdopts + records set
   expect(plan.records["aaaaaaaa"]).toEqual({ title: "G", members: ["aaaaaaaa", "bbbbbbbb"] });
 });
 
-test("reconcile: reissue an existing group with open PR requires pr:CLOSE", () => {
+test("reconcile: reissuing a group identity is rejected in v1", () => {
   const liveGroups: GroupRecords = {
     "99999999": { title: "G", members: ["aaaaaaaa", "bbbbbbbb"] },
   };
@@ -536,6 +536,7 @@ test("reconcile: reissue an existing group with open PR requires pr:CLOSE", () =
             type: "group",
             id: "99999999",
             reissueId: true,
+            pr: "CLOSE",
             commits: [
               { type: "commit", id: "aaaaaaaa" },
               { type: "commit", id: "bbbbbbbb" },
@@ -545,32 +546,7 @@ test("reconcile: reissue an existing group with open PR requires pr:CLOSE", () =
       }),
       { ...LIVE2, liveGroups, openPrIds: ["99999999"] },
     ),
-  ).toMatch(/close/i);
-});
-
-test("reconcile: reissue an existing group with pr:CLOSE -> reissueIds + prCloses", () => {
-  const liveGroups: GroupRecords = {
-    "99999999": { title: "G", members: ["aaaaaaaa", "bbbbbbbb"] },
-  };
-  const plan = recOk(
-    JSON.stringify({
-      stack: [
-        {
-          type: "group",
-          id: "99999999",
-          reissueId: true,
-          pr: "CLOSE",
-          commits: [
-            { type: "commit", id: "aaaaaaaa" },
-            { type: "commit", id: "bbbbbbbb" },
-          ],
-        },
-      ],
-    }),
-    { ...LIVE2, liveGroups, openPrIds: ["99999999"] },
-  );
-  expect(plan.reissueIds).toContain("99999999");
-  expect(plan.prCloses).toContain("99999999");
+  ).toMatch(/group.*not supported|reissue group|dissolve/i);
 });
 
 test("reconcile: reissue + reorder in one doc -> error", () => {

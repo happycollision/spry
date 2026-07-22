@@ -280,13 +280,17 @@ async function applyGroupDoc(
   const plan = rec.plan;
 
   // `reconcile` guarantees reissueIds and newOrder are never both set, so at
-  // most one of the two rewrite branches below runs per apply.
+  // most one of the two rewrite branches below runs per apply. Group-identity
+  // reissue is rejected by `reconcile` too, so every id in plan.reissueIds is
+  // a top-level commit id — safe to treat as a trailer rewrite target here.
+  const oldTip = withTrailers.at(-1)?.hash;
+  if (!oldTip) throw new Error("applyGroupDoc: empty stack");
+  const mergeBase = await getMergeBase(ctx.git, ref, { cwd });
 
   if (plan.reissueIds.length > 0) {
     // Reissue: rewrite the Spry-Commit-Id trailer on each targeted commit.
-    const oldTip = withTrailers.at(-1)?.hash;
-    if (!oldTip) throw new Error("applyGroupDoc: empty stack");
-    const mergeBase = await getMergeBase(ctx.git, ref, { cwd });
+    // Message-only rewrite -> identical trees -> finalizeRewrite's reset is a
+    // no-op, so this branch needs no working-tree guard (unlike reorder below).
     const reissueSet = new Set(plan.reissueIds);
     const messageRewrites = new Map<string, string>();
     for (const c of withTrailers) {
@@ -303,11 +307,18 @@ async function applyGroupDoc(
       { cwd, base: mergeBase },
     );
     await finalizeRewrite(ctx.git, branch, oldTip, rewritten.newTip, { cwd });
+    console.log(`✓ Reissued ${plan.reissueIds.length} id(s)`);
   } else if (plan.newOrder) {
     // Reorder: no reissue ran, so plan.newOrder's hashes are still live hashes.
-    const oldTip = withTrailers.at(-1)?.hash;
-    if (!oldTip) throw new Error("applyGroupDoc: empty stack");
-    const mergeBase = await getMergeBase(ctx.git, ref, { cwd });
+    // A reorder changes the tip tree, so finalizeRewrite's reset is NOT a
+    // no-op here — guard against clobbering uncommitted changes.
+    const status = await getWorkingTreeStatus(ctx.git, { cwd });
+    if (status.isDirty) {
+      console.error(
+        "✗ Cannot reorder with a dirty working tree. Commit or stash your changes first.",
+      );
+      process.exit(1);
+    }
     const rebaseResult = await rebasePlumbing(ctx.git, mergeBase, plan.newOrder, { cwd });
     if (!rebaseResult.ok) {
       console.error(
@@ -316,22 +327,23 @@ async function applyGroupDoc(
       process.exit(1);
     }
     await finalizeRewrite(ctx.git, branch, oldTip, rebaseResult.newTip, { cwd });
+    console.log(`✓ Reordered ${plan.newOrder.length} commits`);
   }
 
   // Save group records (full replace).
   await saveAllGroupRecords(ctx.git, plan.records, { cwd });
 
-  // Persist PR-close intents into the cache for `sp sync` to execute later.
-  // (Adoption is expressed purely by the group record's key being the adopted
-  // member id, which reconcile already set in plan.records — no cache change
-  // is needed for prAdopts.)
+  // Record PR-close intent locally by marking the cached entry CLOSED. NOTE:
+  // no command consumes this as a GitHub close yet — for now it only removes
+  // the PR from local "open" tracking. A future sync-side executor will
+  // action it. (Adoption needs no cache change: the adopted member's id
+  // becomes the group record's own key, which reconcile already set.)
   if (plan.prCloses.length > 0) {
-    const cache = await loadPRCache(ctx.git, { cwd });
     for (const id of plan.prCloses) {
-      const entry = cache[id];
+      const entry = prCache[id];
       if (entry) entry.state = "CLOSED";
     }
-    await savePRCache(ctx.git, cache, { cwd });
+    await savePRCache(ctx.git, prCache, { cwd });
   }
 
   // Push refs/spry/groups best-effort.

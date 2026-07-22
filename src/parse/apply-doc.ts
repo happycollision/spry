@@ -256,13 +256,14 @@ export function reconcile(doc: ParsedDoc, live: LiveState): ReconcileResult {
       };
     }
 
-    // group reissue
+    // v1: reissuing a GROUP identity is not supported — the group record's
+    // member list and key can't be coherently remapped through the trailer
+    // rewrite. (Commit reissue is supported; group reissue is not.)
     if (node.reissueId) {
-      // reissuing the group's identity closes its PR (if held) — needs pr:CLOSE.
-      if (live.openPrIds.has(groupId) && node.pr !== "CLOSE")
-        return { ok: false, error: `Reissuing group ${groupId} closes its PR; add "pr":"CLOSE"` };
-      reissueIds.push(groupId);
-      if (live.openPrIds.has(groupId)) prCloses.push(groupId);
+      return {
+        ok: false,
+        error: `Cannot reissue group ${groupId}: group identity reissue is not supported. Dissolve and recreate the group instead.`,
+      };
     }
 
     // title tri-state
