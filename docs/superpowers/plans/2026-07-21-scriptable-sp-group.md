@@ -1197,13 +1197,17 @@ export function reconcile(doc: ParsedDoc, live: LiveState): ReconcileResult {
       };
     }
 
-    // group reissue
+    // v1: reissuing a GROUP identity is not supported. The group record's key
+    // and member list cannot be coherently remapped through the commit-trailer
+    // rewrite (the command's reissue loop keys by commit trailer id, and
+    // records[groupId].members is built from old ids). Forbidding it keeps
+    // plan.reissueIds a pure set of COMMIT ids. (Commit reissue is supported;
+    // group reissue is not — dissolve and recreate instead.)
     if (node.reissueId) {
-      // reissuing the group's identity closes its PR (if held) — needs pr:CLOSE.
-      if (live.openPrIds.has(groupId) && node.pr !== "CLOSE")
-        return { ok: false, error: `Reissuing group ${groupId} closes its PR; add "pr":"CLOSE"` };
-      reissueIds.push(groupId);
-      if (live.openPrIds.has(groupId)) prCloses.push(groupId);
+      return {
+        ok: false,
+        error: `Cannot reissue group ${groupId}: group identity reissue is not supported. Dissolve and recreate the group instead.`,
+      };
     }
 
     // title tri-state
@@ -1456,46 +1460,45 @@ async function applyGroupDoc(ctx: SpryContext, opts: GroupOptions, cwd: string |
   }
   const plan = rec.plan;
 
-  // 1) Reissue ids (rewrite Spry-Commit-Id trailers) if any.
+  // Reissue and reorder are mutually exclusive (reconcile guarantees at most one
+  // of plan.reissueIds / plan.newOrder is populated), so run them as clean
+  // independent branches. Both need oldTip + mergeBase.
+  const oldTip = withTrailers.at(-1)?.hash;
+  if (!oldTip) throw new Error("applyGroupDoc: unexpected empty commit list");
+  const mergeBase = await getMergeBase(ctx.git, ref, { cwd });
+
   if (plan.reissueIds.length > 0) {
-    const oldTip = withTrailers.at(-1)?.hash;
-    if (!oldTip) throw new Error("applyGroupDoc: empty stack");
-    const mergeBase = await getMergeBase(ctx.git, ref, { cwd });
+    // Reissue commit ids (message-only trailer rewrite). plan.reissueIds contains
+    // only COMMIT ids (reconcile forbids group + grouped-member reissue), so each
+    // maps to a live commit trailer. Message-only rewrite => identical trees =>
+    // finalizeRewrite's working-tree reset is a no-op, so no dirty-tree guard needed.
     const reissueSet = new Set(plan.reissueIds);
     const messageRewrites = new Map<string, string>();
     for (const c of withTrailers) {
-      const id = c.trailers["Spry-Commit-Id"]!;
-      if (!reissueSet.has(id)) continue;
+      const id = c.trailers["Spry-Commit-Id"];
+      if (!id || !reissueSet.has(id)) continue;
       const fullMsg = await getCommitMessage(ctx.git, c.hash, { cwd });
-      const newId = generateCommitId();
-      messageRewrites.set(c.hash, await replaceCommitId(fullMsg, newId, ctx.git));
-      // NOTE: a reissued id changes the unit's identity. plan.records/newOrder
-      // were computed against OLD ids; see Step 3 for how the order/records map.
+      messageRewrites.set(c.hash, await replaceCommitId(fullMsg, generateCommitId(), ctx.git));
     }
     const rewritten = await rewriteCommitChain(ctx.git, withTrailers.map((c) => c.hash), messageRewrites, { cwd, base: mergeBase });
     await finalizeRewrite(ctx.git, branch, oldTip, rewritten.newTip, { cwd });
-  }
-
-  // 2) Reorder (if requested) — re-derive live hashes after any reissue rewrite.
-  if (plan.newOrder) {
-    const freshCommits = await getStackCommits(ctx.git, ref, { cwd });
-    const freshTrailers = await parseCommitTrailers(freshCommits, ctx.git, { cwd });
-    // map OLD id -> fresh hash is not possible after reissue; so reorder BEFORE reissue is disallowed here.
-    // For v1: reorder is expressed by doc order of ids; recompute hashes by id from freshTrailers.
-    const hashById: Record<string, string> = {};
-    for (const c of freshTrailers) hashById[c.trailers["Spry-Commit-Id"]!] = c.hash;
-    // plan.newOrder holds OLD hashes; translate via original liveHashById inverse is unsafe post-reissue.
-    // Guard: v1 forbids combining reissue + reorder in one apply (see Step 4 validation).
-    const oldTip = freshTrailers.at(-1)?.hash;
-    if (!oldTip) throw new Error("applyGroupDoc: empty stack after reissue");
-    const mergeBase = await getMergeBase(ctx.git, ref, { cwd });
+    console.log(`✓ Reissued ${plan.reissueIds.length} id(s)`);
+  } else if (plan.newOrder) {
+    // Reorder. A reorder changes the tip tree, so finalizeRewrite runs
+    // `git reset --hard`, which would clobber uncommitted changes. Guard against
+    // a dirty working tree (the interactive path guards via canReorder).
+    const status = await getWorkingTreeStatus(ctx.git, { cwd });
+    if (status.isDirty) {
+      console.error("✗ Cannot reorder with a dirty working tree. Commit or stash your changes first.");
+      process.exit(1);
+    }
     const rebaseResult = await rebasePlumbing(ctx.git, mergeBase, plan.newOrder, { cwd });
     if (!rebaseResult.ok) {
       console.error(`✗ Cannot reorder: commit ${rebaseResult.conflictCommit.slice(0, 8)} conflicts.\n${rebaseResult.conflictInfo}`);
       process.exit(1);
     }
     await finalizeRewrite(ctx.git, branch, oldTip, rebaseResult.newTip, { cwd });
-    void hashById;
+    console.log(`✓ Reordered ${plan.newOrder.length} commits`);
   }
 
   // 3) Save group records (full replace).
