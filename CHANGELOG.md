@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `sp group --apply <json>` runs grouping, reordering, and PR-close/adopt non-interactively from a JSON doc (`"-"` reads stdin), for scripting the group editor without the TUI. Fully offline: open-PR state is read only from the local PR cache (`refs/spry/prs`), never `gh`. `pr:CLOSE` only marks the cached entry `CLOSED` locally for now — no command actually closes the PR on GitHub yet. Reissuing ids (in a single apply that doesn't also reorder) and reordering commits (on a clean working tree) are both supported, but not combined in the same apply. Wired in `src/cli/index.ts` as `--apply <json>` on the `group` command.
+- `sp view --json` emits the current stack as a machine-readable nested JSON tree (commits and groups in stack order, each with its cached PR state), the read side for building `sp group --apply` documents. Fully offline — PR state comes from the local cache, never `gh`.
 
 ### Fixed
 
