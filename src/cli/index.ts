@@ -24,7 +24,8 @@ const ctx: SpryContext = {
 program
   .command("view")
   .description("View the current stack of commits with PR status")
-  .action(() => viewCommand(ctx));
+  .option("--json", "Emit the stack as machine-readable JSON")
+  .action((opts: { json?: boolean }) => viewCommand(ctx, { json: opts.json }));
 
 program
   .command("sync")
