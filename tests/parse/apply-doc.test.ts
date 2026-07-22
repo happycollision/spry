@@ -572,3 +572,17 @@ test("reconcile: reissue an existing group with pr:CLOSE -> reissueIds + prClose
   expect(plan.reissueIds).toContain("99999999");
   expect(plan.prCloses).toContain("99999999");
 });
+
+test("reconcile: reissue + reorder in one doc -> error", () => {
+  expect(
+    recErr(
+      JSON.stringify({
+        stack: [
+          { type: "commit", id: "bbbbbbbb" },
+          { type: "commit", id: "aaaaaaaa", reissueId: true, pr: "CLOSE" },
+        ],
+      }),
+      { ...LIVE2, openPrIds: ["aaaaaaaa"] },
+    ),
+  ).toMatch(/reorder.*reissue|separate/i);
+});

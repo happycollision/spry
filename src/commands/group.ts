@@ -18,6 +18,8 @@ import {
   branchForUnit,
   getMergeBase,
   registerBranch,
+  getCommitMessage,
+  rewriteCommitChain,
 } from "../git/index.ts";
 import { parseCommitTrailers, parseStack } from "../parse/index.ts";
 import { findPRsForBranches, classifyGhInfraError } from "../gh/index.ts";
@@ -27,13 +29,25 @@ import { selectUnits } from "../tui/index.ts";
 import type { PRUnit } from "../parse/types.ts";
 import type { GroupRecords } from "../parse/types.ts";
 import type { SpryConfig } from "../git/config.ts";
+import { parseApplyDoc, reconcile } from "../parse/apply-doc.ts";
+import { loadPRCache, savePRCache } from "../gh/pr-cache.ts";
+import { replaceCommitId } from "../parse/trailers.ts";
+import { generateCommitId } from "../parse/id.ts";
+import { readStdin } from "../lib/read-stdin.ts";
 
 export interface GroupOptions {
   cwd?: string;
+  apply?: string; // JSON string, or "-" to read stdin
+  readStdin?: () => Promise<string>; // test seam; defaults to the real readStdin
 }
 
 export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): Promise<void> {
   const cwd = opts.cwd;
+
+  if (opts.apply !== undefined) {
+    return applyGroupDoc(ctx, opts, cwd);
+  }
+
   const config = await loadConfig(ctx.git, { cwd });
   const branch = await getCurrentBranch(ctx.git, { cwd });
   const ref = trunkRef(config);
@@ -200,4 +214,132 @@ async function adoptPRs(
   }
 
   return result;
+}
+
+// Non-interactive `sp group --apply`. Reads a grouping doc (JSON string, or
+// "-" for stdin), validates + reconciles it against live state, and applies
+// the resulting plan. Fully offline: open-PR ids come only from the local
+// `refs/spry/prs` cache, never from `gh` — the interactive path above is the
+// one that talks to GitHub.
+async function applyGroupDoc(
+  ctx: SpryContext,
+  opts: GroupOptions,
+  cwd: string | undefined,
+): Promise<void> {
+  const config = await loadConfig(ctx.git, { cwd });
+  const branch = await getCurrentBranch(ctx.git, { cwd });
+  const ref = trunkRef(config);
+
+  // Read the JSON (string arg, or "-" for stdin).
+  const readStdinFn = opts.readStdin ?? readStdin;
+  const json = opts.apply === "-" ? await readStdinFn() : (opts.apply ?? "");
+
+  const parsed = parseApplyDoc(json);
+  if (!parsed.ok) {
+    console.error(`✗ ${parsed.error}`);
+    process.exit(1);
+  }
+
+  // Ensure every live commit has an id (so ids are stable handles).
+  const inject = await injectMissingIds(ctx.git, ref, { cwd });
+  if (!inject.ok) {
+    console.error("✗ Cannot run from a detached HEAD. Check out a branch and try again.");
+    process.exit(1);
+  }
+  await registerBranch(ctx.git, branch, { cwd });
+
+  // Snapshot live state.
+  const commits = await getStackCommits(ctx.git, ref, { cwd });
+  const withTrailers = await parseCommitTrailers(commits, ctx.git, { cwd });
+  const liveIds: string[] = [];
+  const liveHashById: Record<string, string> = {};
+  for (const c of withTrailers) {
+    const id = c.trailers["Spry-Commit-Id"];
+    if (!id) {
+      console.error(`✗ Commit ${c.hash.slice(0, 8)} has no Spry-Commit-Id after inject; aborting.`);
+      process.exit(1);
+    }
+    liveIds.push(id);
+    liveHashById[id] = c.hash;
+  }
+
+  const liveGroups = await loadGroupRecords(ctx.git, { cwd });
+
+  // Open-PR ids strictly from the local cache (offline; no gh).
+  const prCache = await loadPRCache(ctx.git, { cwd });
+  const openPrIds = new Set<string>();
+  for (const [unitId, entry] of Object.entries(prCache)) {
+    if (entry.state === "OPEN") openPrIds.add(unitId);
+  }
+
+  const rec = reconcile(parsed.doc, { liveIds, liveHashById, liveGroups, openPrIds });
+  if (!rec.ok) {
+    console.error(`✗ ${rec.error}`);
+    process.exit(1);
+  }
+  const plan = rec.plan;
+
+  // `reconcile` guarantees reissueIds and newOrder are never both set, so at
+  // most one of the two rewrite branches below runs per apply.
+
+  if (plan.reissueIds.length > 0) {
+    // Reissue: rewrite the Spry-Commit-Id trailer on each targeted commit.
+    const oldTip = withTrailers.at(-1)?.hash;
+    if (!oldTip) throw new Error("applyGroupDoc: empty stack");
+    const mergeBase = await getMergeBase(ctx.git, ref, { cwd });
+    const reissueSet = new Set(plan.reissueIds);
+    const messageRewrites = new Map<string, string>();
+    for (const c of withTrailers) {
+      const id = c.trailers["Spry-Commit-Id"];
+      if (!id || !reissueSet.has(id)) continue;
+      const fullMsg = await getCommitMessage(ctx.git, c.hash, { cwd });
+      const newId = generateCommitId();
+      messageRewrites.set(c.hash, await replaceCommitId(fullMsg, newId, ctx.git));
+    }
+    const rewritten = await rewriteCommitChain(
+      ctx.git,
+      withTrailers.map((c) => c.hash),
+      messageRewrites,
+      { cwd, base: mergeBase },
+    );
+    await finalizeRewrite(ctx.git, branch, oldTip, rewritten.newTip, { cwd });
+  } else if (plan.newOrder) {
+    // Reorder: no reissue ran, so plan.newOrder's hashes are still live hashes.
+    const oldTip = withTrailers.at(-1)?.hash;
+    if (!oldTip) throw new Error("applyGroupDoc: empty stack");
+    const mergeBase = await getMergeBase(ctx.git, ref, { cwd });
+    const rebaseResult = await rebasePlumbing(ctx.git, mergeBase, plan.newOrder, { cwd });
+    if (!rebaseResult.ok) {
+      console.error(
+        `✗ Cannot reorder: commit ${rebaseResult.conflictCommit.slice(0, 8)} conflicts.\n${rebaseResult.conflictInfo}`,
+      );
+      process.exit(1);
+    }
+    await finalizeRewrite(ctx.git, branch, oldTip, rebaseResult.newTip, { cwd });
+  }
+
+  // Save group records (full replace).
+  await saveAllGroupRecords(ctx.git, plan.records, { cwd });
+
+  // Persist PR-close intents into the cache for `sp sync` to execute later.
+  // (Adoption is expressed purely by the group record's key being the adopted
+  // member id, which reconcile already set in plan.records — no cache change
+  // is needed for prAdopts.)
+  if (plan.prCloses.length > 0) {
+    const cache = await loadPRCache(ctx.git, { cwd });
+    for (const id of plan.prCloses) {
+      const entry = cache[id];
+      if (entry) entry.state = "CLOSED";
+    }
+    await savePRCache(ctx.git, cache, { cwd });
+  }
+
+  // Push refs/spry/groups best-effort.
+  const pushResult = await pushGroupRecords(ctx.git, config.remote, { cwd });
+  if (!pushResult.ok) {
+    console.log(kleur.dim("⚠ Could not push group records to remote (local changes saved)"));
+  }
+
+  const groupCount = Object.keys(plan.records).length;
+  console.log(`✓ Applied (${groupCount} group${groupCount === 1 ? "" : "s"})`);
 }

@@ -281,6 +281,17 @@ export function reconcile(doc: ParsedDoc, live: LiveState): ReconcileResult {
     docOrder.length === live.liveIds.length && docOrder.every((id, i) => id === live.liveIds[i]);
   const newOrder = sameOrder ? null : docOrder.map((id) => live.liveHashById[id] ?? id);
 
+  // v1: reissuing ids and reordering commits cannot happen in the same apply.
+  // A reissue rewrites commit hashes via a trailer change, which would make
+  // newOrder's captured (pre-reissue) hashes stale. Keep the two rewrites in
+  // separate applies so the command layer only ever runs one of them.
+  if (reissueIds.length > 0 && newOrder !== null) {
+    return {
+      ok: false,
+      error: `An apply cannot both reissue ids and reorder commits in one pass; do them in separate applies`,
+    };
+  }
+
   return { ok: true, plan: { records, reissueIds, newOrder, prCloses, prAdopts } };
 }
 

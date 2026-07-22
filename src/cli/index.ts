@@ -40,7 +40,8 @@ program
 program
   .command("group")
   .description("Interactively group and reorder commits")
-  .action(() => groupCommand(ctx));
+  .option("--apply <json>", 'Apply a grouping doc non-interactively ("-" reads stdin)')
+  .action((opts: { apply?: string }) => groupCommand(ctx, { apply: opts.apply }));
 
 program
   .command("rebase")
