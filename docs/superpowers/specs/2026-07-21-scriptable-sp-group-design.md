@@ -205,6 +205,12 @@ transition would occur, and forbidden otherwise**:
   declared id has no open PR to adopt, or on a group that already held that
   identity (steady state, not a transition) → error.
 
+**Directives attach to the identity, wherever it lives in the tree — not only
+top-level units.** `reissueId` and `pr: "CLOSE"` may appear on a commit nested
+_inside_ a group (e.g. a member that carried its own single-commit PR before
+joining, now being reissued): the directive sits on whichever element owns the
+identity that is changing or losing a PR. "One identity, one acknowledgment."
+
 `pr` is also **shaped differently by direction** (intentional; do not unify): on
 `view --json` **output** it is a _state object_ (`{number, state}` or `null`); on
 `--apply` **input** it is the directive string `"CLOSE"` or `"ADOPT"`. Any other
