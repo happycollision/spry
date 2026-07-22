@@ -145,6 +145,14 @@ Per-field behavior on `--apply` input follows directly:
 
 Notes:
 
+- **IDs are minted only by spry — the caller can never create one.** A real
+  (non-`null`) `id` in the doc is a _reference_ to an id spry already knows
+  about, never a _declaration_ of a new one. Any real `id` not present in the
+  live stack is a **hard error** (see "Unknown id" in the taxonomy). The **only**
+  way a new id comes into existence via `--apply` is `id: null` → spry mints it.
+  (Users may still create ids out-of-band via `git rebase` trailer edits — that
+  is their history — but `--apply` is deliberately **not** a sanctioned tool for
+  minting or asserting ids.)
 - **`id` omitted is a hard error** naming the unit. Every commit and group must
   declare its identity: a real Spry-Commit-Id (keep) or explicit `null`
   (reissue). Round-tripping `view --json` always emits ids, so this only catches
@@ -265,8 +273,14 @@ rewrite.
 - **Missing id** (a live stack commit the doc omits) → error listing the
   unaccounted ids. Strict completeness: the doc must account for every live
   commit. (Round-tripping `view --json` satisfies this naturally.)
-- **Unknown id** (doc names a commit/member not in the live stack — dropped,
-  squashed, or typo) → error naming the id.
+- **Unknown id** — any real (non-`null`) `id` in the doc (commit id, member id,
+  or group id) that is **not present in the live stack** → error naming the id.
+  This is unconditional: it does not matter _why_ the id isn't live (dropped,
+  squashed, typo, or a hand-authored value) — **the caller may never assert an
+  id spry didn't mint.** New ids come only from `id: null` → spry mints. A group
+  `id` that is a real value must be one of its own live members' ids
+  (PR-preservation); otherwise it is either a foreign-identity error (a live but
+  non-member id) or an unknown-id error (not live at all).
 - **Split group** → structurally impossible under the nested schema (members
   are contiguous by construction; any live split is resolved by the reorder).
 - **Reorder conflict** → bail, name the conflicting commit (from
