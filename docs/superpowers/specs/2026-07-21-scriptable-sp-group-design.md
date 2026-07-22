@@ -121,8 +121,9 @@ document describes **desired final state**, not a diff.
 Minimum fields:
 
 - `commit`: `id` (a real Spry-Commit-Id) **or** `id: null`/omitted (= reissue).
-- `group`: `commits[]` (non-empty). `title` optional. `id` optional
-  (`null`/omitted → mint a fresh group id).
+- `group`: `commits[]` (non-empty). `id` optional (`null`/omitted → mint a fresh
+  group id). `title` is **tri-state** — omitted = retain former title, `null`/`""`
+  = wipe, string = set (see "Group title" below).
 
 **Note the `pr` field has two distinct shapes by direction** (intentional; do
 not unify): on `view --json` **output** it is a _state object_ (`{number, state}`
@@ -167,12 +168,30 @@ the intent. `--apply` validates and persists that intent into local state
 the bright line: `group` is offline/local, `sync` is the only PR mutator. It
 also keeps the `--apply` core fully offline-testable (no cassettes).
 
-### Group title fallback
+### Group title: tri-state (omit ≠ null)
 
-`title` is optional on both read and write. When a group has no stored title,
+`title` is the one field where **omit does not equal null** — it is a
+deliberate carve-out from the otherwise-final-state model:
+
+- **omitted** → **retain** the group's currently stored title (from
+  `refs/spry/groups`). "Don't touch."
+- **`null` or `""`** → **wipe** the stored title (clear it).
+- **`"some title"`** → set it.
+
+So the parser **must distinguish "key absent" from "key present with a
+null/empty value"** — `parseApplyDoc` cannot model `title` as a plain optional
+that defaults; it must track field _presence_ (e.g. a discriminated
+`{ set: true, value } | { set: false }`).
+
+When a group ends up with **no** stored title (wiped, or never set),
 **PR-open time (in `sp sync`) falls back to the last member commit's title.**
-`--apply` simply stores `title: null`/omitted; the fallback lives in the
-sync/PR-open path that reads the group record.
+The fallback lives in the sync/PR-open path that reads the group record;
+`--apply` only stores (or clears) the title.
+
+**Contrast with `id`** (intentional asymmetry, do not assume uniform "omit ==
+null"): for `id`, **omit == null == reissue** — there is no retain semantics,
+because a commit/group always has an identity, and omitting it means "mint a
+new one." Only `title` has the absent-vs-empty distinction.
 
 ### Reorder is conflict-gated, never lossy, never dirty-guarded
 
