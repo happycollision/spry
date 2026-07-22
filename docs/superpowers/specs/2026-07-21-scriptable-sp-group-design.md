@@ -104,112 +104,150 @@ member order). Grouping is expressed by nesting.
 ### `sp group --apply` input
 
 The **same tree**. Callers may omit the read-only fields that only appear on
-output (`sha`, `subject`, and the output-shape `pr` state object). Required
-structural/identity fields (`type`, `id`, group `commits`) must always be
-present — omission is an error, never a silent default (see "omission ≠ null"
-below). The document describes **desired final state**, not a diff, with the
-single exception of `title` (PATCH-retain on omission).
+output (`sha`, `subject`, and the output-shape `pr` state object — **`sha` is
+never an input field**, see below). Required structural/identity fields (`type`,
+`id`, group `commits`) must always be present — omission is an error, never a
+silent default (see "omission ≠ null" below). The document describes **desired
+final state**, not a diff, with the single exception of `title` (PATCH-retain on
+omission).
 
 ```jsonc
 {
   "stack": [
     { "type": "commit", "id": "a1b2c3d4" },
-    { "type": "group", "id": "e5f6a7b8", "title": "My feature",
+
+    // reissue an existing commit's id; its open PR (if any) must be acknowledged
+    { "type": "commit", "id": "b3c4d5e6", "reissueId": true, "pr": "CLOSE" },
+
+    // NEW group, fresh minted identity (no PR inheritance)
+    { "type": "group", "id": null, "title": "My feature",
       "commits": [ { "type": "commit", "id": "e5f6a7b8" },
                    { "type": "commit", "id": "c9d0e1f2" } ] },
-    { "type": "commit", "id": "b3c4d5e6" }
+
+    // NEW group that ADOPTS member f0's open PR (declares f0's real id + pr:ADOPT)
+    { "type": "group", "id": "f0f1f2f3", "pr": "ADOPT",
+      "commits": [ { "type": "commit", "id": "f0f1f2f3" },
+                   { "type": "commit", "id": "a4a5a6a7" } ] }
   ]
 }
 ```
 
+### Identity model: caller never mints or names a new id
+
+The caller **always retains every existing unit's real `id`** in the doc and
+**never writes an id spry didn't mint.** Two spry-only minting triggers, both
+explicit:
+
+- **`id: null`** — legal in **exactly one place: a brand-new group** that wants
+  a fresh minted identity (no PR inheritance). A commit `id` is never `null`; an
+  existing group's `id` is never `null`.
+- **`reissueId: true`** — on a commit or an existing group that retains its real
+  `id`: "give this unit a new spry-minted identity as part of this apply." The
+  real `id` is the _handle_ (spry knows which unit to reissue); `reissueId` is
+  the _instruction_. **No `sha` is ever needed** — the retained id identifies the
+  unit unambiguously.
+
+Consequences:
+
+- **There is no `sha` input field at all.** (Earlier drafts required a `sha`
+  handle for reissue; retaining the id removes that need entirely, along with all
+  short-sha resolution/ambiguity logic.)
+- A group taking over a member's PR is **not** `id: null` — it declares that
+  member's **real id** and must carry `pr: "ADOPT"` (see PR directives).
+- Any real `id` in the doc that is not present in the live stack → **hard error**
+  ("Unknown id"). The caller cannot assert an id spry didn't mint. (Users may
+  still create ids out-of-band via `git rebase` trailer edits — their history —
+  but `--apply` is deliberately not that tool.)
+
 ### Governing principle: omission ≠ null (PUT vs PATCH)
 
-**For every field, an omitted key is NEVER coerced to `null`.** This is the
-PUT-vs-PATCH distinction:
+**For every field, an omitted key is NEVER coerced to `null`.** `null`/a present
+value is always _intentional_; omission is either a mistake or a deliberate
+"leave alone," and for identity/structure fields it is a **hard error**, never a
+silent default.
 
-- **`null` (or a present value)** is always _intentional_ — the caller is
-  declaring a specific outcome for that field.
-- **Omission** is either a mistake or a deliberate "leave alone," and its
-  meaning is the field's own identity-level default — which, for fields that
-  govern identity or structure, is a **hard error**, not a silent default.
-
-Per-field behavior on `--apply` input follows directly:
-
-| Field             | present value           | `null`                 | omitted                  |
-| ----------------- | ----------------------- | ---------------------- | ------------------------ |
-| `type`            | `"commit"` / `"group"`  | — (error)              | **error** (required)     |
-| `id`              | keep this identity      | **reissue** (new id)   | **error** (must declare) |
-| `commits` (group) | member list (non-empty) | — (error)              | **error** (required)     |
-| `title` (group)   | set to string           | **wipe** (clear title) | **retain** former title  |
-| `pr`              | `"CLOSE"` directive     | — (error)              | **no closure intent**    |
+| Field             | present value                | `null`                 | omitted                  |
+| ----------------- | ---------------------------- | ---------------------- | ------------------------ |
+| `type`            | `"commit"` / `"group"`       | — (error)              | **error** (required)     |
+| `id` (commit)     | keep this identity (real id) | — (error)              | **error** (must declare) |
+| `id` (group)      | real id (keep/adopt)         | **mint** (new group)   | **error** (must declare) |
+| `reissueId`       | `true` → reissue via minting | — (error)              | `false` (no reissue)     |
+| `commits` (group) | member list (non-empty)      | — (error)              | **error** (required)     |
+| `title` (group)   | set to string                | **wipe** (clear title) | **retain** former title  |
+| `pr`              | `"CLOSE"` / `"ADOPT"`        | — (error)              | **no PR directive**      |
 
 Notes:
 
-- **IDs are minted only by spry — the caller can never create one.** A real
-  (non-`null`) `id` in the doc is a _reference_ to an id spry already knows
-  about, never a _declaration_ of a new one. Any real `id` not present in the
-  live stack is a **hard error** (see "Unknown id" in the taxonomy). The **only**
-  way a new id comes into existence via `--apply` is `id: null` → spry mints it.
-  (Users may still create ids out-of-band via `git rebase` trailer edits — that
-  is their history — but `--apply` is deliberately **not** a sanctioned tool for
-  minting or asserting ids.)
 - **`id` omitted is a hard error** naming the unit. Every commit and group must
-  declare its identity: a real Spry-Commit-Id (keep) or explicit `null`
-  (reissue). Round-tripping `view --json` always emits ids, so this only catches
-  hand-written docs that forgot. There is **no** "omit == reissue" shortcut.
-- **`title` is the only PATCH-retain field** — omitted means "don't touch the
-  stored title." Legitimate because a group always has a prior state to retain;
-  a brand-new group with omitted title simply has no title (see fallback below),
-  which is well-defined, not a coercion.
-- **`pr` omitted = "I am not acknowledging any closure."** This is a real,
-  non-`null` meaning (not a default coercion): it is exactly what makes the
-  "would-close-an-open-PR without `pr:\"CLOSE\"`" check fire.
-- On input, `title: ""` is treated the same as `title: null` (wipe). `""` is
-  never a valid stored title.
+  declare its identity. `id: null` is legal only on a new group.
+- **`reissueId` omitted = `false`** (no reissue). This is the one field whose
+  omission has a safe, non-destructive default, because omission and `false`
+  genuinely mean the same thing (do not reissue) — there is no "retain vs. reset"
+  ambiguity to protect against.
+- **`title` is the only PATCH-retain field** — omitted = retain the stored title;
+  `null`/`""` = wipe; string = set. `""` is never a valid stored title.
+- **`pr` omitted = "no PR directive"** (I am not acknowledging a close or an
+  adopt). A real, non-`null` meaning — it is exactly what makes the
+  unacknowledged-transition checks fire.
 
-**The `pr` field also has two distinct shapes by direction** (intentional; do
-not unify): on `view --json` **output** it is a _state object_ (`{number, state}`
-or `null`) describing the current PR; on `--apply` **input** it is a _directive_
-— the only accepted value is the string literal `"CLOSE"`. Any other `pr` value
-on input is a schema error.
+### PR directives: every PR transition is acknowledged
+
+`pr` on input is a **directive**, not state. Acknowledgment tokens guard
+**state changes**, never steady state — `reconcile` computes the diff between the
+doc's desired state and live state, and each token is **required iff its
+transition would occur, and forbidden otherwise**:
+
+- **`pr: "CLOSE"`** — required on the unit whose identity currently holds an open
+  PR when this apply would close it (the unit is reissued, or its PR branch is
+  otherwise abandoned). Present where nothing would close → error.
+- **`pr: "ADOPT"`** — required on a **new** group that declares an existing
+  member's real id in order to take over that member's open PR. Present where the
+  declared id has no open PR to adopt, or on a group that already held that
+  identity (steady state, not a transition) → error.
+
+`pr` is also **shaped differently by direction** (intentional; do not unify): on
+`view --json` **output** it is a _state object_ (`{number, state}` or `null`); on
+`--apply` **input** it is the directive string `"CLOSE"` or `"ADOPT"`. Any other
+`pr` value on input is a schema error.
 
 ---
 
 ## Core semantics
 
-### Identity is the single PR-preservation mechanism
+### Identity governs PR fate; every transition is acknowledged
 
-There is **no `adopt` field** and **no `idCustody` field**. PR fate follows
-identity, uniformly for commits and groups:
+There is **no `adopt` field** and **no `idCustody` field** (both were considered
+and dropped). PR fate follows identity, uniformly for commits and groups:
 
-- **Keep identity (`id: "<existing>"`)** → same id → same branch
-  (`<prefix>/<id>`) → the open PR follows the unit. (inherit)
-- **Reissue (`id: null`)** → spry mints a fresh id → new branch → the old
-  identity's open PR becomes closeable. (reissue) — `null` only; an **omitted**
-  `id` is a hard error, never a silent reissue (see "omission ≠ null" above).
+- **Keep identity (retain the real `id`, `reissueId` absent/false)** → same id →
+  same branch (`<prefix>/<id>`) → the open PR follows the unit. (inherit)
+- **Reissue (`reissueId: true`, or a new group with `id: null`)** → spry mints a
+  fresh id → new branch → the old identity's open PR becomes closeable, which
+  **must** be acknowledged with `pr: "CLOSE"`. (reissue)
 
-A **group preserves a member's PR by setting the group's `id` to that member's
-id** — the group then publishes on that member's branch and holds its PR. A
-group id that equals one of _its own_ members' ids is therefore **legal and
-expected**, not a duplicate-id collision.
+A **group takes over a member's PR by declaring that member's real `id` as the
+group's `id`** — the group then publishes on that member's branch and holds its
+PR. Because this always corresponds to preserving an open PR, the group **must**
+carry `pr: "ADOPT"` on the apply that first effects it. A group `id` equal to one
+of _its own_ members' ids is therefore **legal and expected**, not a duplicate-id
+collision.
 
 ### Reissue rewrites history (in scope, safe)
 
-Reissuing an id (`id: null`) rewrites that commit's `Spry-Commit-Id` trailer — a
-commit rewrite, like `injectMissingIds`. So a doc containing any `id: null`
-triggers a chain rewrite **even with no reordering**. This is expected and safe;
-the Phase 1 engine work (below) makes chain rewrites content-preserving.
+Reissuing an id (`reissueId: true`, or `id: null` on a new group) rewrites the
+affected commit's `Spry-Commit-Id` trailer — a commit rewrite, like
+`injectMissingIds`. So a doc that reissues any id triggers a chain rewrite **even
+with no reordering**. This is expected and safe; the Phase 1 engine work (below)
+makes chain rewrites content-preserving.
 
-### PR closure is acknowledged here, executed by `sp sync`
+### PR transitions are acknowledged here, executed by `sp sync`
 
-`sp group --apply` **never calls `gh`.** When an apply _would_ eventually close
-an open PR (because a unit is reissued or its PR branch is otherwise
-abandoned), the doc **must** carry `"pr": "CLOSE"` on that unit to acknowledge
-the intent. `--apply` validates and persists that intent into local state
-(`refs/spry/groups` + reissued ids); the **actual PR closure happens later on
-`sp sync`**, which reconciles local state against the remote. This preserves
-the bright line: `group` is offline/local, `sync` is the only PR mutator. It
-also keeps the `--apply` core fully offline-testable (no cassettes).
+`sp group --apply` **never calls `gh`.** It validates and persists PR _intent_
+into local state (`refs/spry/groups` + reissued ids) via the `pr` directives
+(`CLOSE`/`ADOPT`); the **actual PR mutation happens later on `sp sync`**, which
+reconciles local state against the remote. This preserves the bright line:
+`group` is offline/local, `sync` is the only PR mutator. It also keeps the
+`--apply` core fully offline-testable (no cassettes).
 
 ### Group title: the PATCH-retain field
 
@@ -257,16 +295,23 @@ rewrite.
 - **Omitted required field is an error, distinct from a present `null`**
   (omission ≠ null): a missing `type`, a missing `id` on any unit, or a `group`
   with no `commits` key → error naming the unit. An omitted `id` is **never**
-  coerced to reissue — reissue requires an explicit `id: null`.
+  coerced to reissue — reissue requires an explicit `reissueId: true`.
+- **`sha` present as an input field** → error (there is no input `sha`; it is
+  output-only). Reissue never needs a sha handle.
+- **`id: null` anywhere other than a new group** (a commit, or an existing
+  group) → error. `id: null` means "mint a new-group identity" and is legal only
+  there.
+- **`reissueId: true` together with `id: null`** → error (contradiction: cannot
+  reissue something that is simultaneously a brand-new mint).
 - Empty group (`commits: []`) → error. (Dissolution is expressed by listing
   former members as ungrouped commits, never as an empty shell.)
 - Duplicate **commit id** across two stack positions → error.
 - Two **groups** with the same `id` → error.
-- Group `id` equal to a commit id that is **not one of its own members**
-  → error (foreign identity claim).
-- Group `id` equal to **one of its own members' ids** → **legal**
-  (PR preservation).
-- `"pr": "CLOSE"` present on a unit where nothing would actually close → error.
+- Group `id` (real value) equal to a commit id that is **not one of its own
+  members** → error (foreign identity claim).
+- Group `id` equal to **one of its own members' ids** → **legal** (adoption;
+  requires `pr: "ADOPT"` on the adoption transition — see reconciliation).
+- `pr` value other than `"CLOSE"` / `"ADOPT"` on input → error.
 
 ### Reconciliation (doc vs. live stack)
 
@@ -277,16 +322,25 @@ rewrite.
   or group id) that is **not present in the live stack** → error naming the id.
   This is unconditional: it does not matter _why_ the id isn't live (dropped,
   squashed, typo, or a hand-authored value) — **the caller may never assert an
-  id spry didn't mint.** New ids come only from `id: null` → spry mints. A group
-  `id` that is a real value must be one of its own live members' ids
-  (PR-preservation); otherwise it is either a foreign-identity error (a live but
-  non-member id) or an unknown-id error (not live at all).
+  id spry didn't mint.** New ids come only from spry minting — triggered by
+  `id: null` (new group) or `reissueId: true` (reissue) — never from a value the
+  caller typed. A group `id` that is a real value must be one of its own live
+  members' ids (adoption); otherwise it is either a foreign-identity error (a
+  live but non-member id) or an unknown-id error (not live at all).
 - **Split group** → structurally impossible under the nested schema (members
   are contiguous by construction; any live split is resolved by the reorder).
 - **Reorder conflict** → bail, name the conflicting commit (from
   `rebasePlumbing` `ok:false`).
-- **Would close an open PR without `"pr": "CLOSE"`** → error naming the unit
-  and the PR that would close.
+- **Acknowledgment tokens guard state changes, validated against the diff** —
+  each is required iff its transition would occur, and forbidden otherwise:
+  - **Would close an open PR without `pr: "CLOSE"`** → error naming the unit and
+    the PR that would close.
+  - **`pr: "CLOSE"` present where nothing would actually close** → error.
+  - **A new group adopts a member's open PR (declares its real id) without
+    `pr: "ADOPT"`** → error naming the group and the PR.
+  - **`pr: "ADOPT"` present where the declared id has no open PR to adopt, or on
+    a group that already held that identity** (steady state, not a transition)
+    → error.
 
 ---
 
@@ -408,10 +462,11 @@ CLI: add `--apply <json>` to the `group` command in `src/cli/index.ts`.
   taxonomy (pure, offline).
 - `tests/commands/group.doc.test.ts` (extend/add) drives the **real `sp`
   binary** non-interactively via stdin JSON (no TTY → agent-runnable):
-  create group, dissolve (members ungrouped), reissue (`id: null`), reorder,
-  group-holds-member-PR (id identity), and the `pr: "CLOSE"` acknowledgment
-  path (verifying the intent is persisted locally; actual closure is a sync
-  concern).
+  create group (fresh `id: null`), dissolve (members ungrouped), reissue
+  (`reissueId: true`), reorder, group adoption (`id` = member id + `pr: "ADOPT"`),
+  and the `pr: "CLOSE"`/`pr: "ADOPT"` acknowledgment paths — including the
+  required/forbidden-token error cases (verifying intent is persisted locally;
+  actual PR mutation is a sync concern).
 - Pure grouping/reorder/reissue stays fully offline (no cassettes). Any path
   that reads PR state uses the existing cache; `--apply` adds no `gh` calls, so
   no new cassettes are required for the core.
@@ -423,10 +478,10 @@ CLI: add `--apply <json>` to the `group` command in `src/cli/index.ts`.
 Amend `docs/rebuild-roadmap.md` → "`sp group` helper capabilities — dropped":
 `--apply` is being **redesigned rebuild-native** — a declarative, nested
 final-state document reconciled against `refs/spry/groups` and the live stack,
-with identity-based PR preservation and explicit reissue/PR-close
-acknowledgment — exactly as that section invited. `--fix` and explicit
-`dissolve` remain dropped (dissolution is expressed declaratively by
-ungrouping).
+with identity-based PR handling (retained ids; `id: null`/`reissueId` mint;
+`pr: "CLOSE"`/`"ADOPT"` acknowledge transitions) — exactly as that section
+invited. `--fix` and explicit `dissolve` remain dropped (dissolution is
+expressed declaratively by ungrouping).
 
 ## Out-of-band discoveries (file as beads issues)
 
