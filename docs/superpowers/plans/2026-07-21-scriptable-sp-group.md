@@ -967,9 +967,10 @@ test("reconcile: new group (id:null) -> minted 8-hex id, members recorded", () =
 });
 
 test("reconcile: title omitted on existing group -> retains stored title", () => {
+  // Existing group (id in liveGroups) = steady-state edit; no pr:ADOPT (would error).
   const liveGroups: GroupRecords = { aaaaaaaa: { title: "Old", members: ["aaaaaaaa", "bbbbbbbb"] } };
   const plan = recOk(JSON.stringify({ stack: [
-    { type: "group", id: "aaaaaaaa", pr: "ADOPT", commits: [
+    { type: "group", id: "aaaaaaaa", commits: [
       { type: "commit", id: "aaaaaaaa" }, { type: "commit", id: "bbbbbbbb" },
     ] },
   ] }), { ...LIVE2, liveGroups, openPrIds: ["aaaaaaaa"] });
@@ -979,7 +980,7 @@ test("reconcile: title omitted on existing group -> retains stored title", () =>
 test("reconcile: title null on group -> wiped to empty", () => {
   const liveGroups: GroupRecords = { aaaaaaaa: { title: "Old", members: ["aaaaaaaa", "bbbbbbbb"] } };
   const plan = recOk(JSON.stringify({ stack: [
-    { type: "group", id: "aaaaaaaa", title: null, pr: "ADOPT", commits: [
+    { type: "group", id: "aaaaaaaa", title: null, commits: [
       { type: "commit", id: "aaaaaaaa" }, { type: "commit", id: "bbbbbbbb" },
     ] },
   ] }), { ...LIVE2, liveGroups, openPrIds: ["aaaaaaaa"] });
