@@ -13,7 +13,7 @@ import {
   loadGroupRecords,
   buildCommitGroupMap,
   extractGroupTitles,
-  rewriteCommitChain,
+  rebasePlumbing,
   finalizeRewrite,
   branchForUnit,
   getMergeBase,
@@ -112,16 +112,19 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
     config,
   );
 
-  // Reorder commits if the stack order changed
+  // Reorder commits if the stack order changed (diff-replay; bail on conflict)
   if (result.newOrder) {
     const oldTip = withTrailers.at(-1)?.hash;
     if (!oldTip) throw new Error("groupCommand: unexpected empty commit list");
     const mergeBase = await getMergeBase(ctx.git, ref, { cwd });
-    const rewriteResult = await rewriteCommitChain(ctx.git, result.newOrder, new Map(), {
-      cwd,
-      base: mergeBase,
-    });
-    await finalizeRewrite(ctx.git, branch, oldTip, rewriteResult.newTip, { cwd });
+    const rebaseResult = await rebasePlumbing(ctx.git, mergeBase, result.newOrder, { cwd });
+    if (!rebaseResult.ok) {
+      console.error(
+        `✗ Cannot reorder: commit ${rebaseResult.conflictCommit.slice(0, 8)} conflicts.\n${rebaseResult.conflictInfo}`,
+      );
+      process.exit(1);
+    }
+    await finalizeRewrite(ctx.git, branch, oldTip, rebaseResult.newTip, { cwd });
     console.log(`✓ Reordered ${result.newOrder.length} commits`);
   }
 
