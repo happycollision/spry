@@ -55,3 +55,38 @@ export type IdentifierResolution =
 export type UpToResolution =
   | { ok: true; unitIds: Set<string> }
   | { ok: false; error: IdentifierResolution };
+
+// --- Nested stack tree (sp view --json output; sp group --apply input) ---
+
+// Output-only PR state object emitted by `view --json`.
+export interface PrStateInfo {
+  number: number;
+  state: "OPEN" | "CLOSED" | "MERGED";
+}
+
+// A commit node. On output all fields are present; on input only `id`
+// (real Spry-Commit-Id) is required, `reissueId`/`pr` are optional directives.
+export interface StackTreeCommit {
+  type: "commit";
+  id: string;
+  sha?: string; // output only
+  subject?: string; // output only
+  pr?: PrStateInfo | null | "CLOSE" | "ADOPT"; // output: state object|null; input: directive
+  reissueId?: boolean; // input only
+}
+
+// A group node nesting an ordered array of commit nodes.
+export interface StackTreeGroup {
+  type: "group";
+  id: string | null; // output: real id; input: real id (keep/adopt) or null (mint new group)
+  title?: string | null; // output: current title|null; input: tri-state (see spec)
+  pr?: PrStateInfo | null | "CLOSE" | "ADOPT";
+  reissueId?: boolean; // input only
+  commits: StackTreeCommit[];
+}
+
+export type StackTreeNode = StackTreeCommit | StackTreeGroup;
+
+export interface StackTree {
+  stack: StackTreeNode[];
+}
