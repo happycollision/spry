@@ -1,7 +1,9 @@
 // src/parse/apply-doc.ts
 //
-// Pure schema validation for `sp group --apply` documents. No git, no IO —
-// takes a JSON string and returns a parsed, validated document or an error.
+// Pure schema validation and reconciliation for `sp group --apply` documents.
+// No git, no IO — `parseApplyDoc` takes a JSON string and returns a parsed,
+// validated document or an error; `reconcile` takes that document plus a
+// snapshot of live state and produces a plan or a typed error.
 
 import type { GroupRecords } from "./types.ts";
 import { generateCommitId } from "./id.ts";
@@ -194,9 +196,17 @@ export function reconcile(doc: ParsedDoc, live: LiveState): ReconcileResult {
     // group
     const memberIds = node.members.map((m) => m.id);
 
-    // member-level reissue/close directives (directives attach to identity, incl. nested)
+    // member-level reissue/close directives (directives attach to identity, incl. nested).
+    // v1: reissuing a GROUPED member is forbidden — the trailer rewrite would mint a new
+    // id that the group record's member list (built from old ids) can't track. Ungroup,
+    // reissue, then regroup across separate applies if truly needed.
     for (const m of node.members) {
-      handleReissueAndClose(m, live, reissueIds, prCloses);
+      if (m.reissueId) {
+        return {
+          ok: false,
+          error: `Cannot reissue ${m.id}: it is a member of a group. Ungroup it first (reissuing a grouped member is not supported).`,
+        };
+      }
       const err = checkPr(m, live);
       if (err) return { ok: false, error: err };
     }

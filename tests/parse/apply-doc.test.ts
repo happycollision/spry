@@ -481,3 +481,94 @@ test("reconcile: pr:ADOPT on an already-existing (already-held) group -> error",
     ),
   ).toMatch(/already holds|remove pr:ADOPT|adopt/i);
 });
+
+test("reconcile: reissuing a grouped member is rejected in v1", () => {
+  expect(
+    recErr(
+      JSON.stringify({
+        stack: [
+          {
+            type: "group",
+            id: null,
+            commits: [
+              { type: "commit", id: "aaaaaaaa", reissueId: true, pr: "CLOSE" },
+              { type: "commit", id: "bbbbbbbb" },
+            ],
+          },
+        ],
+      }),
+      { ...LIVE2, openPrIds: ["aaaaaaaa"] },
+    ),
+  ).toMatch(/member of a group|ungroup|not supported/i);
+});
+
+test("reconcile: group newly adopts a member's open PR -> prAdopts + records set", () => {
+  const plan = recOk(
+    JSON.stringify({
+      stack: [
+        {
+          type: "group",
+          id: "aaaaaaaa",
+          title: "G",
+          pr: "ADOPT",
+          commits: [
+            { type: "commit", id: "aaaaaaaa" },
+            { type: "commit", id: "bbbbbbbb" },
+          ],
+        },
+      ],
+    }),
+    { ...LIVE2, openPrIds: ["aaaaaaaa"] },
+  ); // aaaaaaaa NOT in liveGroups -> adoption transition
+  expect(plan.prAdopts).toEqual(["aaaaaaaa"]);
+  expect(plan.records["aaaaaaaa"]).toEqual({ title: "G", members: ["aaaaaaaa", "bbbbbbbb"] });
+});
+
+test("reconcile: reissue an existing group with open PR requires pr:CLOSE", () => {
+  const liveGroups: GroupRecords = {
+    "99999999": { title: "G", members: ["aaaaaaaa", "bbbbbbbb"] },
+  };
+  expect(
+    recErr(
+      JSON.stringify({
+        stack: [
+          {
+            type: "group",
+            id: "99999999",
+            reissueId: true,
+            commits: [
+              { type: "commit", id: "aaaaaaaa" },
+              { type: "commit", id: "bbbbbbbb" },
+            ],
+          },
+        ],
+      }),
+      { ...LIVE2, liveGroups, openPrIds: ["99999999"] },
+    ),
+  ).toMatch(/close/i);
+});
+
+test("reconcile: reissue an existing group with pr:CLOSE -> reissueIds + prCloses", () => {
+  const liveGroups: GroupRecords = {
+    "99999999": { title: "G", members: ["aaaaaaaa", "bbbbbbbb"] },
+  };
+  const plan = recOk(
+    JSON.stringify({
+      stack: [
+        {
+          type: "group",
+          id: "99999999",
+          reissueId: true,
+          pr: "CLOSE",
+          commits: [
+            { type: "commit", id: "aaaaaaaa" },
+            { type: "commit", id: "bbbbbbbb" },
+          ],
+        },
+      ],
+    }),
+    { ...LIVE2, liveGroups, openPrIds: ["99999999"] },
+  );
+  expect(plan.reissueIds).toContain("99999999");
+  expect(plan.prCloses).toContain("99999999");
+});
