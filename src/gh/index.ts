@@ -33,7 +33,6 @@ export type {
 } from "./push.ts";
 export {
   formatPRTitle,
-  formatPRBody,
   stripTrailers,
   MARKERS,
   BETA_WARNING,

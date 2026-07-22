@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { formatPRTitle, formatPRBody, stripTrailers } from "../../src/gh/pr-body.ts";
+import { formatPRTitle, stripTrailers } from "../../src/gh/pr-body.ts";
 import type { CommitInfo, PRUnit } from "../../src/parse/types.ts";
 
 function commit(hash: string, subject: string, body: string): CommitInfo {
@@ -64,37 +64,5 @@ describe("formatPRTitle", () => {
   test("falls back to unit.title when commit not found in list", () => {
     const unit = singleUnit("aaa11111", "missing", "Cached title");
     expect(formatPRTitle(unit, [])).toBe("Cached title");
-  });
-});
-
-describe("formatPRBody", () => {
-  test("returns commit prose with trailers stripped", () => {
-    const unit = singleUnit("aaa11111", "abc", "Add login page");
-    const commits = [
-      commit(
-        "abc",
-        "Add login page",
-        "Implements OAuth via the platform SDK.\n\nSpry-Commit-Id: aaa11111",
-      ),
-    ];
-    expect(formatPRBody(unit, commits)).toBe("Implements OAuth via the platform SDK.");
-  });
-
-  test("returns empty string when commit has no body", () => {
-    const unit = singleUnit("aaa11111", "abc", "Subject");
-    const commits = [commit("abc", "Subject", "")];
-    expect(formatPRBody(unit, commits)).toBe("");
-  });
-
-  test("returns empty string for a group unit", () => {
-    const groupUnit: PRUnit = {
-      type: "group",
-      id: "grp1",
-      title: "G",
-      commitIds: ["a", "b"],
-      commits: ["aaa", "bbb"],
-      subjects: ["A", "B"],
-    };
-    expect(formatPRBody(groupUnit, [])).toBe("");
   });
 });

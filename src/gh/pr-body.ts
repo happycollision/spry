@@ -49,18 +49,6 @@ export function formatPRTitle(unit: PRUnit, commits: CommitInfo[]): string {
 }
 
 /**
- * @deprecated Superseded by generateBodyContent (used by the reusable-PR-body
- * path). Kept until sp sync's create path fully migrates. Do not add features
- * here — change generateBodyContent instead.
- */
-export function formatPRBody(unit: PRUnit, commits: CommitInfo[]): string {
-  if (unit.type !== "single") return "";
-  const commit = commits.find((c) => c.hash === unit.commits[0]);
-  if (!commit) return "";
-  return stripTrailers(commit.body);
-}
-
-/**
  * Body content for the spry:body region.
  * Single unit: the commit body with trailers removed. Group unit: a bulleted
  * list of the commit subjects.
@@ -70,8 +58,8 @@ export function generateBodyContent(unit: PRUnit, commits: CommitInfo[]): string
     const commit = commits.find((c) => c.hash === unit.commits[0]);
     if (!commit) return "";
     // commit.body is git's %b — the subject line is NOT included (see
-    // parseCommitLog in src/git/queries.ts). So we only strip trailers, exactly
-    // like the existing formatPRBody. Do NOT drop a "first line": %b has none.
+    // parseCommitLog in src/git/queries.ts). So we only strip trailers; do NOT
+    // drop a "first line": %b has none.
     return stripTrailers(commit.body).trim();
   }
   return unit.subjects.map((s) => `- ${s}`).join("\n");
