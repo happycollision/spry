@@ -32,12 +32,14 @@ function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-type PrParseResult = { ok: true; pr: "CLOSE" | "ADOPT" | undefined } | { ok: false; error: string };
+type PrParseResult =
+  | { ok: true; prAction: "CLOSE" | "ADOPT" | undefined }
+  | { ok: false; error: string };
 
 function parsePr(raw: Record<string, unknown>, where: string): PrParseResult {
-  if (!("prAction" in raw)) return { ok: true, pr: undefined };
-  const pr = raw.prAction;
-  if (pr === "CLOSE" || pr === "ADOPT") return { ok: true, pr };
+  if (!("prAction" in raw)) return { ok: true, prAction: undefined };
+  const prAction = raw.prAction;
+  if (prAction === "CLOSE" || prAction === "ADOPT") return { ok: true, prAction };
   return {
     ok: false,
     error: `Invalid prAction directive on ${where}: expected "CLOSE" or "ADOPT"`,
@@ -65,7 +67,7 @@ function parseCommit(raw: unknown, where: string): ParsedCommit | string {
     kind: "commit",
     id: raw.id,
     reissueId,
-    ...(prResult.pr ? { prAction: prResult.pr } : {}),
+    ...(prResult.prAction ? { prAction: prResult.prAction } : {}),
   };
 }
 
@@ -114,7 +116,7 @@ function parseGroup(raw: Record<string, unknown>, where: string): ParsedGroup | 
     reissueId,
     titleField,
     members,
-    ...(prResult.pr ? { prAction: prResult.pr } : {}),
+    ...(prResult.prAction ? { prAction: prResult.prAction } : {}),
   };
 }
 
@@ -292,10 +294,7 @@ export function reconcile(doc: ParsedDoc, live: LiveState): ReconcileResult {
       // directive (it lives on the group node whose id equals the adopted
       // member's id; see case 3 above).
       if (m.prAction === "ADOPT") {
-        return {
-          ok: false,
-          error: `prAction:"ADOPT" is only valid on a group that adopts a member's PR`,
-        };
+        return { ok: false, error: adoptNotValidOnCommitError() };
       }
 
       // Abandonment (case 1): a member with an open PR whose id is NOT the
@@ -316,10 +315,7 @@ export function reconcile(doc: ParsedDoc, live: LiveState): ReconcileResult {
       } else if (m.prAction === "CLOSE") {
         // Member acknowledges a CLOSE but its PR isn't actually abandoned
         // (either no open PR, or it IS the group's resolved identity).
-        return {
-          ok: false,
-          error: `prAction:"CLOSE" on ${m.id} but nothing would close`,
-        };
+        return { ok: false, error: nothingWouldCloseError(m.id) };
       }
     }
 
@@ -352,8 +348,17 @@ export function reconcile(doc: ParsedDoc, live: LiveState): ReconcileResult {
   // prAction:"CLOSE" for it — dissolution cannot acknowledge a PR close — so
   // this is a hard error instructing the user to reissue or restructure
   // instead of silently orphaning (or silently closing) the PR.
+  //
+  // EXCEPT: when live.liveGroups' key is an ADOPTED member id (not a minted
+  // non-member id), a node in the doc DID carry the close — either the
+  // reissue-close path (handleReissueAndClose) or case 1's member-absorption
+  // path — and pushed it into prCloses already. Only a truly node-less id (a
+  // minted group id with no surviving node anywhere) has "no home" for the
+  // acknowledgment; an adopted id whose close was acknowledged on the
+  // surviving member/commit node must not re-error here.
+  const closedAck = new Set(prCloses);
   for (const id of live.openPrIds) {
-    if (id in live.liveGroups && !heldIds.has(id)) {
+    if (id in live.liveGroups && !heldIds.has(id) && !closedAck.has(id)) {
       return {
         ok: false,
         error: `Group ${id} holds an open PR but is being dissolved; dissolution cannot acknowledge a PR close. Reissue or restructure instead.`,
@@ -392,6 +397,16 @@ function handleReissueAndClose(
   }
 }
 
+// Shared error messages for prAction misuse on a commit-shaped node (a
+// top-level commit or a group member) — both checkPr and the group member
+// loop can hit these, and duplicating the strings risked the two drifting.
+function adoptNotValidOnCommitError(): string {
+  return `prAction:"ADOPT" is only valid on a group that adopts a member's PR`;
+}
+function nothingWouldCloseError(id: string): string {
+  return `prAction:"CLOSE" on ${id} but nothing would close`;
+}
+
 // Validate a top-level commit unit's prAction directive against whether a
 // transition actually occurs. (Group members are validated inline in the
 // group member loop, where the group's resolved id is known — see the
@@ -402,13 +417,12 @@ function checkPr(node: ParsedCommit, live: LiveState): string | null {
   if (node.prAction === "CLOSE") {
     // CLOSE is only valid if this apply would close an open PR: i.e. reissue of a unit with an open PR.
     const wouldClose = node.reissueId && hasOpen;
-    if (!wouldClose) return `prAction:"CLOSE" on ${node.id} but nothing would close`;
+    if (!wouldClose) return nothingWouldCloseError(node.id);
   }
   if (node.reissueId && hasOpen && node.prAction !== "CLOSE") {
     return `Reissuing ${node.id} closes its open PR; add "prAction":"CLOSE"`;
   }
   // ADOPT is not valid on a commit unit.
-  if (node.prAction === "ADOPT")
-    return `prAction:"ADOPT" is only valid on a group that adopts a member's PR`;
+  if (node.prAction === "ADOPT") return adoptNotValidOnCommitError();
   return null;
 }

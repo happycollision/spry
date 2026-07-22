@@ -564,7 +564,7 @@ test("reconcile: prAction:ADOPT on an already-existing (already-held) group -> e
       }),
       { ...LIVE2, liveGroups, openPrIds: ["aaaaaaaa"] },
     ),
-  ).toMatch(/already holds|remove pr:ADOPT|adopt/i);
+  ).toMatch(/already holds|remove prAction:ADOPT|adopt/i);
 });
 
 test("reconcile: reissuing a grouped member is rejected in v1", () => {
@@ -762,4 +762,85 @@ test('reconcile: old-name pr:"CLOSE" (not prAction) on a reissue-with-open-PR no
       { ...LIVE2, openPrIds: ["aaaaaaaa"] },
     ),
   ).toMatch(/prAction/i);
+});
+
+test("reconcile: adopted-id group dissolved, member retains id top-level -> ok, no close needed", () => {
+  // group "aaaaaaaa" (an adopted member id) is dissolved; member aaaaaaaa reappears
+  // top-level, so the id is still HELD -> the PR reverts to the single-commit unit, no CLOSE.
+  const liveGroups: GroupRecords = { aaaaaaaa: { title: "G", members: ["aaaaaaaa", "bbbbbbbb"] } };
+  const plan = recOk(
+    JSON.stringify({
+      stack: [
+        { type: "commit", id: "aaaaaaaa" },
+        { type: "commit", id: "bbbbbbbb" },
+      ],
+    }),
+    { ...LIVE2, liveGroups, openPrIds: ["aaaaaaaa"] },
+  );
+  expect(plan.prCloses).not.toContain("aaaaaaaa");
+});
+
+test("reconcile: adopted-id group's member absorbed into a new group with prAction:CLOSE -> ok", () => {
+  // aaaaaaaa was an adopted group id (in liveGroups) with an open PR; now aaaaaaaa
+  // becomes a member of a NEW minted group that does not keep its id -> absorbed,
+  // acknowledged with prAction:CLOSE on the member. Must NOT hit the case-2 error.
+  const liveGroups: GroupRecords = { aaaaaaaa: { title: "G", members: ["aaaaaaaa", "bbbbbbbb"] } };
+  const plan = recOk(
+    JSON.stringify({
+      stack: [
+        {
+          type: "group",
+          id: null,
+          title: "New",
+          commits: [
+            { type: "commit", id: "aaaaaaaa", prAction: "CLOSE" },
+            { type: "commit", id: "bbbbbbbb" },
+          ],
+        },
+      ],
+    }),
+    { ...LIVE2, liveGroups, openPrIds: ["aaaaaaaa"] },
+  );
+  expect(plan.prCloses).toContain("aaaaaaaa");
+});
+
+test("reconcile: member-level prAction:CLOSE where nothing would close -> error", () => {
+  // member has NO open PR but carries prAction:CLOSE -> nothing to close.
+  expect(
+    recErr(
+      JSON.stringify({
+        stack: [
+          {
+            type: "group",
+            id: null,
+            commits: [
+              { type: "commit", id: "aaaaaaaa", prAction: "CLOSE" },
+              { type: "commit", id: "bbbbbbbb" },
+            ],
+          },
+        ],
+      }),
+      { ...LIVE2 }, // no openPrIds
+    ),
+  ).toMatch(/nothing would close|close/i);
+});
+
+test("reconcile: member-level prAction:ADOPT is rejected (ADOPT only valid on group)", () => {
+  expect(
+    recErr(
+      JSON.stringify({
+        stack: [
+          {
+            type: "group",
+            id: null,
+            commits: [
+              { type: "commit", id: "aaaaaaaa", prAction: "ADOPT" },
+              { type: "commit", id: "bbbbbbbb" },
+            ],
+          },
+        ],
+      }),
+      { ...LIVE2 },
+    ),
+  ).toMatch(/adopt/i);
 });
