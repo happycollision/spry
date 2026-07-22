@@ -29,10 +29,9 @@ test("commit with id:null errors (only new groups may be null)", () => {
   expect(err(JSON.stringify({ stack: [{ type: "commit", id: null }] }))).toMatch(/null/i);
 });
 
-test("sha present as input field errors", () => {
-  expect(
-    err(JSON.stringify({ stack: [{ type: "commit", id: "aaaaaaaa", sha: "deadbeef" }] })),
-  ).toMatch(/sha/i);
+test("sha present as input field is ignored (not rejected)", () => {
+  const doc = ok(JSON.stringify({ stack: [{ type: "commit", id: "aaaaaaaa", sha: "deadbeef" }] }));
+  expect(doc.stack[0]!).toMatchObject({ kind: "commit", id: "aaaaaaaa" });
 });
 
 test("empty group errors", () => {
@@ -62,10 +61,57 @@ test("reissueId:true with id:null errors (contradiction)", () => {
   ).toMatch(/reissue|contradiction|null/i);
 });
 
-test("pr value other than CLOSE/ADOPT errors", () => {
-  expect(err(JSON.stringify({ stack: [{ type: "commit", id: "aaaaaaaa", pr: "MERGE" }] }))).toMatch(
-    /pr/i,
+test("prAction value other than CLOSE/ADOPT errors", () => {
+  expect(
+    err(JSON.stringify({ stack: [{ type: "commit", id: "aaaaaaaa", prAction: "MERGE" }] })),
+  ).toMatch(/prAction/i);
+});
+
+test("round-trip: a raw view --json commit node (sha/subject/pr present) parses OK", () => {
+  const doc = ok(
+    JSON.stringify({
+      stack: [{ type: "commit", id: "aaaaaaaa", sha: "deadbeef", subject: "x", pr: null }],
+    }),
   );
+  expect(doc.stack[0]!).toMatchObject({ kind: "commit", id: "aaaaaaaa", reissueId: false });
+});
+
+test("round-trip: a raw view --json commit node with an open pr object parses OK", () => {
+  const doc = ok(
+    JSON.stringify({
+      stack: [
+        {
+          type: "commit",
+          id: "aaaaaaaa",
+          sha: "deadbeef",
+          subject: "x",
+          pr: { number: 5, state: "OPEN" },
+        },
+      ],
+    }),
+  );
+  expect(doc.stack[0]!).toMatchObject({ kind: "commit", id: "aaaaaaaa", reissueId: false });
+});
+
+test("output pr object (ignored) plus prAction directive (honored) both present -> directive takes effect", () => {
+  const doc = ok(
+    JSON.stringify({
+      stack: [
+        {
+          type: "commit",
+          id: "aaaaaaaa",
+          sha: "deadbeef",
+          subject: "x",
+          pr: { number: 5, state: "OPEN" },
+          reissueId: true,
+          prAction: "CLOSE",
+        },
+      ],
+    }),
+  );
+  const node = doc.stack[0]!;
+  if (node.kind !== "commit") throw new Error("commit");
+  expect(node.pr).toBe("CLOSE");
 });
 
 test("duplicate commit id across positions errors", () => {
@@ -363,7 +409,7 @@ test("reconcile: title null on group -> wiped to empty", () => {
   expect(plan.records["aaaaaaaa"]!.title).toBe("");
 });
 
-test("reconcile: reissue a commit with open PR without pr:CLOSE -> error", () => {
+test("reconcile: reissue a commit with open PR without prAction:CLOSE -> error", () => {
   expect(
     recErr(
       JSON.stringify({
@@ -377,11 +423,11 @@ test("reconcile: reissue a commit with open PR without pr:CLOSE -> error", () =>
   ).toMatch(/close|acknowledge/i);
 });
 
-test("reconcile: reissue with pr:CLOSE -> reissueIds + prCloses set", () => {
+test("reconcile: reissue with prAction:CLOSE -> reissueIds + prCloses set", () => {
   const plan = recOk(
     JSON.stringify({
       stack: [
-        { type: "commit", id: "aaaaaaaa", reissueId: true, pr: "CLOSE" },
+        { type: "commit", id: "aaaaaaaa", reissueId: true, prAction: "CLOSE" },
         { type: "commit", id: "bbbbbbbb" },
       ],
     }),
@@ -391,12 +437,12 @@ test("reconcile: reissue with pr:CLOSE -> reissueIds + prCloses set", () => {
   expect(plan.prCloses).toContain("aaaaaaaa");
 });
 
-test("reconcile: pr:CLOSE where nothing would close -> error", () => {
+test("reconcile: prAction:CLOSE where nothing would close -> error", () => {
   expect(
     recErr(
       JSON.stringify({
         stack: [
-          { type: "commit", id: "aaaaaaaa", pr: "CLOSE" },
+          { type: "commit", id: "aaaaaaaa", prAction: "CLOSE" },
           { type: "commit", id: "bbbbbbbb" },
         ],
       }),
@@ -405,7 +451,7 @@ test("reconcile: pr:CLOSE where nothing would close -> error", () => {
   ).toMatch(/nothing.*close|no.*pr/i);
 });
 
-test("reconcile: group adopts member PR (id=member) requires pr:ADOPT", () => {
+test("reconcile: group adopts member PR (id=member) requires prAction:ADOPT", () => {
   expect(
     recErr(
       JSON.stringify({
@@ -425,7 +471,7 @@ test("reconcile: group adopts member PR (id=member) requires pr:ADOPT", () => {
   ).toMatch(/adopt/i);
 });
 
-test("reconcile: pr:ADOPT where declared id has no open PR -> error", () => {
+test("reconcile: prAction:ADOPT where declared id has no open PR -> error", () => {
   expect(
     recErr(
       JSON.stringify({
@@ -433,7 +479,7 @@ test("reconcile: pr:ADOPT where declared id has no open PR -> error", () => {
           {
             type: "group",
             id: "aaaaaaaa",
-            pr: "ADOPT",
+            prAction: "ADOPT",
             commits: [
               { type: "commit", id: "aaaaaaaa" },
               { type: "commit", id: "bbbbbbbb" },
@@ -458,7 +504,7 @@ test("reconcile: group id equal to a NON-member live id -> foreign identity erro
           {
             type: "group",
             id: "cccccccc",
-            pr: "ADOPT",
+            prAction: "ADOPT",
             commits: [
               { type: "commit", id: "aaaaaaaa" },
               { type: "commit", id: "bbbbbbbb" },
@@ -475,7 +521,7 @@ test("reconcile: group id equal to a NON-member live id -> foreign identity erro
 test("reconcile: existing group with a MINTED (non-member) id is editable, no ADOPT needed", () => {
   // A group created earlier with id:null got a minted id "99999999" that is NOT
   // any member's id. A round-tripped doc references it by that id; editing it
-  // (e.g. renaming) must succeed WITHOUT pr:ADOPT and WITHOUT a foreign-identity error.
+  // (e.g. renaming) must succeed WITHOUT prAction:ADOPT and WITHOUT a foreign-identity error.
   const liveGroups: GroupRecords = {
     "99999999": { title: "Old", members: ["aaaaaaaa", "bbbbbbbb"] },
   };
@@ -499,7 +545,7 @@ test("reconcile: existing group with a MINTED (non-member) id is editable, no AD
   expect(plan.prAdopts).not.toContain("99999999");
 });
 
-test("reconcile: pr:ADOPT on an already-existing (already-held) group -> error", () => {
+test("reconcile: prAction:ADOPT on an already-existing (already-held) group -> error", () => {
   const liveGroups: GroupRecords = { aaaaaaaa: { title: "G", members: ["aaaaaaaa", "bbbbbbbb"] } };
   expect(
     recErr(
@@ -508,7 +554,7 @@ test("reconcile: pr:ADOPT on an already-existing (already-held) group -> error",
           {
             type: "group",
             id: "aaaaaaaa",
-            pr: "ADOPT",
+            prAction: "ADOPT",
             commits: [
               { type: "commit", id: "aaaaaaaa" },
               { type: "commit", id: "bbbbbbbb" },
@@ -530,7 +576,7 @@ test("reconcile: reissuing a grouped member is rejected in v1", () => {
             type: "group",
             id: null,
             commits: [
-              { type: "commit", id: "aaaaaaaa", reissueId: true, pr: "CLOSE" },
+              { type: "commit", id: "aaaaaaaa", reissueId: true, prAction: "CLOSE" },
               { type: "commit", id: "bbbbbbbb" },
             ],
           },
@@ -549,7 +595,7 @@ test("reconcile: group newly adopts a member's open PR -> prAdopts + records set
           type: "group",
           id: "aaaaaaaa",
           title: "G",
-          pr: "ADOPT",
+          prAction: "ADOPT",
           commits: [
             { type: "commit", id: "aaaaaaaa" },
             { type: "commit", id: "bbbbbbbb" },
@@ -575,7 +621,7 @@ test("reconcile: reissuing a group identity is rejected in v1", () => {
             type: "group",
             id: "99999999",
             reissueId: true,
-            pr: "CLOSE",
+            prAction: "CLOSE",
             commits: [
               { type: "commit", id: "aaaaaaaa" },
               { type: "commit", id: "bbbbbbbb" },
@@ -594,7 +640,7 @@ test("reconcile: reissue + reorder in one doc -> error", () => {
       JSON.stringify({
         stack: [
           { type: "commit", id: "bbbbbbbb" },
-          { type: "commit", id: "aaaaaaaa", reissueId: true, pr: "CLOSE" },
+          { type: "commit", id: "aaaaaaaa", reissueId: true, prAction: "CLOSE" },
         ],
       }),
       { ...LIVE2, openPrIds: ["aaaaaaaa"] },

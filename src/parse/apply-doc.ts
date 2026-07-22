@@ -35,16 +35,21 @@ function isObj(v: unknown): v is Record<string, unknown> {
 type PrParseResult = { ok: true; pr: "CLOSE" | "ADOPT" | undefined } | { ok: false; error: string };
 
 function parsePr(raw: Record<string, unknown>, where: string): PrParseResult {
-  if (!("pr" in raw)) return { ok: true, pr: undefined };
-  const pr = raw.pr;
+  if (!("prAction" in raw)) return { ok: true, pr: undefined };
+  const pr = raw.prAction;
   if (pr === "CLOSE" || pr === "ADOPT") return { ok: true, pr };
-  return { ok: false, error: `Invalid pr directive on ${where}: expected "CLOSE" or "ADOPT"` };
+  return {
+    ok: false,
+    error: `Invalid prAction directive on ${where}: expected "CLOSE" or "ADOPT"`,
+  };
 }
 
 function parseCommit(raw: unknown, where: string): ParsedCommit | string {
   if (!isObj(raw)) return `${where}: expected an object`;
   if (raw.type !== "commit") return `${where}: expected type "commit"`;
-  if ("sha" in raw) return `${where}: "sha" is not an input field`;
+  // "sha", "subject", and "pr" (the output PR-state object) are output-only
+  // fields from `sp view --json` and are silently ignored on input — this is
+  // what lets a raw view --json node pass straight through --apply verbatim.
   if (!("id" in raw)) return `${where}: missing required "id" (omission is not null)`;
   if (raw.id === null)
     return `${where}: commit id may not be null (only a new group may use id:null)`;
@@ -58,7 +63,8 @@ function parseCommit(raw: unknown, where: string): ParsedCommit | string {
 }
 
 function parseGroup(raw: Record<string, unknown>, where: string): ParsedGroup | string {
-  if ("sha" in raw) return `${where}: "sha" is not an input field`;
+  // "sha", "subject", and "pr" (the output PR-state object) are output-only
+  // fields from `sp view --json` and are silently ignored on input.
   if (!("id" in raw)) return `${where}: missing required "id" (use null to mint a new group)`;
   const id = raw.id;
   if (id !== null && typeof id !== "string") return `${where}: group "id" must be a string or null`;

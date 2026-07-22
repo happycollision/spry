@@ -198,7 +198,7 @@ test("--apply reissues a top-level commit id when reissueId:true (id changes)", 
   const res = await applyDoc(repo, {
     stack: [
       { type: "commit", id: "cccccccc" },
-      { type: "commit", id: "aaaaaaaa", reissueId: true }, // no open PR -> no pr:CLOSE needed
+      { type: "commit", id: "aaaaaaaa", reissueId: true }, // no open PR -> no prAction:CLOSE needed
       { type: "commit", id: "bbbbbbbb" },
     ],
   });
@@ -218,7 +218,56 @@ test("--apply reissues a top-level commit id when reissueId:true (id changes)", 
   expect(fresh[0]).toMatch(/^[0-9a-f]{8}$/);
 });
 
-test("--apply group adopts a member's open PR with pr:ADOPT (seeded cache)", async () => {
+test("--apply accepts a doc shaped like raw `sp view --json` output verbatim (output-only fields ignored)", async () => {
+  // Simulates piping `sp view --json | sp group --apply -`: every node carries
+  // the output-only fields (sha, subject, pr) that `sp view --json` emits.
+  // None of them are directives; --apply must ignore them and still succeed.
+  const repo = await makeRepo();
+  await repo.commitFiles({ "base.txt": "b" }, "base\n\nSpry-Commit-Id: cccccccc");
+  await repo.commitFiles({ "a.txt": "A" }, "feat: a\n\nSpry-Commit-Id: aaaaaaaa");
+  await repo.commitFiles({ "b.txt": "B" }, "feat: b\n\nSpry-Commit-Id: bbbbbbbb");
+
+  const res = await applyDoc(repo, {
+    stack: [
+      {
+        type: "commit",
+        id: "cccccccc",
+        sha: "deadbeef00000000000000000000000000000000",
+        subject: "base",
+        pr: null,
+      },
+      {
+        type: "group",
+        id: null,
+        title: "G",
+        pr: null,
+        commits: [
+          {
+            type: "commit",
+            id: "aaaaaaaa",
+            sha: "deadbeef00000000000000000000000000000001",
+            subject: "feat: a",
+            pr: null,
+          },
+          {
+            type: "commit",
+            id: "bbbbbbbb",
+            sha: "deadbeef00000000000000000000000000000002",
+            subject: "feat: b",
+            pr: null,
+          },
+        ],
+      },
+    ],
+  });
+  expect(res.code).toBeUndefined();
+  const records = await loadGroupRecords(repo.git, { cwd: repo.path });
+  const ids = Object.keys(records);
+  expect(ids).toHaveLength(1);
+  expect(records[ids[0]!]).toEqual({ title: "G", members: ["aaaaaaaa", "bbbbbbbb"] });
+});
+
+test("--apply group adopts a member's open PR with prAction:ADOPT (seeded cache)", async () => {
   const repo = await makeRepo();
   await repo.commitFiles({ "base.txt": "b" }, "base\n\nSpry-Commit-Id: cccccccc");
   await repo.commitFiles({ "a.txt": "A" }, "feat: a\n\nSpry-Commit-Id: aaaaaaaa");
@@ -232,7 +281,7 @@ test("--apply group adopts a member's open PR with pr:ADOPT (seeded cache)", asy
         type: "group",
         id: "aaaaaaaa",
         title: "G",
-        pr: "ADOPT",
+        prAction: "ADOPT",
         commits: [
           { type: "commit", id: "aaaaaaaa" },
           { type: "commit", id: "bbbbbbbb" },
@@ -245,7 +294,7 @@ test("--apply group adopts a member's open PR with pr:ADOPT (seeded cache)", asy
   expect(records["aaaaaaaa"]).toEqual({ title: "G", members: ["aaaaaaaa", "bbbbbbbb"] });
 });
 
-test("--apply errors when a group would adopt without pr:ADOPT", async () => {
+test("--apply errors when a group would adopt without prAction:ADOPT", async () => {
   const repo = await makeRepo();
   await repo.commitFiles({ "base.txt": "b" }, "base\n\nSpry-Commit-Id: cccccccc");
   await repo.commitFiles({ "a.txt": "A" }, "feat: a\n\nSpry-Commit-Id: aaaaaaaa");
@@ -425,20 +474,20 @@ test("--apply never calls gh (offline canonical proof)", async () => {
   expect(res.code).toBeUndefined();
 });
 
-test("--apply with reissue + pr:CLOSE marks the cached PR entry CLOSED", async () => {
+test("--apply with reissue + prAction:CLOSE marks the cached PR entry CLOSED", async () => {
   const repo = await makeRepo();
   await repo.commitFiles({ "base.txt": "b" }, "base\n\nSpry-Commit-Id: cccccccc");
   await repo.commitFiles({ "a.txt": "A" }, "feat: a\n\nSpry-Commit-Id: aaaaaaaa");
   await repo.commitFiles({ "b.txt": "B" }, "feat: b\n\nSpry-Commit-Id: bbbbbbbb");
   // Seed an OPEN PR for aaaaaaaa: reissuing a commit with an open PR requires
-  // pr:CLOSE (reconcile's checkPr rejects the reissue otherwise), and that is
-  // exactly the transition this test exercises.
+  // prAction:CLOSE (reconcile's checkPr rejects the reissue otherwise), and
+  // that is exactly the transition this test exercises.
   await savePRCache(repo.git, seedOpenPR("aaaaaaaa", repo.defaultBranch), { cwd: repo.path });
 
   const res = await applyDoc(repo, {
     stack: [
       { type: "commit", id: "cccccccc" },
-      { type: "commit", id: "aaaaaaaa", reissueId: true, pr: "CLOSE" },
+      { type: "commit", id: "aaaaaaaa", reissueId: true, prAction: "CLOSE" },
       { type: "commit", id: "bbbbbbbb" },
     ],
   });
