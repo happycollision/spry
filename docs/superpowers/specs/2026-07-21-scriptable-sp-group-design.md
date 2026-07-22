@@ -149,9 +149,8 @@ explicit:
 
 Consequences:
 
-- **There is no `sha` input field at all.** (Earlier drafts required a `sha`
-  handle for reissue; retaining the id removes that need entirely, along with all
-  short-sha resolution/ambiguity logic.)
+- **There is no `sha` input field at all.** The retained id is the reissue
+  handle, so there is no short-sha resolution or ambiguity logic anywhere.
 - A group taking over a member's PR is **not** `id: null` — it declares that
   member's **real id** and must carry `pr: "ADOPT"` (see PR directives).
 - Any real `id` in the doc that is not present in the live stack → **hard error**
@@ -222,8 +221,7 @@ identity that is changing or losing a PR. "One identity, one acknowledgment."
 
 ### Identity governs PR fate; every transition is acknowledged
 
-There is **no `adopt` field** and **no `idCustody` field** (both were considered
-and dropped). PR fate follows identity, uniformly for commits and groups:
+PR fate follows identity, uniformly for commits and groups:
 
 - **Keep identity (retain the real `id`, `reissueId` absent/false)** → same id →
   same branch (`<prefix>/<id>`) → the open PR follows the unit. (inherit)
