@@ -1137,9 +1137,17 @@ export function reconcile(doc: ParsedDoc, live: LiveState): ReconcileResult {
     // group
     const memberIds = node.members.map((m) => m.id);
 
-    // member-level reissue/close directives (directives attach to identity, incl. nested)
+    // member-level directives. v1: reissuing a GROUPED member is forbidden — the
+    // trailer rewrite would mint a new id that the group record's member list
+    // (built from old ids) can't track, persisting a dangling member. Ungroup,
+    // reissue, regroup across separate applies if truly needed.
     for (const m of node.members) {
-      handleReissueAndClose(m, live, reissueIds, prCloses);
+      if (m.reissueId) {
+        return {
+          ok: false,
+          error: `Cannot reissue ${m.id}: it is a member of a group. Ungroup it first (reissuing a grouped member is not supported).`,
+        };
+      }
       const err = checkPr(m, live);
       if (err) return { ok: false, error: err };
     }
