@@ -6,19 +6,34 @@ See @docs/rebuild-roadmap.md for the feature gap between `main` and this branch,
 
 We dogfood `sp` for our own pull requests. Some `sp` commands are **interactive**
 (they open a TUI and block on input), so the agent cannot run them — a backgrounded
-interactive command just hangs on a closed stdin. When dogfooding, note which tools
-are interactive and **ask the user to run those commands themselves** (e.g. via the
-`! <command>` prompt prefix) rather than invoking them yourself.
+interactive command just hangs on a closed stdin. Most of those interactive
+commands also have a **non-interactive equivalent** that takes explicit arguments
+instead of opening the TUI; the agent should prefer the non-interactive form and
+only **ask the user to run the interactive one themselves** (e.g. via the
+`! <command>` prompt prefix) when no non-interactive path fits.
 
-Known interactive commands:
+Known interactive commands (ask the user to run these bare forms):
 
 - `sp sync --open` — prompts in a TUI when opening PRs.
-- `sp group` — interactive grouping/reordering editor.
+- `sp group` (bare) — interactive grouping/reordering editor.
 - `sp land` (bare, no `--through`) — opens a single-select picker.
 
-Non-interactive (safe for the agent to run): `sp view`, `sp sync` (push-only,
-no `--open`), `sp rebase`, `sp clean`, `sp land --through <id>`. Confirm a command
-is non-interactive before relying on it; when in doubt, ask the user to run it.
+Non-interactive (safe for the agent to run):
+
+- `sp view` — offline stack display.
+- `sp view --json` — machine-readable nested stack tree (commit/group ids,
+  order, and cached PR state); the read side for building `sp group --apply` docs.
+- `sp sync` (push-only, no `--open`).
+- `sp group --apply <json>` — declarative, offline grouping (create/dissolve
+  groups, reorder, reissue ids, adopt/close PRs) from a JSON document, or `-` to
+  read the doc from stdin. This is the scriptable equivalent of the `sp group`
+  TUI; build the doc from `sp view --json`. Fully offline (never calls `gh`).
+- `sp rebase`.
+- `sp clean`.
+- `sp land --through <id>`.
+
+Confirm a command is non-interactive before relying on it; when in doubt, ask the
+user to run it.
 
 <!-- br-agent-instructions-v1 -->
 
