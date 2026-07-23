@@ -1,0 +1,12 @@
+{
+  "uuid": "3f70d36d79ed4841a50f6fcc5eca45f0",
+  "name": "beads",
+  "dir": ".beads.migrating",
+  "created": {
+    "owner": "happycollision",
+    "repo_dir": "spry",
+    "upstream": "git@github.com:happycollision/spry.git",
+    "user": "Don Denton <don.denton@trillianthealth.com>",
+    "at": "2026-07-23T01:21:40Z"
+  }
+}
