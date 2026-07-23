@@ -35,6 +35,14 @@ Non-interactive (safe for the agent to run):
 Confirm a command is non-interactive before relying on it; when in doubt, ask the
 user to run it.
 
+**Caveat — `sp group --apply` PR-close is local-only for now (spry-ifaj):** a
+`prAction: "CLOSE"` in an apply doc only marks the local PR-cache entry closed; no
+command closes the PR on GitHub yet (the sync-side executor is unbuilt). So when
+dogfooding a flow that closes a PR via `--apply`, the GitHub PR will stay open —
+close it another way until spry-ifaj lands. (Grouping, reorder, id reissue, and PR
+adoption are fully wired end-to-end.) **Remove this caveat when spry-ifaj is
+fixed.**
+
 <!-- br-agent-instructions-v1 -->
 
 ## Beads Workflow Integration
