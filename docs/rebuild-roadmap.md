@@ -95,6 +95,18 @@ repair, and explicit-dissolution jobs these covered are not needed now. If they
 resurface, redesign them rebuild-native against `refs/spry/groups` — do not port
 `main`'s commands blindly.
 
+**Update (2026-07-21): `--apply` resurfaced, redesigned rebuild-native.**
+`sp group --apply <json>` now exists as a declarative, nested final-state
+document reconciled against `refs/spry/groups` and the live stack —
+identity-based PR handling (retained ids; `id:null`/`reissueId` mint new ids;
+`prAction:"CLOSE"`/`"ADOPT"` acknowledge PR transitions), fully offline (no `gh`;
+PR-close is recorded as local intent only for now), with reorder and
+id-reissue supported (not combined in one apply). A machine-only
+`sp view --json` provides the read side. `--fix` and explicit `dissolve`
+remain dropped — dissolution is expressed declaratively by listing a group's
+members ungrouped. See
+`docs/superpowers/specs/2026-07-21-scriptable-sp-group-design.md`.
+
 ---
 
 ## Shipped since this roadmap was first written

@@ -24,7 +24,8 @@ const ctx: SpryContext = {
 program
   .command("view")
   .description("View the current stack of commits with PR status")
-  .action(() => viewCommand(ctx));
+  .option("--json", "Emit the stack as machine-readable JSON")
+  .action((opts: { json?: boolean }) => viewCommand(ctx, { json: opts.json }));
 
 program
   .command("sync")
@@ -39,7 +40,8 @@ program
 program
   .command("group")
   .description("Interactively group and reorder commits")
-  .action(() => groupCommand(ctx));
+  .option("--apply <json>", 'Apply a grouping doc non-interactively ("-" reads stdin)')
+  .action((opts: { apply?: string }) => groupCommand(ctx, { apply: opts.apply }));
 
 program
   .command("rebase")
