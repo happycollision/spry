@@ -628,6 +628,59 @@ describe("syncCommand --open <ids>", () => {
     expect(logs.out.join("\n")).toContain("https://github.com/owner/repo/pull/55");
   });
 
+  test("caches the just-opened PR with syncedHeadSha on the same --open run", async () => {
+    // Regression for spry-5364: `sp sync --open` builds its PR lookup BEFORE
+    // creating the PR, so the newly-opened PR was absent from that snapshot and
+    // never written to the cache until the next sync — leaving `sp view` showing
+    // no PR status and no drift baseline (syncedHeadSha) for a unit whose PR was
+    // just opened. The cache must be written for the created PR on THIS run.
+    const repo = await makeRepoWithConfig();
+    const git = createRealGitRunner();
+    await git.run(["checkout", "-b", "feature/x"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "Add login\n\nSpry-Commit-Id: aaa11111"], {
+      cwd: repo.path,
+    });
+    const tip = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+
+    // No existing PR at snapshot time (nodes: []), then `pr create` succeeds —
+    // exactly the fresh-open scenario.
+    const { gh } = stubGh((call) => {
+      if (call.args[0] === "api" && call.args[1] === "graphql") {
+        return {
+          stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: [] } } } }),
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "create") {
+        return { stdout: "https://github.com/owner/repo/pull/55\n", stderr: "", exitCode: 0 };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "view") {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      if (call.args[0] === "pr" && call.args[1] === "edit" && call.args.includes("--body-file")) {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
+    });
+    const ctx = makeCtx(repo, gh);
+    const logs = await captureLogs();
+    try {
+      await syncCommand(ctx, { cwd: repo.path, open: "aaa11111" });
+    } finally {
+      logs.restore();
+    }
+
+    const cache = await loadPRCache(git, { cwd: repo.path });
+    const entry = cache["aaa11111"];
+    expect(entry).toBeDefined();
+    expect(entry?.number).toBe(55);
+    expect(entry?.state).toBe("OPEN");
+    // The drift baseline: the tip we just pushed must be recorded, so a later
+    // local edit shows ✎ in `sp view` without needing a second sync.
+    expect(entry?.syncedHeadSha).toBe(tip);
+  });
+
   test("two-unit --open: second PR's base is first's branch", async () => {
     const repo = await makeRepoWithConfig();
     const git = createRealGitRunner();

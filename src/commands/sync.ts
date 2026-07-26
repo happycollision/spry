@@ -115,7 +115,7 @@ async function snapshotRemoteTips(
  */
 export async function checkSync(
   ctx: SpryContext,
-  opts: { cwd?: string } = {},
+  opts: { cwd?: string; skipCacheWrite?: boolean } = {},
 ): Promise<CheckSyncResult> {
   const cwd = opts.cwd;
   const config = await loadConfig(ctx.git, { cwd });
@@ -166,7 +166,10 @@ export async function checkSync(
       const hint = retargetingFallbackHint(err);
       console.log(kleur.dim(`${hint} (branches still updated)`));
     }
-    if (prMap) await writePRCache(ctx, config, units, prMap, cwd);
+    // When the caller will open PRs, defer the cache write: the post-open write
+    // has the complete picture (including just-created PRs), and writing here too
+    // would push the ref twice and print a duplicate "Updated PR cache" line.
+    if (prMap && !opts.skipCacheWrite) await writePRCache(ctx, config, units, prMap, cwd);
   }
 
   const prCache = await loadPRCache(ctx.git, { cwd });
@@ -202,8 +205,11 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   const currentBranch = await getCurrentBranch(ctx.git, { cwd });
   await registerBranch(ctx.git, currentBranch, { cwd });
 
-  // 2. Acquire remote state (fetch + parse + PR lookup + PR-cache refresh).
-  const checked = await checkSync(ctx, { cwd });
+  // 2. Acquire remote state (fetch + parse + PR lookup + PR-cache refresh). On an
+  // --open run, defer the cache write to the single post-open write below, which
+  // sees the just-created PRs too (avoids a double ref push + duplicate log line).
+  const willOpen = opts.open !== undefined;
+  const checked = await checkSync(ctx, { cwd, skipCacheWrite: willOpen });
   const units = checked.units;
   const withTrailers = checked.commits;
   if (units.length === 0) {
@@ -305,23 +311,36 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
     ? await retargetMismatched(ctx, config, units, retargetBranches, prMap, cwd)
     : false;
 
-  // checkSync already wrote the PR cache once from the same prMap. Only rewrite
-  // it when a retarget pass ran (branches were pushed/opened) — otherwise the
-  // first write already reflects reality and a second savePRCache + pushPRCache
-  // would be a redundant ref push and a duplicate console line.
-  if (prMap && retargetBranches.length > 0) {
-    await writePRCache(ctx, config, units, prMap, cwd);
+  // Merge just-created PRs into the map used for the rest of the run. checkSync
+  // built prMap from a lookup taken BEFORE any PR was created, so a PR opened by
+  // this run is absent from it. Folding the created PRs in makes both the cache
+  // write below and the body pass see the new PRs — so a single `sync --open`
+  // caches the PR it just opened (with syncedHeadSha) and links every sibling to
+  // it, without waiting for the next sync.
+  const effectivePrMap = prMap && createdPRs.length > 0 ? new Map(prMap) : prMap;
+  if (effectivePrMap && createdPRs.length > 0) {
+    for (const { branch, pr } of createdPRs) effectivePrMap.set(branch, pr);
   }
 
-  // Merge just-created PRs into the map the body pass sees, so a `sync --open`
-  // run links every sibling to the new PRs and gives the new PRs their own
-  // stack-links immediately — the run converges without waiting for next sync.
-  const bodyPrMap = prMap && createdPRs.length > 0 ? new Map(prMap) : prMap;
-  if (bodyPrMap && createdPRs.length > 0) {
-    for (const { branch, pr } of createdPRs) bodyPrMap.set(branch, pr);
+  // Write the PR cache from effectivePrMap (which includes just-created PRs).
+  // On an --open run checkSync deferred its write to here, so this must run
+  // whenever --open was requested — a newly-opened PR is only in effectivePrMap,
+  // and writePRCache is what records its syncedHeadSha (the drift baseline);
+  // without it, a PR opened by `sync --open` would stay out of the cache (no PR
+  // status, no drift baseline) until the next sync. On a non-open run, checkSync
+  // already wrote the cache, so only rewrite when a retarget pass changed bases.
+  if (effectivePrMap && (willOpen || retargetBranches.length > 0)) {
+    await writePRCache(ctx, config, units, effectivePrMap, cwd);
   }
 
-  const bodyHadFailure = await updateStackBodies(ctx, config, units, withTrailers, bodyPrMap, cwd);
+  const bodyHadFailure = await updateStackBodies(
+    ctx,
+    config,
+    units,
+    withTrailers,
+    effectivePrMap,
+    cwd,
+  );
 
   const hadFailure =
     pushResult.hadFailure ||

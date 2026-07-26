@@ -35,6 +35,7 @@ sp sync --open aaaa1111
 ↑ pushed spry/dondenton/aaaa1111
 ✓ Created PR #42: Add login
   https://github.com/owner/repo/pull/42
+✓ Updated PR cache (1 PR)
 ✎ updated PR #42 body
 ✓ Sync complete
 
@@ -50,6 +51,7 @@ sp sync --open grp00001
 ↑ pushed spry/dondenton/grp00001
 ✓ Created PR #42: Auth flow
   https://github.com/owner/repo/pull/42
+✓ Updated PR cache (1 PR)
 ✎ updated PR #42 body
 ✓ Sync complete
 
@@ -71,6 +73,7 @@ Select units to open (space toggle, a all, enter confirm, esc cancel):
 ↑ pushed spry/dondenton/aaaa1111
 ✓ Created PR #42: Add login
   https://github.com/owner/repo/pull/42
+✓ Updated PR cache (1 PR)
 ✓ Sync complete
 
 ```
@@ -85,6 +88,7 @@ sp sync --open aaaa1111
 ↑ pushed spry/dondenton/aaaa1111
 ✓ Created PR #42: Add release notes page
   https://github.com/owner/repo/pull/42
+✓ Updated PR cache (1 PR)
 ✎ updated PR #42 body
 ✓ Sync complete
 
