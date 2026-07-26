@@ -49,3 +49,52 @@ approval: ✓ approved  ✗ changes  ? required  — none
 ────────────────────────────────────────────────────────────────────────
 
 ```
+
+`sp view` marks how each unit has drifted since your last sync, entirely offline. Right after a sync, nothing is marked:
+
+```
+sp view
+```
+
+```
+Stack: feature (2 commits)
+○ no PR  ◐ open  ✓ merged  ✗ closed
+checks: ✓ pass  ✗ fail  ⏳ pending  — none
+approval: ✓ approved  ✗ changes  ? required  — none
+
+  → origin/main
+────────────────────────────────────────────────────────────────────────
+  ◐ Add login page (bbbb2222)
+    https://github.com/<owner>/<repo>/pull/1 - checks:✓ approval:— comments:0/0
+────────────────────────────────────────────────────────────────────────
+  ◐ Add signup form (aaaa1111)
+    https://github.com/<owner>/<repo>/pull/2 - checks:✓ approval:— comments:0/0
+────────────────────────────────────────────────────────────────────────
+
+```
+
+Amend the second commit. Its local tip no longer matches what you pushed, so it is flagged with ✎ — a signal to run `sp sync`:
+
+```
+sp view
+```
+
+```
+Stack: feature (2 commits)
+○ no PR  ◐ open  ✓ merged  ✗ closed
+checks: ✓ pass  ✗ fail  ⏳ pending  — none
+approval: ✓ approved  ✗ changes  ? required  — none
+✎ local edits, run sp sync   ↓ remote moved since your push (as of last fetch)
+
+  → origin/main
+────────────────────────────────────────────────────────────────────────
+  ◐ Add login page (bbbb2222)
+    https://github.com/<owner>/<repo>/pull/1 - checks:✓ approval:— comments:0/0
+────────────────────────────────────────────────────────────────────────
+  ◐ ✎↓ Add signup form (revised) (aaaa1111)
+    https://github.com/<owner>/<repo>/pull/2 - checks:✓ approval:— comments:0/0
+────────────────────────────────────────────────────────────────────────
+
+```
+
+The ↓ marker means the remote moved since your push (as of your last fetch), and ✎↓ together means both. Units with no recorded sync show no marker at all.
