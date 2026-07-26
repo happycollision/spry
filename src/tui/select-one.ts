@@ -1,4 +1,5 @@
 import kleur from "kleur";
+import { ENTER_TUI, EXIT_TUI, frameReset } from "./screen.ts";
 
 export interface SelectOneOption {
   id: string;
@@ -15,10 +16,29 @@ export interface SelectOneOptions {
   title?: string;
 }
 
-const ESC = "\x1b";
-const HIDE_CURSOR = `${ESC}[?25l`;
-const SHOW_CURSOR = `${ESC}[?25h`;
-const CLEAR_SCREEN = `${ESC}[2J${ESC}[H`;
+/**
+ * Build one rendered frame for the single-select picker. Pure — no I/O — so the
+ * redraw output can be asserted in tests. Prepends {@link frameReset} so each
+ * frame homes+clears within the alternate screen buffer (no scrollback churn).
+ */
+export function renderSelectOneFrame(
+  options: SelectOneOption[],
+  cursor: number,
+  opts: SelectOneOptions,
+): string {
+  const lines: string[] = [];
+  lines.push(opts.title ?? "Select the unit to land through (↑/↓ move, enter select, esc cancel):");
+  for (let i = 0; i < options.length; i++) {
+    const opt = options[i];
+    if (!opt) continue;
+    const isCursor = i === cursor;
+    const prefix = isCursor ? kleur.cyan(">") : " ";
+    const label = isCursor ? kleur.cyan(opt.label) : opt.label;
+    const hint = opt.hint ? " " + kleur.dim(opt.hint) : "";
+    lines.push(`${prefix} ${label}${hint}`);
+  }
+  return frameReset() + lines.join("\n");
+}
 
 /**
  * Single-select picker: one cursor position, Enter selects the cursor row,
@@ -38,21 +58,7 @@ export async function selectOne(
   let cursor = 0;
 
   function render(): void {
-    const lines: string[] = [];
-    lines.push(
-      opts.title ?? "Select the unit to land through (↑/↓ move, enter select, esc cancel):",
-    );
-    for (let i = 0; i < options.length; i++) {
-      const opt = options[i];
-      if (!opt) continue;
-      const isCursor = i === cursor;
-      const prefix = isCursor ? kleur.cyan(">") : " ";
-      const label = isCursor ? kleur.cyan(opt.label) : opt.label;
-      const hint = opt.hint ? " " + kleur.dim(opt.hint) : "";
-      lines.push(`${prefix} ${label}${hint}`);
-    }
-    stdout.write(CLEAR_SCREEN);
-    stdout.write(lines.join("\n"));
+    stdout.write(renderSelectOneFrame(options, cursor, opts));
   }
 
   // Idempotent: safe to call multiple times.
@@ -60,8 +66,7 @@ export async function selectOne(
   function cleanup(): void {
     if (cleanedUp) return;
     cleanedUp = true;
-    stdout.write(SHOW_CURSOR);
-    stdout.write("\n");
+    stdout.write(EXIT_TUI);
     stdin.setRawMode?.(false);
     stdin.pause();
     process.off("SIGINT", onSignal);
@@ -77,7 +82,7 @@ export async function selectOne(
   process.once("SIGTERM", onSignal);
   stdin.setRawMode?.(true);
   stdin.resume();
-  stdout.write(HIDE_CURSOR);
+  stdout.write(ENTER_TUI);
 
   try {
     render();
