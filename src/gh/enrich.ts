@@ -18,7 +18,12 @@ export function enrichFromCache(units: PRUnit[], cache: PRCache): EnrichedUnit[]
   return units.map((unit) => {
     const entry = cache[unit.id];
     if (!entry) return { unit, pr: null };
-    const { branch: _branch, cachedAt: _cachedAt, ...prInfo } = entry;
+    const {
+      branch: _branch,
+      cachedAt: _cachedAt,
+      syncedHeadSha: _syncedHeadSha,
+      ...prInfo
+    } = entry;
     return { unit, pr: prInfo };
   });
 }

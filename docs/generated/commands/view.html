@@ -50,5 +50,46 @@
   <span class="ansi-blue-fg">◐</span> Add login page <span class="ansi-dim">(aaaa1111)</span>
     <span class="ansi-blue-fg">https://github.com/&lt;owner&gt;/&lt;repo&gt;/pull/42</span> - checks:<span class="ansi-green-fg">✓</span> approval:<span class="ansi-dim">—</span> comments:0/2
 ────────────────────────────────────────────────────────────────────────</pre>
+    <p>
+      `sp view` marks how each unit has drifted since your last sync, entirely offline. Right after
+      a sync, nothing is marked:
+    </p>
+    <pre class="command">sp view</pre>
+    <pre class="output">Stack: feature (2 commits)
+<span class="ansi-dim">○ no PR  ◐ open  ✓ merged  ✗ closed</span>
+<span class="ansi-dim">checks: ✓ pass  ✗ fail  ⏳ pending  — none</span>
+<span class="ansi-dim">approval: ✓ approved  ✗ changes  ? required  — none</span>
+
+  → origin/main
+────────────────────────────────────────────────────────────────────────
+  <span class="ansi-blue-fg">◐</span> Add login page <span class="ansi-dim">(bbbb2222)</span>
+    <span class="ansi-blue-fg">https://github.com/&lt;owner&gt;/&lt;repo&gt;/pull/1</span> - checks:<span class="ansi-green-fg">✓</span> approval:<span class="ansi-dim">—</span> comments:0/0
+────────────────────────────────────────────────────────────────────────
+  <span class="ansi-blue-fg">◐</span> Add signup form <span class="ansi-dim">(aaaa1111)</span>
+    <span class="ansi-blue-fg">https://github.com/&lt;owner&gt;/&lt;repo&gt;/pull/2</span> - checks:<span class="ansi-green-fg">✓</span> approval:<span class="ansi-dim">—</span> comments:0/0
+────────────────────────────────────────────────────────────────────────</pre>
+    <p>
+      Amend the second commit. Its local tip no longer matches what you pushed, so it is flagged
+      with ✎ — a signal to run `sp sync`:
+    </p>
+    <pre class="command">sp view</pre>
+    <pre class="output">Stack: feature (2 commits)
+<span class="ansi-dim">○ no PR  ◐ open  ✓ merged  ✗ closed</span>
+<span class="ansi-dim">checks: ✓ pass  ✗ fail  ⏳ pending  — none</span>
+<span class="ansi-dim">approval: ✓ approved  ✗ changes  ? required  — none</span>
+<span class="ansi-dim">✎ local edits, run sp sync   ↓ remote moved since your push (as of last fetch)</span>
+
+  → origin/main
+────────────────────────────────────────────────────────────────────────
+  <span class="ansi-blue-fg">◐</span> Add login page <span class="ansi-dim">(bbbb2222)</span>
+    <span class="ansi-blue-fg">https://github.com/&lt;owner&gt;/&lt;repo&gt;/pull/1</span> - checks:<span class="ansi-green-fg">✓</span> approval:<span class="ansi-dim">—</span> comments:0/0
+────────────────────────────────────────────────────────────────────────
+  <span class="ansi-blue-fg">◐</span> <span class="ansi-yellow-fg">✎</span><span class="ansi-cyan-fg">↓</span> Add signup form (revised) <span class="ansi-dim">(aaaa1111)</span>
+    <span class="ansi-blue-fg">https://github.com/&lt;owner&gt;/&lt;repo&gt;/pull/2</span> - checks:<span class="ansi-green-fg">✓</span> approval:<span class="ansi-dim">—</span> comments:0/0
+────────────────────────────────────────────────────────────────────────</pre>
+    <p>
+      The ↓ marker means the remote moved since your push (as of your last fetch), and ✎↓ together
+      means both. Units with no recorded sync show no marker at all.
+    </p>
   </body>
 </html>

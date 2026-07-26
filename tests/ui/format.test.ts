@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { formatStackView, formatValidationError } from "../../src/ui/format.ts";
 import type { PRUnit, StackParseResult } from "../../src/parse/types.ts";
 import type { EnrichedUnit, EnrichmentError } from "../../src/gh/enrich.ts";
+import type { Drift } from "../../src/git/drift.ts";
 import type { ChecksStatus, PRInfo, ReviewDecision } from "../../src/gh/pr.ts";
 
 // Strip ANSI escape codes for clean assertions
@@ -477,5 +478,37 @@ describe("formatValidationError", () => {
     expect(output).toContain("My Feature");
     expect(output).toContain("grp12345");
     expect(output).toContain("1 commit(s) appear between group members");
+  });
+});
+
+describe("formatStackView drift markers", () => {
+  function single(id: string, title: string): PRUnit {
+    return { type: "single", id, title, commitIds: [id], commits: ["sha1"], subjects: [title] };
+  }
+
+  test("no markers and no legend on a clean stack", () => {
+    const enriched: EnrichedUnit[] = [{ unit: single("aaa", "Clean"), pr: null }];
+    const drift: Drift[] = [{ localAhead: false, remoteAhead: false }];
+    const out = stripAnsi(formatStackView(enriched, "feature", 1, "main", drift));
+    expect(out).toContain("Clean");
+    expect(out).not.toContain("✎");
+    expect(out).not.toContain("↓");
+    expect(out).not.toContain("local edits");
+  });
+
+  test("local-ahead shows ✎ and legend", () => {
+    const enriched: EnrichedUnit[] = [{ unit: single("aaa", "Edited"), pr: null }];
+    const drift: Drift[] = [{ localAhead: true, remoteAhead: false }];
+    const out = stripAnsi(formatStackView(enriched, "feature", 1, "main", drift));
+    expect(out).toContain("✎ Edited");
+    expect(out).toContain("local edits, run sp sync");
+  });
+
+  test("diverged shows ✎↓", () => {
+    const enriched: EnrichedUnit[] = [{ unit: single("aaa", "Both"), pr: null }];
+    const drift: Drift[] = [{ localAhead: true, remoteAhead: true }];
+    const out = stripAnsi(formatStackView(enriched, "feature", 1, "main", drift));
+    expect(out).toContain("✎↓ Both");
+    expect(out).toContain("remote moved since your push");
   });
 });

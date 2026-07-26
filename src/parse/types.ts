@@ -71,6 +71,8 @@ export interface StackTreeCommit {
   id: string;
   sha?: string; // output only
   subject?: string; // output only
+  localAhead?: boolean; // output only
+  remoteAhead?: boolean; // output only
   pr?: PrStateInfo | null | "CLOSE" | "ADOPT"; // output: state object|null; input: directive
   reissueId?: boolean; // input only
 }
@@ -80,6 +82,8 @@ export interface StackTreeGroup {
   type: "group";
   id: string | null; // output: real id; input: real id (keep/adopt) or null (mint new group)
   title?: string | null; // output: current title|null; input: tri-state (see spec)
+  localAhead?: boolean; // output only
+  remoteAhead?: boolean; // output only
   pr?: PrStateInfo | null | "CLOSE" | "ADOPT";
   reissueId?: boolean; // input only
   commits: StackTreeCommit[];

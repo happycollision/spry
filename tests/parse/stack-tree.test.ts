@@ -1,7 +1,8 @@
 // tests/parse/stack-tree.test.ts
-import { test, expect } from "bun:test";
+import { test, expect, describe } from "bun:test";
 import { buildStackTree } from "../../src/parse/stack-tree.ts";
 import type { EnrichedUnit } from "../../src/gh/enrich.ts";
+import type { Drift } from "../../src/git/drift.ts";
 import type { PRUnit } from "../../src/parse/types.ts";
 
 function single(id: string, subject: string, hash: string): PRUnit {
@@ -76,5 +77,20 @@ test("buildStackTree emits commit and group nodes with PR state", () => {
     id: "cccccccc",
     sha: "hash_c",
     subject: "feat: c",
+  });
+});
+
+describe("buildStackTree drift", () => {
+  test("emits localAhead/remoteAhead per unit", () => {
+    const enriched: EnrichedUnit[] = [{ unit: single("aaaaaaaa", "feat: a", "hash_a"), pr: null }];
+    const drift: Drift[] = [{ localAhead: true, remoteAhead: false }];
+    const tree = buildStackTree(enriched, drift);
+    expect(tree.stack[0]).toMatchObject({ localAhead: true, remoteAhead: false });
+  });
+
+  test("defaults to false when drift missing for an index", () => {
+    const enriched: EnrichedUnit[] = [{ unit: single("aaaaaaaa", "feat: a", "hash_a"), pr: null }];
+    const tree = buildStackTree(enriched, []);
+    expect(tree.stack[0]).toMatchObject({ localAhead: false, remoteAhead: false });
   });
 });
