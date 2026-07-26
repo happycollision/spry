@@ -6,6 +6,7 @@ import { remoteSpryRef } from "../lib/refs-seam.ts";
 export interface PRCacheEntry extends PRInfo {
   branch: string;
   cachedAt: string; // ISO 8601
+  syncedHeadSha?: string; // local tip SHA that sync last pushed for this unit
 }
 
 // Keyed by unit ID (e.g. "aaa11111"), NOT branch name — unit IDs have no slashes,
