@@ -4,7 +4,8 @@ import type { CommitWithTrailers } from "../parse/stack.ts";
 import type { GroupRecords } from "../parse/types.ts";
 import { createInitialState, applyEvent, extractResult } from "./group-state.ts";
 import type { GroupEditorResult, GroupEditorState, EditorEvent } from "./group-state.ts";
-import { renderGroupEditor, SHOW_CURSOR } from "./group-render.ts";
+import { renderGroupEditor } from "./group-render.ts";
+import { ENTER_TUI, EXIT_TUI } from "./screen.ts";
 
 export interface GroupEditorOptions {
   branch: string;
@@ -63,7 +64,7 @@ export async function runGroupEditor(
   function cleanup(): void {
     if (cleanedUp) return;
     cleanedUp = true;
-    stdout.write(SHOW_CURSOR + "\n");
+    stdout.write(EXIT_TUI);
     stdin.setRawMode?.(false);
     stdin.pause();
     process.off("SIGINT", onSignal);
@@ -79,6 +80,7 @@ export async function runGroupEditor(
   process.once("SIGTERM", onSignal);
   stdin.setRawMode?.(true);
   stdin.resume();
+  stdout.write(ENTER_TUI);
   render();
 
   return new Promise<GroupEditorResult>((resolve) => {

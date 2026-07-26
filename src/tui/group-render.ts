@@ -1,10 +1,6 @@
 import kleur from "kleur";
 import type { GroupEditorState } from "./group-state.ts";
-
-const ESC = "\x1b";
-export const CLEAR_SCREEN = `${ESC}[2J${ESC}[H`;
-export const HIDE_CURSOR = `${ESC}[?25l`;
-export const SHOW_CURSOR = `${ESC}[?25h`;
+import { frameReset, HIDE_CURSOR } from "./screen.ts";
 
 export function renderGroupEditor(state: GroupEditorState, branch: string): string {
   const lines: string[] = [];
@@ -67,5 +63,5 @@ export function renderGroupEditor(state: GroupEditorState, branch: string): stri
     lines.push(kleur.dim(`↑↓ cursor  ←→ group  ${reorderHelp}  r rename  Enter save  q quit`));
   }
 
-  return CLEAR_SCREEN + HIDE_CURSOR + lines.join("\n");
+  return frameReset() + HIDE_CURSOR + lines.join("\n");
 }

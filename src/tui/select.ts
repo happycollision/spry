@@ -1,4 +1,5 @@
 import kleur from "kleur";
+import { ENTER_TUI, EXIT_TUI, frameReset } from "./screen.ts";
 
 export interface SelectOption {
   id: string;
@@ -16,10 +17,34 @@ export interface SelectOptions {
   title?: string;
 }
 
-const ESC = "\x1b";
-const HIDE_CURSOR = `${ESC}[?25l`;
-const SHOW_CURSOR = `${ESC}[?25h`;
-const CLEAR_SCREEN = `${ESC}[2J${ESC}[H`;
+/**
+ * Build one rendered frame for the multi-select picker. Pure — no I/O — so the
+ * redraw output can be asserted in tests. Prepends {@link frameReset} so each
+ * frame homes+clears within the alternate screen buffer (no scrollback churn).
+ */
+export function renderSelectFrame(
+  options: SelectOption[],
+  selected: Set<string>,
+  cursor: number,
+  opts: SelectOptions,
+): string {
+  const lines: string[] = [];
+  lines.push(
+    opts.title ?? "Select units to open (space toggle, a all, enter confirm, esc cancel):",
+  );
+  for (let i = 0; i < options.length; i++) {
+    const opt = options[i];
+    if (!opt) continue;
+    const isCursor = i === cursor;
+    const isSelected = selected.has(opt.id);
+    const box = isSelected ? "[x]" : "[ ]";
+    const prefix = isCursor ? kleur.cyan(">") : " ";
+    const label = opt.disabled ? kleur.dim(opt.label) : opt.label;
+    const hint = opt.hint ? " " + kleur.dim(opt.hint) : "";
+    lines.push(`${prefix} ${box} ${label}${hint}`);
+  }
+  return frameReset() + lines.join("\n");
+}
 
 export async function selectUnits(
   options: SelectOption[],
@@ -35,23 +60,7 @@ export async function selectUnits(
   let cursor = 0;
 
   function render(): void {
-    const lines: string[] = [];
-    lines.push(
-      opts.title ?? "Select units to open (space toggle, a all, enter confirm, esc cancel):",
-    );
-    for (let i = 0; i < options.length; i++) {
-      const opt = options[i];
-      if (!opt) continue;
-      const isCursor = i === cursor;
-      const isSelected = selected.has(opt.id);
-      const box = isSelected ? "[x]" : "[ ]";
-      const prefix = isCursor ? kleur.cyan(">") : " ";
-      const label = opt.disabled ? kleur.dim(opt.label) : opt.label;
-      const hint = opt.hint ? " " + kleur.dim(opt.hint) : "";
-      lines.push(`${prefix} ${box} ${label}${hint}`);
-    }
-    stdout.write(CLEAR_SCREEN);
-    stdout.write(lines.join("\n"));
+    stdout.write(renderSelectFrame(options, selected, cursor, opts));
   }
 
   // Idempotent: safe to call multiple times. setRawMode(false) after a
@@ -60,8 +69,7 @@ export async function selectUnits(
   function cleanup(): void {
     if (cleanedUp) return;
     cleanedUp = true;
-    stdout.write(SHOW_CURSOR);
-    stdout.write("\n");
+    stdout.write(EXIT_TUI);
     stdin.setRawMode?.(false);
     stdin.pause();
     process.off("SIGINT", onSignal);
@@ -79,7 +87,7 @@ export async function selectUnits(
   process.once("SIGTERM", onSignal);
   stdin.setRawMode?.(true);
   stdin.resume();
-  stdout.write(HIDE_CURSOR);
+  stdout.write(ENTER_TUI);
 
   try {
     render();
