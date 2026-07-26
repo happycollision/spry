@@ -1,6 +1,7 @@
 import kleur from "kleur";
 import type { StackParseResult } from "../parse/types.ts";
 import type { EnrichedUnit, EnrichmentError } from "../gh/enrich.ts";
+import type { Drift } from "../git/drift.ts";
 import type { ChecksStatus, PRInfo, PRState, ReviewDecision } from "../gh/pr.ts";
 
 const SEPARATOR = "─".repeat(72);
@@ -55,11 +56,20 @@ function prMetaLine(pr: PRInfo): string {
   );
 }
 
+function driftGlyphs(d: Drift | undefined): string {
+  if (!d) return "";
+  let g = "";
+  if (d.localAhead) g += kleur.yellow("✎");
+  if (d.remoteAhead) g += kleur.cyan("↓");
+  return g;
+}
+
 export function formatStackView(
   enriched: EnrichedUnit[],
   branch: string,
   commitCount: number,
   trunkRef: string,
+  drift: Drift[] = [],
 ): string {
   if (enriched.length === 0) {
     return `No commits ahead of ${trunkRef}`;
@@ -81,20 +91,30 @@ export function formatStackView(
     lines.push(kleur.dim("checks: ✓ pass  ✗ fail  ⏳ pending  — none"));
     lines.push(kleur.dim("approval: ✓ approved  ✗ changes  ? required  — none"));
   }
+  const showDriftLegend = drift.some((d) => d && (d.localAhead || d.remoteAhead));
+  if (showDriftLegend) {
+    lines.push(
+      kleur.dim("✎ local edits, run sp sync   ↓ remote moved since your push (as of last fetch)"),
+    );
+  }
   lines.push("");
   lines.push(`  → ${trunkRef}`);
 
   let letterIndex = 0;
+  let idx = -1;
   for (const entry of enriched) {
+    idx++;
     lines.push(SEPARATOR);
     const unit = entry.unit;
     const pr = entry.pr;
     const showPRLine = !fallback && pr !== null;
     const icon = showPRLine ? stateIcon(pr.state) : stateIcon(null);
+    const glyphs = driftGlyphs(drift[idx]);
+    const marker = glyphs ? `${glyphs} ` : "";
 
     if (unit.type === "single") {
       const idDisplay = getCommitIdDisplay(unit.commitIds, 0);
-      lines.push(`  ${icon} ${unit.title ?? unit.subjects[0] ?? "Untitled"} ${idDisplay}`);
+      lines.push(`  ${icon} ${marker}${unit.title ?? unit.subjects[0] ?? "Untitled"} ${idDisplay}`);
       if (showPRLine) lines.push(prMetaLine(pr));
     } else {
       let groupTitle: string;
@@ -105,7 +125,7 @@ export function formatStackView(
         letterIndex++;
         groupTitle = `${letter} (${unit.commits.length} commits)`;
       }
-      lines.push(`  ${icon} ${groupTitle}`);
+      lines.push(`  ${icon} ${marker}${groupTitle}`);
       if (showPRLine) lines.push(prMetaLine(pr));
       for (let i = 0; i < unit.commits.length; i++) {
         const isLast = i === unit.commits.length - 1;

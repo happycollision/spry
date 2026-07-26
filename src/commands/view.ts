@@ -1,6 +1,8 @@
-import kleur from "kleur";
 import type { SpryContext } from "../lib/context.ts";
 import { loadConfig, trunkRef, getCurrentBranch, getStackCommits } from "../git/index.ts";
+import { resolveRemoteTrackingTip } from "../git/branch.ts";
+import { classifyDrift } from "../git/drift.ts";
+import type { Drift } from "../git/drift.ts";
 import { loadGroupRecords, buildCommitGroupMap, extractGroupTitles } from "../git/group-titles.ts";
 import { parseCommitTrailers, parseStack } from "../parse/index.ts";
 import { buildStackTree } from "../parse/stack-tree.ts";
@@ -35,10 +37,18 @@ export async function viewCommand(ctx: SpryContext, opts: ViewOptions = {}): Pro
   const prCache = await loadPRCache(ctx.git, { cwd });
   const enriched: EnrichedUnit[] = enrichFromCache(result.units, prCache);
 
+  const drift: Drift[] = [];
+  for (const unit of result.units) {
+    const localTip = unit.commits[unit.commits.length - 1] ?? "";
+    const syncedHeadSha = prCache[unit.id]?.syncedHeadSha;
+    const remoteTrackingTip = await resolveRemoteTrackingTip(ctx.git, unit, config, { cwd });
+    drift.push(classifyDrift({ localTip, syncedHeadSha, remoteTrackingTip }));
+  }
+
   if (opts.json) {
-    console.log(JSON.stringify(buildStackTree(enriched), null, 2));
+    console.log(JSON.stringify(buildStackTree(enriched, drift), null, 2));
     return;
   }
 
-  console.log(formatStackView(enriched, branch, commits.length, ref));
+  console.log(formatStackView(enriched, branch, commits.length, ref, drift));
 }

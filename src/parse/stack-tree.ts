@@ -1,5 +1,6 @@
 // src/parse/stack-tree.ts
 import type { EnrichedUnit } from "../gh/enrich.ts";
+import type { Drift } from "../git/drift.ts";
 import type { PRInfo } from "../gh/pr.ts";
 import type { StackTree, StackTreeNode, StackTreeCommit, PrStateInfo } from "./types.ts";
 
@@ -18,13 +19,16 @@ function memberCommits(ids: string[], hashes: string[], subjects: string[]): Sta
 }
 
 /** Pure: serializes enriched, parsed units into the nested output tree for `sp view --json`. */
-export function buildStackTree(enriched: EnrichedUnit[]): StackTree {
-  const stack: StackTreeNode[] = enriched.map(({ unit, pr }) => {
+export function buildStackTree(enriched: EnrichedUnit[], drift: Drift[] = []): StackTree {
+  const stack: StackTreeNode[] = enriched.map(({ unit, pr }, i) => {
+    const d = drift[i] ?? { localAhead: false, remoteAhead: false };
     if (unit.type === "group") {
       return {
         type: "group",
         id: unit.id,
         title: unit.title ?? null,
+        localAhead: d.localAhead,
+        remoteAhead: d.remoteAhead,
         pr: prState(pr),
         commits: memberCommits(unit.commitIds, unit.commits, unit.subjects),
       };
@@ -34,6 +38,8 @@ export function buildStackTree(enriched: EnrichedUnit[]): StackTree {
       id: unit.id,
       sha: unit.commits[0] ?? "",
       subject: unit.subjects[0] ?? "",
+      localAhead: d.localAhead,
+      remoteAhead: d.remoteAhead,
       pr: prState(pr),
     };
   });
