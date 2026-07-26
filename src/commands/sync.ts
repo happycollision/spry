@@ -745,7 +745,10 @@ async function writePRCache(
     // keeps old records) — caching it would print a phantom "Updated PR cache"
     // and let sp view render a stale state. Merged-state display comes from the
     // cache write made while the PR was still open; land/clean own its removal.
-    if (pr && pr.state === "OPEN") cache[unit.id] = { ...pr, branch, cachedAt: now };
+    if (pr && pr.state === "OPEN") {
+      const syncedHeadSha = unit.commits[unit.commits.length - 1];
+      cache[unit.id] = { ...pr, branch, cachedAt: now, syncedHeadSha };
+    }
   }
   const count = Object.keys(cache).length;
   if (count === 0) return;
