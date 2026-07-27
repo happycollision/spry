@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- `sp sync` now runs its per-branch GitHub PR lookups concurrently instead of one at a time. `findPRsForBranches` (`src/gh/pr.ts`) previously awaited each branch's `gh api graphql` subprocess serially — the single largest contributor to sync latency, since each call is a ~0.4s network round-trip, so a 6-commit stack paid ~2.4s just for the initial PR lookup. Lookups are independent reads (the query is keyed on `branch`), so they now run through a bounded worker pool (concurrency 8) that caps `gh` subprocess fan-out and stays well under GitHub's secondary rate limits. The returned `Map` still preserves input branch order (keys are pre-seeded before the concurrent fills), and each branch is still paired with its own PR by identity regardless of which lookup resolves first. Cassette-safe: the per-branch `gh` call shape is unchanged and the replay seam matches on args (not call order), so existing recordings replay without change. Both `sp sync` (single stack) and `sp sync --all` benefit. (spry-u1v1.1)
+
 ### Added
 
 - `sp group --apply <json>` runs grouping, reordering, and PR-close/adopt non-interactively from a JSON doc (`"-"` reads stdin), for scripting the group editor without the TUI. Fully offline: open-PR state is read only from the local PR cache (`refs/spry/prs`), never `gh`. `prAction:CLOSE` only marks the cached entry `CLOSED` locally for now — no command actually closes the PR on GitHub yet. Reissuing ids (in a single apply that doesn't also reorder) and reordering commits (on a clean working tree) are both supported, but not combined in the same apply. Wired in `src/cli/index.ts` as `--apply <json>` on the `group` command.

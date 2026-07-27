@@ -256,15 +256,37 @@ async function lookupOne(
   return parsePRResponse(result.stdout);
 }
 
+/**
+ * Max concurrent `gh api graphql` PR lookups. Each lookup is an independent
+ * read (the query is keyed on `branch`), so they parallelize cleanly — but we
+ * cap the fan-out to stay well under GitHub's secondary rate limits and to
+ * avoid spawning an unbounded number of `gh` subprocesses on a deep stack.
+ */
+const PR_LOOKUP_CONCURRENCY = 8;
+
 export async function findPRsForBranches(
   ctx: SpryContext,
   branches: string[],
   options?: FindPRsOptions,
 ): Promise<Map<string, PRInfo | null>> {
   const result = new Map<string, PRInfo | null>();
-  for (const branch of branches) {
-    result.set(branch, await lookupOne(ctx, branch, options));
+  // Pre-seed keys in input order so the returned Map preserves branch order
+  // regardless of which lookups resolve first (a Map keeps insertion order).
+  for (const branch of branches) result.set(branch, null);
+
+  let next = 0;
+  async function worker(): Promise<void> {
+    for (let i = next++; i < branches.length; i = next++) {
+      const branch = branches[i];
+      if (branch === undefined) continue;
+      result.set(branch, await lookupOne(ctx, branch, options));
+    }
   }
+
+  const workers = Array.from({ length: Math.min(PR_LOOKUP_CONCURRENCY, branches.length) }, () =>
+    worker(),
+  );
+  await Promise.all(workers);
   return result;
 }
 
