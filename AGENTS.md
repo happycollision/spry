@@ -14,7 +14,8 @@ only **ask the user to run the interactive one themselves** (e.g. via the
 
 Known interactive commands (ask the user to run these bare forms):
 
-- `sp sync --open` — prompts in a TUI when opening PRs.
+- `sp sync --open` **with no value** — the bare `--open` opens a TUI unit
+  selector. Use the non-interactive `sp sync --open <ids>` form instead (below).
 - `sp group` (bare) — interactive grouping/reordering editor.
 - `sp land` (bare, no `--through`) — opens a single-select picker.
 
@@ -22,8 +23,21 @@ Non-interactive (safe for the agent to run):
 
 - `sp view` — offline stack display.
 - `sp view --json` — machine-readable nested stack tree (commit/group ids,
-  order, and cached PR state); the read side for building `sp group --apply` docs.
-- `sp sync` (push-only, no `--open`).
+  order, and cached PR state); the read side for building `sp group --apply` docs
+  and for picking the ids to pass to `sp sync --open <ids>`.
+- `sp sync` (push-only) — pushes already-published branches, opens nothing.
+- `sp sync --open <ids>` — opens PRs for the given comma-separated ids
+  **non-interactively** (only the bare `--open` with no value opens the TUI).
+  Each id is a spry unit id, a unique spry-id prefix, or a **git commit SHA**
+  (full or unique prefix) — SHAs resolve to their unit via
+  `resolveIdentifier` (`src/parse/identifier.ts`). Prefer the **spry id**: any
+  sync that injects a missing `Spry-Commit-Id` trailer rewrites the commit, so
+  a SHA captured _before_ that injection is stale and won't match — always read
+  the id/SHA from `sp view --json` taken **after** ids are stamped. Stack order
+  is preserved automatically. `--open` is **first-time publish only** — it
+  errors if a unit already has a published branch, so open each unit's PR once
+  and use bare `sp sync` for later updates. Unlike the offline commands, this
+  **does call `gh`** to create the PRs.
 - `sp group --apply <json>` — declarative, offline grouping (create/dissolve
   groups, reorder, reissue ids, adopt/close PRs) from a JSON document, or `-` to
   read the doc from stdin. This is the scriptable equivalent of the `sp group`
@@ -34,6 +48,39 @@ Non-interactive (safe for the agent to run):
 
 Confirm a command is non-interactive before relying on it; when in doubt, ask the
 user to run it.
+
+### PR-per-commit policy
+
+**Every commit we make gets its own PR, opened via `sp`.** Even when the whole
+branch will eventually merge as a single unit, we treat each commit as an
+individual PR — that is the point of dogfooding: our own workflow is the stack.
+
+The per-commit loop (all agent-runnable — no handoff needed):
+
+1. **Before committing, run `sp view`** (or `sp view --json`). This is not
+   optional: a prior commit's PR may now show a failing check, and surfacing it
+   here is how we catch it. Address a revealed failure as its own follow-up
+   commit (see grouping below); don't silently roll past it.
+2. **Commit** the change (on a feature branch, per the git rules below).
+3. **Stamp + push:** run bare `sp sync`. This injects the missing
+   `Spry-Commit-Id` trailer (rewriting the commit's SHA) and pushes any
+   already-published branches. A fresh commit has no id until this runs, so it
+   must come before `--open`.
+4. **Open its PR:** read the newly-stamped unit's id from `sp view --json`
+   (take it _after_ step 3, since stamping changed the SHA), then run
+   `sp sync --open <id>`. This is **fire-and-forget** — do it after the commit
+   and move on; do not block the next step waiting on it. If it's skipped or
+   fails, opening it late on the next loop is fine — **late is better than
+   never, and better than stalling every commit on it.**
+
+**Group expect-to-fail commits with the commits that fix them.** When a commit
+is _expected_ to fail its checks on its own — e.g. it lands a change whose test
+or cassette update comes in a follow-up, or it deliberately reproduces a bug
+before the fix — put it in the **same group** as the commit(s) that make it
+green, using `sp group --apply <json>` (build the doc from `sp view --json`).
+A group opens as one PR, so the failing intermediate state is never presented as
+a standalone red PR: the PR for the group is judged on its combined, passing
+end state. Never open a knowingly-red commit as its own ungrouped PR.
 
 **Caveat — `sp group --apply` PR-close is local-only for now (spry-ifaj):** a
 `prAction: "CLOSE"` in an apply doc only marks the local PR-cache entry closed; no
