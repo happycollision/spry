@@ -9,10 +9,14 @@ import { cleanCommand } from "../commands/clean.ts";
 import { createRealGitRunner } from "../lib/context.ts";
 import type { SpryContext } from "../lib/context.ts";
 import { createSeamedGhClient } from "../lib/gh-seam.ts";
+import pkg from "../../package.json" with { type: "json" };
 
 const program = new Command();
 
-program.name("sp").description("Spry: Stacked PRs. Develop with alacrity.");
+program
+  .name("sp")
+  .description("Spry: Stacked PRs. Develop with alacrity.")
+  .version(pkg.version, "-v, --version", "Output the version number");
 
 const { gh, flush } = await createSeamedGhClient();
 
