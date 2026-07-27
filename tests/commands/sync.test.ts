@@ -98,40 +98,33 @@ function ghPRMap(
         exitCode: 1,
       };
     }
-    const branchArg = call.args.find((a) => a.startsWith("branch="));
-    const branch = branchArg?.slice("branch=".length) ?? "";
-    const pr = branchToPR[branch];
-    if (!pr) {
+    // Batched lookup: each branch rides as an aliased `bK=<branch>` variable and
+    // the response returns one aliased field per branch (data.repository.bK).
+    const nodeFor = (branch: string) => {
+      const pr = branchToPR[branch];
+      if (!pr) return { nodes: [] };
       return {
-        stdout: JSON.stringify({
-          data: { repository: { pullRequests: { nodes: [] } } },
-        }),
-        stderr: "",
-        exitCode: 0,
-      };
-    }
-    const state = pr.state ?? "OPEN";
-    return {
-      stdout: JSON.stringify({
-        data: {
-          repository: {
-            pullRequests: {
-              nodes: [
-                {
-                  number: pr.number,
-                  url: `https://github.com/owner/repo/pull/${pr.number}`,
-                  state,
-                  title: "T",
-                  baseRefName: pr.baseRefName,
-                  reviewDecision: null,
-                  reviewThreads: { totalCount: 0, nodes: [] },
-                  commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
-                },
-              ],
-            },
+        nodes: [
+          {
+            number: pr.number,
+            url: `https://github.com/owner/repo/pull/${pr.number}`,
+            state: pr.state ?? "OPEN",
+            title: "T",
+            baseRefName: pr.baseRefName,
+            reviewDecision: null,
+            reviewThreads: { totalCount: 0, nodes: [] },
+            commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
           },
-        },
-      }),
+        ],
+      };
+    };
+    const repository: Record<string, { nodes: object[] }> = {};
+    for (const a of call.args) {
+      const m = /^(b\d+)=(.*)$/.exec(a);
+      if (m) repository[m[1]!] = nodeFor(m[2]!);
+    }
+    return {
+      stdout: JSON.stringify({ data: { repository } }),
       stderr: "",
       exitCode: 0,
     };
