@@ -120,7 +120,7 @@ describe("injectMissingIdsForBranch", () => {
     ).stdout.trim();
 
     // Move HEAD onto a different branch so feature-other is NOT current
-    const current = await repo.branch("feature-current");
+    await repo.branch("feature-current");
     const headBefore = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
 
     const result = await injectMissingIdsForBranch(git, other, "origin/main", { cwd: repo.path });
