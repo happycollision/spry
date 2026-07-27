@@ -6,6 +6,7 @@ import {
   stackHasReorder,
   parkMismatchedToTrunk,
   bodyPassIsNoop,
+  prCacheEquivalent,
 } from "../../src/commands/sync.ts";
 import type { PRCache } from "../../src/gh/pr-cache.ts";
 import type { PRUnit } from "../../src/parse/types.ts";
@@ -2008,6 +2009,10 @@ describe("updateStackBodies (end-of-sync PR body pass)", () => {
     // pass is skipped WHOLESALE — not even a `gh pr view` body fetch fires.
     const bodyFetches = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "view");
     expect(bodyFetches).toHaveLength(0);
+    // PR-cache no-op skip (spry-b5wn.3): the second sync's rebuilt cache equals
+    // what the first sync stored (modulo cachedAt), so writePRCache skips the
+    // save+push — no "Updated PR cache" line this run.
+    expect(logs2.out.join("\n")).not.toContain("Updated PR cache");
   });
 
   test("body update failure logs a warning and flips the exit code", async () => {
@@ -2177,5 +2182,60 @@ describe("bodyPassIsNoop (body-pass short-circuit predicate)", () => {
     const cache: PRCache = { a: cacheEntry(10, "spry/test/a", "sha1") };
     // current open-set is empty, cached open-set has one → length mismatch.
     expect(bodyPassIsNoop([u], prMap, cache, config)).toBe(false);
+  });
+});
+
+describe("prCacheEquivalent (PR-cache no-op skip)", () => {
+  const entry = (over: Partial<PRCache[string]> = {}): PRCache[string] => ({
+    number: 10,
+    url: "https://github.com/o/r/pull/10",
+    state: "OPEN",
+    title: "t",
+    baseRefName: "main",
+    checksStatus: "none",
+    reviewDecision: "none",
+    reviewThreads: { resolved: 0, total: 0 },
+    branch: "spry/test/a",
+    cachedAt: "2020-01-01T00:00:00.000Z",
+    syncedHeadSha: "sha1",
+    ...over,
+  });
+
+  test("two empty caches are equivalent", () => {
+    expect(prCacheEquivalent({}, {})).toBe(true);
+  });
+
+  test("ignores cachedAt (the only field that changes on a no-op)", () => {
+    const a: PRCache = { a: entry({ cachedAt: "2020-01-01T00:00:00.000Z" }) };
+    const b: PRCache = { a: entry({ cachedAt: "2026-07-27T12:00:00.000Z" }) };
+    expect(prCacheEquivalent(a, b)).toBe(true);
+  });
+
+  test("differs when a meaningful field changes (syncedHeadSha)", () => {
+    const a: PRCache = { a: entry({ syncedHeadSha: "sha1" }) };
+    const b: PRCache = { a: entry({ syncedHeadSha: "sha2" }) };
+    expect(prCacheEquivalent(a, b)).toBe(false);
+  });
+
+  test("differs when a PR's state or base changes", () => {
+    expect(
+      prCacheEquivalent(
+        { a: entry({ baseRefName: "main" }) },
+        { a: entry({ baseRefName: "spry/test/b" }) },
+      ),
+    ).toBe(false);
+    expect(
+      prCacheEquivalent(
+        { a: entry({ checksStatus: "passing" }) },
+        { a: entry({ checksStatus: "failing" }) },
+      ),
+    ).toBe(false);
+  });
+
+  test("differs when the id set differs", () => {
+    expect(prCacheEquivalent({ a: entry() }, {})).toBe(false);
+    expect(prCacheEquivalent({ a: entry() }, { a: entry(), b: entry() })).toBe(false);
+    // Same size, different ids.
+    expect(prCacheEquivalent({ a: entry() }, { b: entry() })).toBe(false);
   });
 });

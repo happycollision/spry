@@ -50,7 +50,7 @@ import {
 } from "../gh/index.ts";
 import { fetchPRCache, savePRCache, pushPRCache, loadPRCache } from "../gh/pr-cache.ts";
 import { mapWithConcurrency } from "../lib/concurrency.ts";
-import type { PRCache } from "../gh/pr-cache.ts";
+import type { PRCache, PRCacheEntry } from "../gh/pr-cache.ts";
 import type { PRInfo } from "../gh/pr.ts";
 import type { SpryConfig } from "../git/config.ts";
 import { selectUnits } from "../tui/index.ts";
@@ -928,6 +928,29 @@ async function updateStackBodies(
   return hadFailure;
 }
 
+/**
+ * True when two PR caches carry the same meaningful state — every field except
+ * `cachedAt`, which `writePRCache` stamps fresh on every build and so always
+ * differs run-to-run even on a no-op. Used to skip a redundant save+push
+ * (`git push refs/spry/prs` is ~1.2s; a no-op sync was doing it twice).
+ */
+export function prCacheEquivalent(a: PRCache, b: PRCache): boolean {
+  const ak = Object.keys(a);
+  const bk = Object.keys(b);
+  if (ak.length !== bk.length) return false;
+  const strip = (e: PRCacheEntry): Omit<PRCacheEntry, "cachedAt"> => {
+    const { cachedAt: _cachedAt, ...rest } = e;
+    return rest;
+  };
+  for (const id of ak) {
+    const ea = a[id];
+    const eb = b[id];
+    if (!ea || !eb) return false;
+    if (JSON.stringify(strip(ea)) !== JSON.stringify(strip(eb))) return false;
+  }
+  return true;
+}
+
 async function writePRCache(
   ctx: SpryContext,
   config: SpryConfig,
@@ -952,6 +975,17 @@ async function writePRCache(
   }
   const count = Object.keys(cache).length;
   if (count === 0) return;
+
+  // Skip the save+push when the freshly-built cache matches what's already
+  // stored (ignoring the cosmetic `cachedAt` timestamp). A no-op sync was
+  // otherwise rebuilding and force-pushing `refs/spry/prs` every run — and, via
+  // checkSync's write plus syncCommand's write, doing it TWICE. Comparing
+  // against the current local cache makes both writes no-ops when nothing
+  // changed. (The local cache was just refreshed from the remote by checkSync's
+  // fetchPRCache, so it reflects the remote too.)
+  const existing = await loadPRCache(ctx.git, { cwd });
+  if (prCacheEquivalent(cache, existing)) return;
+
   try {
     await savePRCache(ctx.git, cache, { cwd });
     console.log(`✓ Updated PR cache (${count} ${count === 1 ? "PR" : "PRs"})`);

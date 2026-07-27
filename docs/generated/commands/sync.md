@@ -103,7 +103,6 @@ sp sync
 ```
 ✓ Updated PR cache (1 PR)
 ↑ pushed spry/dondenton/aaaa1111
-✓ Updated PR cache (1 PR)
 ✎ updated PR #42 body
 ✓ Sync complete
 
@@ -162,7 +161,6 @@ sp sync
 ↑ pushed spry/dondenton/aaaa1111
 ↻ retargeted PR #42 → main
 ↻ retargeted PR #42 → spry/dondenton/bbbb2222
-✓ Updated PR cache (2 PRs)
 ✎ updated PR #42 body
 ✎ updated PR #42 body
 ✓ Sync complete
