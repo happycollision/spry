@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { mkdir, rm, readFile } from "node:fs/promises";
 import { assembleMarkdown, assembleHtml, buildDocsFromDisk } from "./build-docs.ts";
 import type { DocFragment } from "../tests/lib/doc-types.ts";
-import { SHA_POOL, SPRY_ID_POOL, buildShaMap, buildSpryMap } from "../tests/lib/sha-scanner.ts";
+import { buildShaMap, buildSpryMap } from "../tests/lib/sha-scanner.ts";
 
 test("assembles fragments into markdown grouped by section", () => {
   const fragments: DocFragment[] = [

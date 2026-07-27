@@ -70,10 +70,9 @@ describe("buildSpryMap", () => {
   });
 });
 
-// Precompute the fake SHA values that buildShaMap assigns to SHA_A and SHA_B
-// using encounter-order assignment (first seen → pool slot 0, etc.).
+// Precompute the fake SHA values that buildShaMap/buildSpryMap assign to SHA_A
+// and SPRY_A using encounter-order assignment (first seen → pool slot 0, etc.).
 const FAKE_A = get(buildShaMap([SHA_A]), SHA_A);
-const FAKE_B = get(buildShaMap([SHA_B]), SHA_B);
 const FAKE_SPRY_A = get(buildSpryMap([SPRY_A]), SPRY_A);
 
 describe("scanAndReplace", () => {
