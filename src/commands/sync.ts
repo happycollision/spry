@@ -33,6 +33,7 @@ import type { CommitWithTrailers } from "../parse/index.ts";
 import { formatValidationError } from "../ui/format.ts";
 import {
   listRemoteBranches,
+  listTrackedRemoteBranches,
   pushBranch,
   findPRsForBranches,
   retargetPR,
@@ -278,8 +279,15 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
     return;
   }
 
-  // 3. Cheap signal: which branches already exist on the remote?
-  const existing = await listRemoteBranches(ctx.git, config.remote, config.branchPrefix, { cwd });
+  // 3. Which branches already exist on the remote (and their tips)? Read from
+  // the remote-tracking refs checkSync's fetch JUST refreshed — a local
+  // for-each-ref, not a network ls-remote (~0.5s saved). Same freshness as
+  // ls-remote at fetch time; the push's --force-with-lease (pinned to the
+  // pre-fetch tips) is the real guard, so a stale read can only cost a
+  // redundant push, never a wrong one.
+  const existing = await listTrackedRemoteBranches(ctx.git, config.remote, config.branchPrefix, {
+    cwd,
+  });
 
   // 3.5 Phase 1 — pre-push park. When the stack has been reordered, an
   // in-place force-push can make a PR's head reachable from its stale base and

@@ -25,7 +25,13 @@ export { withRetry, isTransientFailure } from "./retry.ts";
 export type { RetryOptions } from "./retry.ts";
 export { enrichUnits, enrichFromCache } from "./enrich.ts";
 export type { EnrichedUnit } from "./enrich.ts";
-export { pushBranch, listRemoteBranches, deleteRemoteBranch, isAlreadyGone } from "./push.ts";
+export {
+  pushBranch,
+  listRemoteBranches,
+  listTrackedRemoteBranches,
+  deleteRemoteBranch,
+  isAlreadyGone,
+} from "./push.ts";
 export type {
   PushOptions,
   PushResult,

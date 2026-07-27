@@ -1,5 +1,10 @@
 import { describe, test, expect, afterAll } from "bun:test";
-import { pushBranch, listRemoteBranches, isAlreadyGone } from "../../src/gh/push.ts";
+import {
+  pushBranch,
+  listRemoteBranches,
+  listTrackedRemoteBranches,
+  isAlreadyGone,
+} from "../../src/gh/push.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
 import type { TestRepo } from "../lib/index.ts";
 
@@ -192,6 +197,51 @@ describe("listRemoteBranches", () => {
     });
     const set = await listRemoteBranches(git, "origin", "spry/nope", { cwd: repo.path });
     expect(set.size).toBe(0);
+  });
+});
+
+describe("listTrackedRemoteBranches", () => {
+  // Push two spry branches + one unrelated, fetch them into remote-tracking
+  // refs, then assert the LOCAL reader agrees with the network ls-remote — the
+  // whole point of spry-b5wn.5 (skip ls-remote after a fetch already refreshed
+  // the tracking refs).
+  async function seedAndFetch() {
+    const repo = await makeRepo();
+    const git = createRealGitRunner();
+    await repo.branch("feature");
+    const sha = await repo.commit("Work");
+    for (const b of ["spry/test/aaa11111", "spry/test/bbb22222", "other/zzz"]) {
+      await pushBranch(git, {
+        cwd: repo.path,
+        remote: "origin",
+        sha,
+        branch: b,
+        forceWithLease: true,
+      });
+    }
+    // Refresh the remote-tracking refs (what checkSync's narrowed fetch does).
+    await git.run(["fetch", "origin", "+refs/heads/spry/test/*:refs/remotes/origin/spry/test/*"], {
+      cwd: repo.path,
+    });
+    return { repo, git, sha };
+  }
+
+  test("reads the same branches+SHAs as ls-remote, scoped to the prefix", async () => {
+    const { repo, git, sha } = await seedAndFetch();
+    const local = await listTrackedRemoteBranches(git, "origin", "spry/test", { cwd: repo.path });
+    expect(local.get("spry/test/aaa11111")).toBe(sha);
+    expect(local.get("spry/test/bbb22222")).toBe(sha);
+    expect(local.has("other/zzz")).toBe(false);
+
+    // Differential: agrees with the authoritative network reader.
+    const remote = await listRemoteBranches(git, "origin", "spry/test", { cwd: repo.path });
+    expect([...local.entries()].sort()).toEqual([...remote.entries()].sort());
+  });
+
+  test("returns empty map when no tracking refs match", async () => {
+    const { repo, git } = await seedAndFetch();
+    const local = await listTrackedRemoteBranches(git, "origin", "spry/nope", { cwd: repo.path });
+    expect(local.size).toBe(0);
   });
 });
 
