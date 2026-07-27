@@ -50,11 +50,10 @@ export {
   checkReorderConflicts,
 } from "./conflict.ts";
 
-export type { RebaseOptions, InjectIdsResult, RebaseResult, ConflictInfo } from "./rebase.ts";
+export type { RebaseOptions, InjectIdsResult, ConflictInfo } from "./rebase.ts";
 export {
   injectMissingIds,
   injectMissingIdsForBranch,
-  rebaseOntoTrunk,
   getConflictInfo,
   formatConflictError,
 } from "./rebase.ts";

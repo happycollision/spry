@@ -3,14 +3,12 @@ import { createRealGitRunner, createRepo, repoManager } from "../../tests/lib/in
 import {
   injectMissingIds,
   injectMissingIdsForBranch,
-  rebaseOntoTrunk,
   getConflictInfo,
   formatConflictError,
 } from "../../src/git/rebase.ts";
 import type { ConflictInfo } from "../../src/git/rebase.ts";
 import { getStackCommits, getFullSha } from "../../src/git/queries.ts";
 import { parseTrailers } from "../../src/parse/trailers.ts";
-import type { SpryConfig } from "../../src/git/config.ts";
 
 const git = createRealGitRunner();
 // Shared manager: repos are cleaned up in afterAll, which is safe under
@@ -162,109 +160,6 @@ describe("injectMissingIdsForBranch", () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.modifiedCount).toBe(0);
     await repo.cleanup();
-  });
-});
-
-// --- Task 17: rebaseOntoTrunk ---
-
-describe("rebaseOntoTrunk", () => {
-  test("rebases stack onto updated trunk", async () => {
-    const repo = await repos.create();
-    const config: SpryConfig = {
-      trunk: "main",
-      remote: "origin",
-      branchPrefix: "spry/test",
-      autoDeleteOnLand: false,
-    };
-
-    // Create a feature branch
-    const branchName = await repo.branch("rebase-trunk");
-    await repo.commit("feature work");
-
-    // Go back to main, add a commit, push, fetch
-    await repo.checkout(repo.defaultBranch);
-    await repo.commit("trunk update");
-    await git.run(["push", "origin", "main"], { cwd: repo.path });
-    await repo.fetch();
-
-    // Go back to feature branch
-    await repo.checkout(branchName);
-
-    const result = await rebaseOntoTrunk(git, config, { cwd: repo.path });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.commitCount).toBe(1);
-    expect(result.newTip).toMatch(/^[0-9a-f]{40}$/);
-  });
-
-  test("returns ok with commitCount 0 for empty stack", async () => {
-    const repo = await repos.create();
-    const config: SpryConfig = {
-      trunk: "main",
-      remote: "origin",
-      branchPrefix: "spry/test",
-      autoDeleteOnLand: false,
-    };
-    await repo.fetch();
-
-    const result = await rebaseOntoTrunk(git, config, { cwd: repo.path });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.commitCount).toBe(0);
-    expect(result.newTip).toMatch(/^[0-9a-f]{40}$/);
-  });
-
-  test("returns error for detached HEAD", async () => {
-    const repo = await repos.create();
-    const config: SpryConfig = {
-      trunk: "main",
-      remote: "origin",
-      branchPrefix: "spry/test",
-      autoDeleteOnLand: false,
-    };
-    const sha = await getFullSha(git, "HEAD", { cwd: repo.path });
-    await repo.checkout(sha);
-
-    const result = await rebaseOntoTrunk(git, config, { cwd: repo.path });
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.reason).toBe("detached-head");
-  });
-
-  test("detects conflict", async () => {
-    const repo = await repos.create();
-    const config: SpryConfig = {
-      trunk: "main",
-      remote: "origin",
-      branchPrefix: "spry/test",
-      autoDeleteOnLand: false,
-    };
-
-    // Create shared file on main
-    await repo.commitFiles({ "shared.txt": "base content" }, "add shared");
-    await git.run(["push", "origin", "main"], { cwd: repo.path });
-
-    // Branch off
-    const branchName = await repo.branch("conflict-rebase");
-    await repo.commitFiles({ "shared.txt": "feature version" }, "modify shared on feature");
-
-    // Go back to main, modify same file, push
-    await repo.checkout(repo.defaultBranch);
-    await repo.commitFiles({ "shared.txt": "main version" }, "modify shared on main");
-    await git.run(["push", "origin", "main"], { cwd: repo.path });
-    await repo.fetch();
-
-    // Go back to feature
-    await repo.checkout(branchName);
-
-    const result = await rebaseOntoTrunk(git, config, { cwd: repo.path });
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.reason).toBe("conflict");
   });
 });
 

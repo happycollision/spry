@@ -1,17 +1,13 @@
 import type { GitRunner } from "../lib/context.ts";
-import type { SpryConfig } from "./config.ts";
-import { trunkRef as getTrunkRef } from "./config.ts";
 import {
   getCurrentBranch,
   isDetachedHead,
   getStackCommits,
   getStackCommitsForBranch,
   getCommitMessage,
-  getFullSha,
 } from "./queries.ts";
 import type { CommitInfo } from "../parse/types.ts";
-import { rewriteCommitChain, finalizeRewrite, rebasePlumbing, updateRef } from "./plumbing.ts";
-import { parseConflictOutput } from "./conflict.ts";
+import { rewriteCommitChain, finalizeRewrite, updateRef } from "./plumbing.ts";
 import { parseTrailers, addTrailers } from "../parse/trailers.ts";
 import { generateCommitId } from "../parse/id.ts";
 import { stat } from "node:fs/promises";
@@ -27,10 +23,6 @@ export interface RebaseOptions {
 export type InjectIdsResult =
   | { ok: true; modifiedCount: number; rebasePerformed: boolean }
   | { ok: false; reason: "detached-head" };
-
-export type RebaseResult =
-  | { ok: true; commitCount: number; newTip: string }
-  | { ok: false; reason: "detached-head" | "conflict"; conflictFile?: string };
 
 export interface ConflictInfo {
   files: string[];
@@ -148,64 +140,6 @@ export async function injectMissingIdsForBranch(
   await updateRef(git, `refs/heads/${branch}`, result.newTip, oldTip, { cwd });
 
   return { ok: true, modifiedCount: missingIds.length, rebasePerformed: true };
-}
-
-// --- Task 17: rebaseOntoTrunk ---
-
-export async function rebaseOntoTrunk(
-  git: GitRunner,
-  config: SpryConfig,
-  options?: RebaseOptions,
-): Promise<RebaseResult> {
-  const cwd = options?.cwd;
-
-  // 1. Check detached HEAD
-  if (await isDetachedHead(git, { cwd })) {
-    return { ok: false, reason: "detached-head" };
-  }
-
-  // 2. Get trunk ref
-  const ref = getTrunkRef(config);
-
-  // 3. Get stack commits
-  const commits = await getStackCommits(git, ref, { cwd });
-
-  // 4. Empty stack
-  if (commits.length === 0) {
-    const newTip = await getFullSha(git, "HEAD", { cwd });
-    return { ok: true, commitCount: 0, newTip };
-  }
-
-  // 5. Get onto SHA
-  const ontoSha = await getFullSha(git, ref, { cwd });
-
-  // 6. Rebase via plumbing
-  const commitHashes = commits.map((c) => c.hash);
-  const result = await rebasePlumbing(git, ontoSha, commitHashes, { cwd });
-
-  // 7. Conflict
-  if (!result.ok) {
-    const parsed = parseConflictOutput(result.conflictInfo);
-    return {
-      ok: false,
-      reason: "conflict",
-      conflictFile: parsed.files[0],
-    };
-  }
-
-  // 8. Success - finalize
-  const branch = options?.branch ?? (await getCurrentBranch(git, { cwd }));
-  const oldTip = commitHashes.at(-1) ?? "";
-  if (!oldTip) {
-    throw new Error("rebaseOntoTrunk: unexpected empty commit list");
-  }
-  await finalizeRewrite(git, branch, oldTip, result.newTip, { cwd });
-
-  return {
-    ok: true,
-    commitCount: commits.length,
-    newTip: result.newTip,
-  };
 }
 
 // --- Task 18: getConflictInfo, formatConflictError ---
