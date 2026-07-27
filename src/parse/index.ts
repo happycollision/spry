@@ -28,6 +28,7 @@ export type { CommitWithTrailers } from "./stack.ts";
 export {
   resolveIdentifier,
   resolveIdentifiers,
+  remapRewrittenShas,
   formatResolutionError,
   parseApplySpec,
   resolveUpTo,

@@ -37,6 +37,52 @@ export function resolveIdentifier(
   return { ok: true, unit: unitForCommit };
 }
 
+/**
+ * Translate `--open` identifiers that pointed at a commit whose SHA was just
+ * rewritten by `sp sync`'s `injectMissingIds` pass (which adds a
+ * `Spry-Commit-Id` trailer to every id-less commit, minting a fresh SHA).
+ *
+ * `sp sync` injects ids *before* it resolves the user's `--open` targets, so a
+ * SHA the user typed — captured against the pre-injection stack — no longer
+ * exists afterward and would silently miss. `oldHashes`/`newHashes` are the
+ * stack's commit SHAs before and after injection, in stack order (same length,
+ * index `i` = the same logical commit). Any identifier that is a unique prefix
+ * of a *rewritten* old hash (`old[i] !== new[i]`) and is not already a prefix of
+ * some surviving new hash is rewritten to the full `new[i]`; everything else —
+ * spry ids, non-SHA tokens, SHAs of commits that were not rewritten, and
+ * ambiguous prefixes — passes through untouched for {@link resolveIdentifier} to
+ * handle. Pure and order-preserving.
+ */
+export function remapRewrittenShas(
+  identifiers: string[],
+  oldHashes: string[],
+  newHashes: string[],
+): string[] {
+  const isHexPrefix = (s: string) => s.length > 0 && /^[0-9a-f]+$/.test(s);
+
+  return identifiers.map((id) => {
+    if (!isHexPrefix(id)) return id;
+    // Still resolvable against a surviving commit → leave it alone.
+    if (newHashes.some((h) => h.startsWith(id))) return id;
+
+    // Find the rewritten old commits this prefix matches. A prefix that matches
+    // more than one has no single target — leave it for resolveIdentifier to
+    // report as ambiguous rather than guess.
+    const matchedIndexes: number[] = [];
+    for (let i = 0; i < oldHashes.length; i++) {
+      const oldHash = oldHashes[i];
+      const newHash = newHashes[i];
+      if (oldHash === undefined || newHash === undefined) continue;
+      if (oldHash === newHash) continue; // commit was not rewritten
+      if (oldHash.startsWith(id)) matchedIndexes.push(i);
+    }
+    if (matchedIndexes.length !== 1) return id;
+
+    const idx = matchedIndexes[0];
+    return idx === undefined ? id : (newHashes[idx] ?? id);
+  });
+}
+
 export function resolveIdentifiers(
   identifiers: string[],
   units: PRUnit[],

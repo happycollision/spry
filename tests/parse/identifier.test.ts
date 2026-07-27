@@ -6,6 +6,7 @@ import {
   formatResolutionError,
   parseApplySpec,
   resolveUpTo,
+  remapRewrittenShas,
 } from "../../src/parse/identifier.ts";
 import type { PRUnit, CommitInfo } from "../../src/parse/types.ts";
 
@@ -239,5 +240,59 @@ describe("resolveUpTo", () => {
     const result = resolveUpTo("bbb2223", units, commits);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.unitIds.has("def67890")).toBe(true);
+  });
+});
+
+describe("remapRewrittenShas", () => {
+  // sp sync injects Spry-Commit-Id trailers BEFORE resolving --open ids, which
+  // rewrites the SHA of every commit that lacked an id. A SHA the user passed to
+  // --open (captured before that rewrite) then no longer exists in the stack, so
+  // resolveIdentifier silently misses it. remapRewrittenShas translates such a
+  // SHA to the post-injection SHA of the same logical commit (same stack index),
+  // so the user's intent survives the rug-pull. (spry-3zqb)
+
+  // Pre-injection stack: two commits, neither has an id yet.
+  const oldHashes = ["aaaaaaaaaaaa1111", "bbbbbbbbbbbb2222"];
+  // Post-injection: both were rewritten (trailer added) → fresh SHAs, same order.
+  const newHashes = ["cccccccccccc3333", "dddddddddddd4444"];
+
+  test("remaps a full pre-injection SHA to its post-injection SHA", () => {
+    expect(remapRewrittenShas(["aaaaaaaaaaaa1111"], oldHashes, newHashes)).toEqual([
+      "cccccccccccc3333",
+    ]);
+  });
+
+  test("remaps a pre-injection SHA prefix to the full post-injection SHA", () => {
+    expect(remapRewrittenShas(["bbbbbbb"], oldHashes, newHashes)).toEqual(["dddddddddddd4444"]);
+  });
+
+  test("leaves a token that still matches a surviving commit untouched", () => {
+    // Only the second commit was rewritten; the first kept its SHA.
+    const survived = remapRewrittenShas(["aaaaaaa"], oldHashes, [
+      "aaaaaaaaaaaa1111",
+      "dddddddddddd4444",
+    ]);
+    expect(survived).toEqual(["aaaaaaa"]);
+  });
+
+  test("leaves spry ids and non-SHA tokens untouched", () => {
+    expect(remapRewrittenShas(["6746c292", "not-a-sha"], oldHashes, newHashes)).toEqual([
+      "6746c292",
+      "not-a-sha",
+    ]);
+  });
+
+  test("does not remap an ambiguous prefix that matches multiple old hashes", () => {
+    // A prefix matching >1 pre-injection commit has no single target — leave it
+    // for resolveIdentifier to report as ambiguous rather than guess.
+    const ambiguousOld = ["ff0011", "ff0022"];
+    expect(remapRewrittenShas(["ff00"], ambiguousOld, ["1234", "5678"])).toEqual(["ff00"]);
+  });
+
+  test("is a no-op when nothing was rewritten (old === new)", () => {
+    expect(remapRewrittenShas(["aaaaaaa", "bbbbbbb"], oldHashes, oldHashes)).toEqual([
+      "aaaaaaa",
+      "bbbbbbb",
+    ]);
   });
 });

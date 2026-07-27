@@ -24,6 +24,7 @@ import {
   parseCommitTrailers,
   parseStack,
   resolveIdentifiers,
+  remapRewrittenShas,
   formatResolutionError,
 } from "../parse/index.ts";
 import type { PRUnit } from "../parse/index.ts";
@@ -192,6 +193,16 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
 
   const ref = trunkRef(config);
 
+  // A user can pass raw commit SHAs to `--open`. Step 1 below rewrites the SHA
+  // of every id-less commit, so a SHA captured against the current stack would
+  // silently miss after injection. Snapshot the pre-injection SHAs (in stack
+  // order) so we can translate the user's SHA to the rewritten commit's new SHA
+  // once injection is done (spry-3zqb).
+  const preInjectionShas =
+    typeof opts.open === "string"
+      ? (await getStackCommits(ctx.git, ref, { cwd })).map((c) => c.hash)
+      : [];
+
   // 1. Inject Spry-Commit-Id trailers; rewrites SHAs (branch names unchanged)
   const inject = await injectMissingIds(ctx.git, ref, { cwd });
   if (!inject.ok) {
@@ -200,6 +211,16 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
   }
   if (inject.modifiedCount > 0) {
     console.log(`✓ Injected ${inject.modifiedCount} commit ID(s)`);
+  }
+
+  // Now that ids are injected, translate any `--open` SHA the injection rewrote
+  // to the surviving commit's new SHA (by stack position). No-op unless
+  // injection actually moved a commit the user referenced by SHA.
+  if (typeof opts.open === "string" && inject.modifiedCount > 0) {
+    const postInjectionShas = (await getStackCommits(ctx.git, ref, { cwd })).map((c) => c.hash);
+    const tokens = opts.open.split(",").map((s) => s.trim());
+    const remapped = remapRewrittenShas(tokens, preInjectionShas, postInjectionShas).join(",");
+    opts = { ...opts, open: remapped };
   }
 
   const currentBranch = await getCurrentBranch(ctx.git, { cwd });
