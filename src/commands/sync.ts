@@ -9,6 +9,7 @@ import {
   branchForUnit,
   registerBranch,
   fetchRemote,
+  syncFetchRefspecs,
 } from "../git/index.ts";
 import { expectedBaseFor as sharedExpectedBaseFor } from "./stack-analysis.ts";
 import {
@@ -45,8 +46,10 @@ import {
   generateBodyContent,
   fetchPRBody,
   updatePRBody,
+  GH_CONCURRENCY,
 } from "../gh/index.ts";
 import { fetchPRCache, savePRCache, pushPRCache, loadPRCache } from "../gh/pr-cache.ts";
+import { mapWithConcurrency } from "../lib/concurrency.ts";
 import type { PRCache } from "../gh/pr-cache.ts";
 import type { PRInfo } from "../gh/pr.ts";
 import type { SpryConfig } from "../git/config.ts";
@@ -64,6 +67,14 @@ export interface CheckSyncResult {
   commits: CommitWithTrailers[];
   prMap: Map<string, PRInfo | null> | undefined;
   prCache: PRCache;
+  /**
+   * The PR cache as it was BEFORE this run wrote anything to it — captured
+   * ahead of checkSync's own `writePRCache`. This is last run's state, the
+   * baseline the body-pass no-op check (`bodyPassIsNoop`) diffs against to tell
+   * whether anything that feeds a PR body actually changed this run. `prCache`
+   * above may already reflect this run's write, so it cannot serve that role.
+   */
+  preRunPRCache: PRCache;
   config: SpryConfig;
   /**
    * Snapshot of remote-tracking tips (`refs/remotes/<remote>/<prefix>/*`)
@@ -132,7 +143,15 @@ export async function checkSync(
     cwd,
   );
 
-  await fetchRemote(ctx.git, config.remote, { cwd });
+  // Narrowed fetch: only trunk + the spry branch prefix, the exact
+  // remote-tracking refs the rest of checkSync reads (trunkRef,
+  // snapshotRemoteTips, remote-branch existence). Avoids pulling unrelated refs
+  // on large repos. `sp rebase`/`sp clean` keep the bare fetch (arbitrary
+  // branches).
+  await fetchRemote(ctx.git, config.remote, {
+    cwd,
+    refspecs: syncFetchRefspecs(config.remote, config.trunk, config.branchPrefix),
+  });
 
   const commits = await getStackCommits(ctx.git, ref, { cwd });
   const withTrailers = await parseCommitTrailers(commits, ctx.git, { cwd });
@@ -154,6 +173,11 @@ export async function checkSync(
   }
   const units = parsed.units;
 
+  // Snapshot the cache BEFORE this run writes to it — the body-pass no-op check
+  // needs last run's state as its baseline, and the write below would overwrite
+  // it with this run's tips on a non-open run.
+  const preRunPRCache = await loadPRCache(ctx.git, { cwd });
+
   let prMap: Map<string, PRInfo | null> | undefined;
   if (units.length > 0) {
     const allBranches = units.map((u) => branchForUnit(u, config));
@@ -174,7 +198,15 @@ export async function checkSync(
   }
 
   const prCache = await loadPRCache(ctx.git, { cwd });
-  return { units, commits: withTrailers, prMap, prCache, config, preFetchRemoteTips };
+  return {
+    units,
+    commits: withTrailers,
+    prMap,
+    prCache,
+    preRunPRCache,
+    config,
+    preFetchRemoteTips,
+  };
 }
 
 export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Promise<void> {
@@ -354,14 +386,12 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
     await writePRCache(ctx, config, units, effectivePrMap, cwd);
   }
 
-  const bodyHadFailure = await updateStackBodies(
-    ctx,
-    config,
-    units,
-    withTrailers,
-    effectivePrMap,
-    cwd,
-  );
+  // Skip the body pass entirely when it is provably a no-op (nothing that feeds
+  // a PR body changed since the last sync) — avoids a `gh pr view` per open PR
+  // on a steady-state sync. Any structural change or amended tip forces it.
+  const bodyHadFailure = bodyPassIsNoop(units, effectivePrMap, checked.preRunPRCache, config)
+    ? false
+    : await updateStackBodies(ctx, config, units, withTrailers, effectivePrMap, cwd);
 
   const hadFailure =
     pushResult.hadFailure ||
@@ -666,24 +696,40 @@ export async function parkMismatchedToTrunk(
   prMap: Map<string, PRInfo | null>,
   cwd: string | undefined,
 ): Promise<Set<string>> {
-  const failed = new Set<string>();
-  for (const unit of units) {
+  // Collect the PRs to park in stack order. Each is an independent `gh pr edit`
+  // (all → trunk), so the network calls run through a bounded pool; results are
+  // written back by index and logged in stack order below, keeping output
+  // byte-stable for the doc gate.
+  const toPark = units.flatMap((unit) => {
     const branch = branchForUnit(unit, config);
-    if (!branches.includes(branch)) continue;
+    if (!branches.includes(branch)) return [];
     const pr = prMap.get(branch);
-    if (!pr || pr.state !== "OPEN") continue;
+    if (!pr || pr.state !== "OPEN") return [];
     // Already on trunk (e.g. the bottom unit) — nothing to park.
-    if (pr.baseRefName === config.trunk) continue;
+    if (pr.baseRefName === config.trunk) return [];
     // Only park PRs whose base is actually changing; a PR already correctly
     // stacked and staying put needs no intermediate hop.
-    if (pr.baseRefName === sharedExpectedBaseFor(unit, units, config)) continue;
+    if (pr.baseRefName === sharedExpectedBaseFor(unit, units, config)) return [];
+    return [{ branch, number: pr.number }];
+  });
+
+  const results = await mapWithConcurrency(toPark, GH_CONCURRENCY, async ({ branch, number }) => {
     try {
-      await retargetPR(ctx, pr.number, config.trunk, { cwd });
-      console.log(`↻ parked PR #${pr.number} → ${config.trunk}`);
+      await retargetPR(ctx, number, config.trunk, { cwd });
+      return { branch, number, ok: true as const };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`⚠ Could not park PR #${pr.number}: ${message}`);
-      failed.add(branch);
+      return { branch, number, ok: false as const, message };
+    }
+  });
+
+  const failed = new Set<string>();
+  for (const r of results) {
+    if (r.ok) {
+      console.log(`↻ parked PR #${r.number} → ${config.trunk}`);
+    } else {
+      console.error(`⚠ Could not park PR #${r.number}: ${r.message}`);
+      failed.add(r.branch);
     }
   }
   return failed;
@@ -699,24 +745,118 @@ async function retargetMismatched(
 ): Promise<boolean> {
   if (branches.length === 0) return false;
 
-  let hadFailure = false;
-  for (const unit of units) {
+  // Collect the mismatched PRs in stack order, each with its own expected base.
+  // The `gh pr edit` calls are independent (each PR → its own base), so they
+  // run through a bounded pool; logs are emitted in stack order below to keep
+  // output byte-stable for the doc gate.
+  const toRetarget = units.flatMap((unit) => {
     const branch = branchForUnit(unit, config);
-    if (!branches.includes(branch)) continue;
+    if (!branches.includes(branch)) return [];
     const pr = prMap.get(branch);
-    if (!pr || pr.state !== "OPEN") continue;
+    if (!pr || pr.state !== "OPEN") return [];
     const expected = sharedExpectedBaseFor(unit, units, config);
-    if (pr.baseRefName === expected) continue;
-    try {
-      await retargetPR(ctx, pr.number, expected, { cwd });
-      console.log(`↻ retargeted PR #${pr.number} → ${expected}`);
-    } catch (err) {
+    if (pr.baseRefName === expected) return [];
+    return [{ number: pr.number, expected }];
+  });
+
+  const results = await mapWithConcurrency(
+    toRetarget,
+    GH_CONCURRENCY,
+    async ({ number, expected }) => {
+      try {
+        await retargetPR(ctx, number, expected, { cwd });
+        return { number, expected, ok: true as const };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { number, expected, ok: false as const, message };
+      }
+    },
+  );
+
+  let hadFailure = false;
+  for (const r of results) {
+    if (r.ok) {
+      console.log(`↻ retargeted PR #${r.number} → ${r.expected}`);
+    } else {
       hadFailure = true;
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`⚠ Could not retarget PR #${pr.number}: ${message}`);
+      console.error(`⚠ Could not retarget PR #${r.number}: ${r.message}`);
     }
   }
   return hadFailure;
+}
+
+/**
+ * True when the end-of-sync body pass is provably a no-op — so we can skip its
+ * per-PR `gh pr view`/`gh pr edit` round-trips entirely. A spliced body is
+ * derived from exactly two inputs (see `spliceBody` in src/gh/pr-body.ts):
+ *
+ *   1. the unit's own body-content (`generateBodyContent`) — changes only when
+ *      the unit's tip commit changes; and
+ *   2. the stack-links block (`generateStackLinks`) — the ordered sequence of
+ *      `(unitId, PR#)` for every OPEN PR in the stack.
+ *
+ * Both are unchanged since the last successful sync exactly when:
+ *   (a) the open-PR sequence THIS run — `(unitId, number)` in stack order —
+ *       equals the sequence recorded in the PR cache (which stores only OPEN
+ *       PRs, and only after a sync spliced their bodies), AND
+ *   (b) every open unit's current tip equals its cached `syncedHeadSha` (the
+ *       tip whose body-content the cache's bodies already reflect).
+ *
+ * When both hold, every PR's spliced body would be byte-identical to what the
+ * previous sync already wrote, so fetching to confirm is pure waste. This is a
+ * CONSERVATIVE skip: an entry with no `syncedHeadSha` (pre-drift cache), a PR
+ * the cache has never seen, or any structural change forces the full pass. It
+ * deliberately does NOT detect an out-of-band web-UI body edit — that self-heals
+ * on the next sync that changes anything, matching the accepted trade-off.
+ *
+ * NOTE on stack ORDER: the PR cache is an unordered `id -> entry` map, so this
+ * check cannot compare the previous stack order directly — it walks `units`
+ * (this run's order) for both sequences. It does not need the previous order:
+ * a reorder rewrites every repositioned commit to a fresh SHA (`rebasePlumbing`
+ * → `commit-tree`), so any reordered unit's tip differs from its cached
+ * `syncedHeadSha` and condition (b) fails. The stack-links block can therefore
+ * only differ when the open-PR SET/numbers differ (caught by (a)) or a tip
+ * moved (caught by (b)).
+ */
+export function bodyPassIsNoop(
+  units: PRUnit[],
+  prMap: Map<string, PRInfo | null> | undefined,
+  prCache: PRCache,
+  config: SpryConfig,
+): boolean {
+  if (!prMap) return false;
+
+  // This run's open-PR sequence in stack order: [unitId, number, tip].
+  const current: Array<{ id: string; number: number; tip: string | undefined }> = [];
+  for (const unit of units) {
+    const pr = prMap.get(branchForUnit(unit, config));
+    if (pr && pr.state === "OPEN") {
+      current.push({ id: unit.id, number: pr.number, tip: unit.commits.at(-1) });
+    }
+  }
+
+  // Last run's open-PR sequence, reconstructed from the cache in the SAME stack
+  // order (the cache is keyed by unit id, so walk `units` to order it).
+  const cached: Array<{ id: string; number: number; synced: string | undefined }> = [];
+  for (const unit of units) {
+    const entry = prCache[unit.id];
+    if (entry && entry.state === "OPEN") {
+      cached.push({ id: unit.id, number: entry.number, synced: entry.syncedHeadSha });
+    }
+  }
+
+  // (a) identical open-PR sequence (ids + numbers + order).
+  if (current.length !== cached.length) return false;
+  for (let i = 0; i < current.length; i++) {
+    const c = current[i];
+    const p = cached[i];
+    if (!c || !p) return false;
+    if (c.id !== p.id || c.number !== p.number) return false;
+    // (b) tip unchanged since the cached sync. A missing syncedHeadSha (older
+    // cache) or a missing tip is treated as "changed" — forces the full pass.
+    if (c.tip === undefined || p.synced === undefined || c.tip !== p.synced) return false;
+  }
+  return true;
 }
 
 /**
@@ -725,7 +865,8 @@ async function retargetMismatched(
  * place (preserving user regions), and push via updatePRBody ONLY when the
  * result differs byte-for-byte. Best-effort: failures warn and flip the return
  * flag; they never abort the sync. Runs over ALL open PRs (not just pushed
- * ones) because opening/moving any PR changes sibling stack-links.
+ * ones) because opening/moving any PR changes sibling stack-links. Network work
+ * is bounded-concurrent; user-visible logs are emitted in stack order.
  *
  * The comparison is `spliced !== existing` against the JUST-FETCHED body, so any
  * one-time server-side normalization (e.g. a web-UI edit storing CRLF, which
@@ -743,11 +884,22 @@ async function updateStackBodies(
   if (!prMap) return false;
   const prNumbers = collectOpenPRNumbers(units, prMap, config);
   const stackUnitIds = units.map((u) => u.id);
-  let hadFailure = false;
 
-  for (const unit of units) {
-    const pr = prMap.get(branchForUnit(unit, config));
-    if (!pr || pr.state !== "OPEN") continue;
+  // Only OPEN PRs get a body pass. Collect them in stack order first so the
+  // concurrent fetch/splice/update below writes its results back by index and
+  // we can emit logs in that deterministic stack order afterward — the network
+  // work parallelizes, but user-visible output stays byte-stable (the doc gate
+  // depends on it).
+  const openPRs = units
+    .map((unit) => ({ unit, pr: prMap.get(branchForUnit(unit, config)) }))
+    .filter((x): x is { unit: PRUnit; pr: PRInfo } => x.pr != null && x.pr.state === "OPEN");
+
+  type BodyOutcome =
+    | { kind: "updated"; prNumber: number }
+    | { kind: "noop" }
+    | { kind: "failed"; prNumber: number; message: string };
+
+  const outcomes = await mapWithConcurrency(openPRs, GH_CONCURRENCY, async ({ unit, pr }) => {
     try {
       const existing = await fetchPRBody(ctx, pr.number, { cwd });
       const stackLinks = generateStackLinks(stackUnitIds, prNumbers, unit.id, config.trunk);
@@ -755,14 +907,22 @@ async function updateStackBodies(
         bodyContent: generateBodyContent(unit, commits),
         stackLinks,
       });
-      if (next !== existing) {
-        await updatePRBody(ctx, pr.number, next, { cwd });
-        console.log(`✎ updated PR #${pr.number} body`);
-      }
+      if (next === existing) return { kind: "noop" } as BodyOutcome;
+      await updatePRBody(ctx, pr.number, next, { cwd });
+      return { kind: "updated", prNumber: pr.number } as BodyOutcome;
     } catch (err) {
-      hadFailure = true;
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`⚠ Could not update PR #${pr.number} body: ${message}`);
+      return { kind: "failed", prNumber: pr.number, message } as BodyOutcome;
+    }
+  });
+
+  let hadFailure = false;
+  for (const outcome of outcomes) {
+    if (outcome.kind === "updated") {
+      console.log(`✎ updated PR #${outcome.prNumber} body`);
+    } else if (outcome.kind === "failed") {
+      hadFailure = true;
+      console.error(`⚠ Could not update PR #${outcome.prNumber} body: ${outcome.message}`);
     }
   }
   return hadFailure;

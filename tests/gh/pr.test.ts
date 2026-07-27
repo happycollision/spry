@@ -89,6 +89,37 @@ describe("findPRsForBranches", () => {
     expect(calls).toHaveLength(3);
   });
 
+  test("pairs each branch with its own PR regardless of resolve order", async () => {
+    // Concurrency safety: findPRsForBranches runs lookups in parallel. A
+    // branch-keyed stub (not positional) with staggered delays — later branches
+    // resolve FIRST — proves the result Map pairs branch→PR by identity, not by
+    // completion order.
+    const byBranch: Record<string, { number: number; delay: number }> = {
+      a: { number: 1, delay: 30 },
+      b: { number: 2, delay: 10 },
+      c: { number: 3, delay: 0 },
+    };
+    const gh: GhClient = {
+      async run(args) {
+        const branchArg = args.find((x) => x.startsWith("branch="))!;
+        const branch = branchArg.slice("branch=".length);
+        const { number, delay } = byBranch[branch]!;
+        await new Promise((r) => setTimeout(r, delay));
+        return ghOk({ ...samplePR, number });
+      },
+    };
+    const git: GitRunner = {
+      async run() {
+        throw new Error("should not call git");
+      },
+    };
+    const result = await findPRsForBranches({ git, gh }, ["a", "b", "c"]);
+    expect([...result.keys()]).toEqual(["a", "b", "c"]);
+    expect(result.get("a")?.number).toBe(1);
+    expect(result.get("b")?.number).toBe(2);
+    expect(result.get("c")?.number).toBe(3);
+  });
+
   test("passes cwd to the gh client", async () => {
     const { ctx, calls } = stubGh([ghOk(null)]);
     await findPRsForBranches(ctx, ["x"], { cwd: "/tmp/repo" });

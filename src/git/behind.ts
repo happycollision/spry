@@ -10,16 +10,44 @@ export interface FetchResult {
   stderr: string;
 }
 
+export interface FetchRemoteOptions extends BehindOptions {
+  /**
+   * Explicit refspecs to fetch instead of the remote's configured defaults.
+   * When omitted, `git fetch <remote>` pulls every ref the remote advertises
+   * (the historical behavior, kept for callers like `sp rebase` that operate on
+   * arbitrary branches). Passing a narrowed list — e.g. just trunk and the spry
+   * branch prefix — avoids downloading unrelated refs on large repos while still
+   * updating the remote-tracking refs the caller reads.
+   */
+  refspecs?: string[];
+}
+
 export async function fetchRemote(
   git: GitRunner,
   remote: string,
-  options?: BehindOptions,
+  options?: FetchRemoteOptions,
 ): Promise<FetchResult> {
-  const result = await git.run(["fetch", remote], { cwd: options?.cwd });
+  const refspecs = options?.refspecs ?? [];
+  const result = await git.run(["fetch", remote, ...refspecs], { cwd: options?.cwd });
   return {
     ok: result.exitCode === 0,
     stderr: result.stderr,
   };
+}
+
+/**
+ * Refspecs that update exactly the remote-tracking refs `sp sync` reads:
+ * trunk (`refs/remotes/<remote>/<trunk>`, resolved by `trunkRef`) and every
+ * spry unit branch (`refs/remotes/<remote>/<prefix>/*`, read by
+ * `snapshotRemoteTips` and remote-branch existence checks). Force-updated
+ * (`+`) to match a bare fetch's non-fast-forward handling of these
+ * force-pushed branches.
+ */
+export function syncFetchRefspecs(remote: string, trunk: string, branchPrefix: string): string[] {
+  return [
+    `+refs/heads/${trunk}:refs/remotes/${remote}/${trunk}`,
+    `+refs/heads/${branchPrefix}/*:refs/remotes/${remote}/${branchPrefix}/*`,
+  ];
 }
 
 export async function isStackBehindTrunk(

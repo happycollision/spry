@@ -1,6 +1,7 @@
 import type { SpryContext, CommandResult } from "../lib/context.ts";
 import { GhAuthError, GhNotInstalledError } from "./errors.ts";
 import { isTransientFailure, withRetry } from "./retry.ts";
+import { mapWithConcurrency } from "../lib/concurrency.ts";
 
 export type PRState = "OPEN" | "CLOSED" | "MERGED";
 export type ChecksStatus = "pending" | "passing" | "failing" | "none";
@@ -256,15 +257,27 @@ async function lookupOne(
   return parsePRResponse(result.stdout);
 }
 
+/**
+ * Max concurrent `gh` network calls (PR lookups, body fetches). Each is an
+ * independent round-trip, so they parallelize cleanly — but we cap the fan-out
+ * to stay well under GitHub's secondary rate limits and to avoid spawning an
+ * unbounded number of `gh` subprocesses on a deep stack.
+ */
+export const GH_CONCURRENCY = 8;
+
 export async function findPRsForBranches(
   ctx: SpryContext,
   branches: string[],
   options?: FindPRsOptions,
 ): Promise<Map<string, PRInfo | null>> {
+  // Lookups run concurrently through a bounded pool; results come back in input
+  // order, so pairing each branch with its own PR is by index, not resolve
+  // order. A Map preserves insertion order, so the returned Map is branch-order.
+  const infos = await mapWithConcurrency(branches, GH_CONCURRENCY, (branch) =>
+    lookupOne(ctx, branch, options),
+  );
   const result = new Map<string, PRInfo | null>();
-  for (const branch of branches) {
-    result.set(branch, await lookupOne(ctx, branch, options));
-  }
+  branches.forEach((branch, i) => result.set(branch, infos[i] ?? null));
   return result;
 }
 

@@ -7,6 +7,7 @@ export {
   retargetPR,
   fetchPRBody,
   updatePRBody,
+  GH_CONCURRENCY,
 } from "./pr.ts";
 export type {
   PRInfo,

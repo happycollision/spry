@@ -59,7 +59,12 @@ export {
 } from "./rebase.ts";
 
 export type { BehindOptions, FetchResult } from "./behind.ts";
-export { fetchRemote, isStackBehindTrunk, isStackBehindTrunkForBranch } from "./behind.ts";
+export {
+  fetchRemote,
+  syncFetchRefspecs,
+  isStackBehindTrunk,
+  isStackBehindTrunkForBranch,
+} from "./behind.ts";
 
 export {
   loadGroupRecords,

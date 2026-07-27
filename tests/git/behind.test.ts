@@ -3,6 +3,7 @@ import { createRealGitRunner, createRepo } from "../../tests/lib/index.ts";
 import type { TestRepo } from "../../tests/lib/index.ts";
 import {
   fetchRemote,
+  syncFetchRefspecs,
   isStackBehindTrunk,
   isStackBehindTrunkForBranch,
 } from "../../src/git/behind.ts";
@@ -33,6 +34,67 @@ describe("fetchRemote", () => {
     const result = await fetchRemote(git, "no-such-remote", { cwd: repo.path });
     expect(result.ok).toBe(false);
     expect(result.stderr.length).toBeGreaterThan(0);
+  });
+
+  test("narrowed refspecs update only trunk + the spry prefix, not other branches", async () => {
+    const repo = await createRepo();
+    repos.push(repo);
+    await repo.fetch();
+
+    // Push two remote branches: one under the spry prefix (should be fetched)
+    // and one unrelated `feature/*` (should NOT be, under the narrowed fetch).
+    const head = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["push", "origin", `${head}:refs/heads/spry/test/aaa11111`], { cwd: repo.path });
+    await git.run(["push", "origin", `${head}:refs/heads/feature/unrelated`], { cwd: repo.path });
+    // Drop any remote-tracking refs a prior bare fetch created, so the assertion
+    // reflects only what the narrowed fetch pulls.
+    await git.run(["remote", "prune", "origin"], { cwd: repo.path });
+    await git.run(["update-ref", "-d", "refs/remotes/origin/feature/unrelated"], {
+      cwd: repo.path,
+    });
+    await git.run(["update-ref", "-d", "refs/remotes/origin/spry/test/aaa11111"], {
+      cwd: repo.path,
+    });
+
+    const result = await fetchRemote(git, "origin", {
+      cwd: repo.path,
+      refspecs: syncFetchRefspecs("origin", "main", "spry/test"),
+    });
+    expect(result.ok).toBe(true);
+
+    // Trunk + the spry-prefixed branch are now tracked...
+    const trunk = await git.run(["rev-parse", "--verify", "refs/remotes/origin/main"], {
+      cwd: repo.path,
+    });
+    expect(trunk.exitCode).toBe(0);
+    const spryRef = await git.run(
+      ["rev-parse", "--verify", "refs/remotes/origin/spry/test/aaa11111"],
+      { cwd: repo.path },
+    );
+    expect(spryRef.exitCode).toBe(0);
+
+    // ...but the unrelated feature branch was not pulled.
+    const unrelated = await git.run(
+      ["rev-parse", "--verify", "refs/remotes/origin/feature/unrelated"],
+      { cwd: repo.path },
+    );
+    expect(unrelated.exitCode).not.toBe(0);
+  });
+});
+
+describe("syncFetchRefspecs", () => {
+  test("builds force refspecs for trunk and the branch prefix", () => {
+    expect(syncFetchRefspecs("origin", "main", "spry/test")).toEqual([
+      "+refs/heads/main:refs/remotes/origin/main",
+      "+refs/heads/spry/test/*:refs/remotes/origin/spry/test/*",
+    ]);
+  });
+
+  test("honors non-default remote and trunk names", () => {
+    expect(syncFetchRefspecs("upstream", "trunk", "sp/dev")).toEqual([
+      "+refs/heads/trunk:refs/remotes/upstream/trunk",
+      "+refs/heads/sp/dev/*:refs/remotes/upstream/sp/dev/*",
+    ]);
   });
 });
 
