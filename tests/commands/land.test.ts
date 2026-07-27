@@ -93,43 +93,34 @@ function ghPrStub(prByBranch: Record<string, PRStub>) {
     if (call.args[0] !== "api" || call.args[1] !== "graphql") {
       return { stdout: "", stderr: `unexpected: ${call.args.join(" ")}`, exitCode: 1 };
     }
-    const branchArg = call.args.find((a) => a.startsWith("branch="));
-    const branch = branchArg?.slice("branch=".length) ?? "";
-    const pr = prByBranch[branch];
-    if (!pr) {
+    // Batched lookup: one aliased `bK=<branch>` variable per branch, response
+    // returns one aliased field per branch (data.repository.bK).
+    const nodesFor = (branch: string) => {
+      const pr = prByBranch[branch];
+      if (!pr) return { nodes: [] };
+      const rollup = pr.rollup == null ? null : { contexts: { nodes: pr.rollup } };
       return {
-        stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: [] } } } }),
-        stderr: "",
-        exitCode: 0,
-      };
-    }
-    const rollup =
-      pr.rollup === undefined
-        ? null
-        : pr.rollup === null
-          ? null
-          : { contexts: { nodes: pr.rollup } };
-    return {
-      stdout: JSON.stringify({
-        data: {
-          repository: {
-            pullRequests: {
-              nodes: [
-                {
-                  number: pr.number,
-                  url: `https://github.com/o/r/pull/${pr.number}`,
-                  state: pr.state ?? "OPEN",
-                  title: branch,
-                  baseRefName: pr.base ?? "main",
-                  reviewDecision: pr.reviewDecision ?? null,
-                  reviewThreads: pr.reviewThreads ?? { totalCount: 0, nodes: [] },
-                  commits: { nodes: [{ commit: { statusCheckRollup: rollup } }] },
-                },
-              ],
-            },
+        nodes: [
+          {
+            number: pr.number,
+            url: `https://github.com/o/r/pull/${pr.number}`,
+            state: pr.state ?? "OPEN",
+            title: branch,
+            baseRefName: pr.base ?? "main",
+            reviewDecision: pr.reviewDecision ?? null,
+            reviewThreads: pr.reviewThreads ?? { totalCount: 0, nodes: [] },
+            commits: { nodes: [{ commit: { statusCheckRollup: rollup } }] },
           },
-        },
-      }),
+        ],
+      };
+    };
+    const repository: Record<string, { nodes: object[] }> = {};
+    for (const a of call.args) {
+      const m = /^(b\d+)=(.*)$/.exec(a);
+      if (m) repository[m[1]!] = nodesFor(m[2]!);
+    }
+    return {
+      stdout: JSON.stringify({ data: { repository } }),
       stderr: "",
       exitCode: 0,
     };

@@ -69,7 +69,7 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
     return;
   }
 
-  const withTrailers = await parseCommitTrailers(commits, ctx.git, { cwd });
+  const withTrailers = parseCommitTrailers(commits, ctx.git, { cwd });
 
   // Fetch + load group records
   const fetchResult = await fetchGroupRecords(ctx.git, config.remote, { cwd });
@@ -250,7 +250,7 @@ async function applyGroupDoc(
 
   // Snapshot live state.
   const commits = await getStackCommits(ctx.git, ref, { cwd });
-  const withTrailers = await parseCommitTrailers(commits, ctx.git, { cwd });
+  const withTrailers = parseCommitTrailers(commits, ctx.git, { cwd });
   const liveIds: string[] = [];
   const liveHashById: Record<string, string> = {};
   for (const c of withTrailers) {

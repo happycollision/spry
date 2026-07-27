@@ -33,6 +33,7 @@ import type { CommitWithTrailers } from "../parse/index.ts";
 import { formatValidationError } from "../ui/format.ts";
 import {
   listRemoteBranches,
+  listTrackedRemoteBranches,
   pushBranch,
   findPRsForBranches,
   retargetPR,
@@ -50,7 +51,7 @@ import {
 } from "../gh/index.ts";
 import { fetchPRCache, savePRCache, pushPRCache, loadPRCache } from "../gh/pr-cache.ts";
 import { mapWithConcurrency } from "../lib/concurrency.ts";
-import type { PRCache } from "../gh/pr-cache.ts";
+import type { PRCache, PRCacheEntry } from "../gh/pr-cache.ts";
 import type { PRInfo } from "../gh/pr.ts";
 import type { SpryConfig } from "../git/config.ts";
 import { selectUnits } from "../tui/index.ts";
@@ -143,25 +144,33 @@ export async function checkSync(
     cwd,
   );
 
-  // Narrowed fetch: only trunk + the spry branch prefix, the exact
-  // remote-tracking refs the rest of checkSync reads (trunkRef,
-  // snapshotRemoteTips, remote-branch existence). Avoids pulling unrelated refs
-  // on large repos. `sp rebase`/`sp clean` keep the bare fetch (arbitrary
-  // branches).
-  await fetchRemote(ctx.git, config.remote, {
-    cwd,
-    refspecs: syncFetchRefspecs(config.remote, config.trunk, config.branchPrefix),
-  });
-
-  const commits = await getStackCommits(ctx.git, ref, { cwd });
-  const withTrailers = await parseCommitTrailers(commits, ctx.git, { cwd });
-
-  const fetchResult = await fetchGroupRecords(ctx.git, config.remote, { cwd });
-  if (!fetchResult.ok)
-    console.log(kleur.dim(`⚠ Could not fetch group records: ${fetchResult.warning}`));
-  const prCacheFetch = await fetchPRCache(ctx.git, config.remote, { cwd });
+  // checkSync needs three independent remote reads: trunk + the spry branch
+  // prefix (the remote-tracking refs trunkRef/snapshotRemoteTips/remote-branch
+  // checks read), the group-records ref, and the PR-cache ref. These were three
+  // SEQUENTIAL `git fetch` spawns (~0.5s each = ~1.5s). They fetch disjoint
+  // local refs, so run them CONCURRENTLY — same remote, different ref updates,
+  // no lock contention — collapsing the wall clock to ~one round-trip.
+  //
+  // Why concurrent rather than one combined multi-refspec fetch: `git fetch`
+  // aborts the WHOLE command if any named refspec's source is missing, and the
+  // group-records ref is absent for any stack that never used `sp group` — so a
+  // combined fetch would fail (and fetch nothing) on the common no-groups case.
+  // The two bookkeeping fetches already tolerate a missing ref individually.
+  const [, groupFetch, prCacheFetch] = await Promise.all([
+    fetchRemote(ctx.git, config.remote, {
+      cwd,
+      refspecs: syncFetchRefspecs(config.remote, config.trunk, config.branchPrefix),
+    }),
+    fetchGroupRecords(ctx.git, config.remote, { cwd }),
+    fetchPRCache(ctx.git, config.remote, { cwd }),
+  ]);
+  if (!groupFetch.ok)
+    console.log(kleur.dim(`⚠ Could not fetch group records: ${groupFetch.warning}`));
   if (!prCacheFetch.ok)
     console.log(kleur.dim(`⚠ Could not fetch PR cache: ${prCacheFetch.warning}`));
+
+  const commits = await getStackCommits(ctx.git, ref, { cwd });
+  const withTrailers = parseCommitTrailers(commits, ctx.git, { cwd });
 
   const groupRecords = await loadGroupRecords(ctx.git, { cwd });
   const groupTitles = extractGroupTitles(groupRecords);
@@ -270,8 +279,15 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
     return;
   }
 
-  // 3. Cheap signal: which branches already exist on the remote?
-  const existing = await listRemoteBranches(ctx.git, config.remote, config.branchPrefix, { cwd });
+  // 3. Which branches already exist on the remote (and their tips)? Read from
+  // the remote-tracking refs checkSync's fetch JUST refreshed — a local
+  // for-each-ref, not a network ls-remote (~0.5s saved). Same freshness as
+  // ls-remote at fetch time; the push's --force-with-lease (pinned to the
+  // pre-fetch tips) is the real guard, so a stale read can only cost a
+  // redundant push, never a wrong one.
+  const existing = await listTrackedRemoteBranches(ctx.git, config.remote, config.branchPrefix, {
+    cwd,
+  });
 
   // 3.5 Phase 1 — pre-push park. When the stack has been reordered, an
   // in-place force-push can make a PR's head reachable from its stale base and
@@ -928,6 +944,29 @@ async function updateStackBodies(
   return hadFailure;
 }
 
+/**
+ * True when two PR caches carry the same meaningful state — every field except
+ * `cachedAt`, which `writePRCache` stamps fresh on every build and so always
+ * differs run-to-run even on a no-op. Used to skip a redundant save+push
+ * (`git push refs/spry/prs` is ~1.2s; a no-op sync was doing it twice).
+ */
+export function prCacheEquivalent(a: PRCache, b: PRCache): boolean {
+  const ak = Object.keys(a);
+  const bk = Object.keys(b);
+  if (ak.length !== bk.length) return false;
+  const strip = (e: PRCacheEntry): Omit<PRCacheEntry, "cachedAt"> => {
+    const { cachedAt: _cachedAt, ...rest } = e;
+    return rest;
+  };
+  for (const id of ak) {
+    const ea = a[id];
+    const eb = b[id];
+    if (!ea || !eb) return false;
+    if (JSON.stringify(strip(ea)) !== JSON.stringify(strip(eb))) return false;
+  }
+  return true;
+}
+
 async function writePRCache(
   ctx: SpryContext,
   config: SpryConfig,
@@ -952,6 +991,17 @@ async function writePRCache(
   }
   const count = Object.keys(cache).length;
   if (count === 0) return;
+
+  // Skip the save+push when the freshly-built cache matches what's already
+  // stored (ignoring the cosmetic `cachedAt` timestamp). A no-op sync was
+  // otherwise rebuilding and force-pushing `refs/spry/prs` every run — and, via
+  // checkSync's write plus syncCommand's write, doing it TWICE. Comparing
+  // against the current local cache makes both writes no-ops when nothing
+  // changed. (The local cache was just refreshed from the remote by checkSync's
+  // fetchPRCache, so it reflects the remote too.)
+  const existing = await loadPRCache(ctx.git, { cwd });
+  if (prCacheEquivalent(cache, existing)) return;
+
   try {
     await savePRCache(ctx.git, cache, { cwd });
     console.log(`✓ Updated PR cache (${count} ${count === 1 ? "PR" : "PRs"})`);
@@ -1038,7 +1088,7 @@ async function syncAllCommand(
 
     // 2. Parse this branch's stack into units.
     const commits = await getStackCommitsForBranch(ctx.git, branch, ref, { cwd });
-    const withTrailers = await parseCommitTrailers(commits, ctx.git, { cwd });
+    const withTrailers = parseCommitTrailers(commits, ctx.git, { cwd });
     const result = parseStack(withTrailers, groupTitles, commitGroups);
     if (!result.ok) {
       console.error(formatValidationError(result));

@@ -55,6 +55,13 @@ interface GraphQLResponse {
   };
 }
 
+/** One aliased sub-query field per branch, plus the shared pullRequests nodes. */
+interface BatchedGraphQLResponse {
+  data?: {
+    repository?: Record<string, { nodes?: PRNode[] } | null>;
+  };
+}
+
 export function determineReviewDecision(raw: string | null): ReviewDecision {
   switch (raw) {
     case "APPROVED":
@@ -131,15 +138,16 @@ function flattenCheckContexts(
   });
 }
 
-export function parsePRResponse(json: string): PRInfo | null {
-  const parsed = JSON.parse(json) as GraphQLResponse;
-  const nodes = parsed.data?.repository?.pullRequests?.nodes ?? [];
-  // A head branch can carry several PR records (GitHub never deletes a PR, so a
-  // reused branch keeps its stale CLOSED/MERGED records). Only one can be OPEN
-  // at a time, and that one is the branch's live PR — prefer it over any stale
-  // record, even if the stale one sorts first by UPDATED_AT (closing a PR bumps
-  // its timestamp). With no OPEN record, the newest node reflects the branch's
-  // outcome so sp view can still render MERGED/CLOSED.
+/**
+ * Pick the live PR from a branch's PR records and map it to PRInfo. A head
+ * branch can carry several PR records (GitHub never deletes a PR, so a reused
+ * branch keeps its stale CLOSED/MERGED records). Only one can be OPEN at a
+ * time, and that one is the branch's live PR — prefer it over any stale record,
+ * even if the stale one sorts first by UPDATED_AT (closing a PR bumps its
+ * timestamp). With no OPEN record, the newest node reflects the branch's
+ * outcome so sp view can still render MERGED/CLOSED.
+ */
+function selectPRInfo(nodes: PRNode[]): PRInfo | null {
   const node = nodes.find((n) => n.state === "OPEN") ?? nodes[0];
   if (!node) return null;
 
@@ -159,10 +167,13 @@ export function parsePRResponse(json: string): PRInfo | null {
   };
 }
 
-const PR_QUERY = `
-query($owner: String!, $repo: String!, $branch: String!) {
-  repository(owner: $owner, name: $repo) {
-    pullRequests(headRefName: $branch, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) {
+export function parsePRResponse(json: string): PRInfo | null {
+  const parsed = JSON.parse(json) as GraphQLResponse;
+  return selectPRInfo(parsed.data?.repository?.pullRequests?.nodes ?? []);
+}
+
+/** The per-branch `pullRequests(...)` selection, shared by every alias. */
+const PR_NODES_SELECTION = `pullRequests(headRefName: $BRANCH_VAR, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes {
         number
         url
@@ -190,9 +201,61 @@ query($owner: String!, $repo: String!, $branch: String!) {
           }
         }
       }
-    }
+    }`;
+
+/**
+ * Alias for the i-th branch in a batched query (`b0`, `b1`, ...). Also the
+ * GraphQL variable name carrying that branch's headRefName. Stable and
+ * collision-free (branch names never appear in the query string).
+ */
+export function branchAlias(index: number): string {
+  return `b${index}`;
+}
+
+/**
+ * Build ONE aliased GraphQL query that looks up every branch in `branches` in a
+ * single request: `repository { b0: pullRequests(headRefName: $b0, ...){...} b1:
+ * ... }`. Each branch's name rides as a typed `$bK: String!` variable (kept out
+ * of the query string, so no injection/escaping concerns), supplied by the
+ * caller via `-F bK=<branch>`. Returns the query text; the variable VALUES are
+ * passed separately.
+ */
+export function buildBatchedPRQuery(branches: string[]): string {
+  const varDecls = branches.map((_, i) => `$${branchAlias(i)}: String!`).join(", ");
+  const fields = branches
+    .map((_, i) => {
+      const alias = branchAlias(i);
+      return `    ${alias}: ${PR_NODES_SELECTION.replace("$BRANCH_VAR", `$${alias}`)}`;
+    })
+    .join("\n");
+  return `query($owner: String!, $repo: String!, ${varDecls}) {
+  repository(owner: $owner, name: $repo) {
+${fields}
   }
 }`;
+}
+
+/**
+ * Parse a batched response into results positionally aligned with `branches`:
+ * `result[i]` is the PRInfo for `branches[i]` (or null). Reads each alias field
+ * (`data.repository.bK`) rather than a single `pullRequests` connection.
+ */
+export function parseBatchedPRResponse(json: string, branches: string[]): Array<PRInfo | null> {
+  const parsed = JSON.parse(json) as BatchedGraphQLResponse;
+  const repo = parsed.data?.repository ?? {};
+  return branches.map((_, i) => {
+    const field = repo[branchAlias(i)];
+    return selectPRInfo(field?.nodes ?? []);
+  });
+}
+
+/**
+ * Max branches per batched GraphQL request. GitHub caps query cost/node count;
+ * each alias pulls reviewThreads(first:100) + statusCheckRollup contexts(first:
+ * 100), so we chunk to stay comfortably under the ceiling. A stack larger than
+ * this becomes multiple requests (still vastly fewer than one-per-branch).
+ */
+export const PR_QUERY_CHUNK_SIZE = 25;
 
 export interface FindPRsOptions {
   cwd?: string;
@@ -234,11 +297,18 @@ function throwForFailure(result: CommandResult): never {
   throw new Error(`gh failed: ${result.stderr.trim() || `exit ${result.exitCode}`}`);
 }
 
-async function lookupOne(
+/**
+ * Look up one chunk of branches in a SINGLE `gh api graphql` call (aliased
+ * sub-queries). Returns PRInfo per branch, positionally aligned with `branches`.
+ * Collapsing N per-branch subprocess spawns into one is the dominant win —
+ * `gh` process spinup (~0.58s) dwarfs the network portion of each call.
+ */
+async function lookupChunk(
   ctx: SpryContext,
-  branch: string,
+  branches: string[],
   options?: FindPRsOptions,
-): Promise<PRInfo | null> {
+): Promise<Array<PRInfo | null>> {
+  const query = buildBatchedPRQuery(branches);
   const args = [
     "api",
     "graphql",
@@ -246,38 +316,55 @@ async function lookupOne(
     `owner=${options?.owner ?? ""}`,
     "-F",
     `repo=${options?.repo ?? ""}`,
-    "-F",
-    `branch=${branch}`,
-    "-f",
-    `query=${PR_QUERY}`,
   ];
-  const result = await withRetry(() => ctx.gh.run(args, { cwd: options?.cwd }), ghRetryPredicate);
+  branches.forEach((branch, i) => {
+    args.push("-F", `${branchAlias(i)}=${branch}`);
+  });
+  args.push("-f", `query=${query}`);
 
+  const result = await withRetry(() => ctx.gh.run(args, { cwd: options?.cwd }), ghRetryPredicate);
   if (result.exitCode !== 0) throwForFailure(result);
-  return parsePRResponse(result.stdout);
+  return parseBatchedPRResponse(result.stdout, branches);
 }
 
 /**
- * Max concurrent `gh` network calls (PR lookups, body fetches). Each is an
- * independent round-trip, so they parallelize cleanly — but we cap the fan-out
- * to stay well under GitHub's secondary rate limits and to avoid spawning an
- * unbounded number of `gh` subprocesses on a deep stack.
+ * Max concurrent `gh` network calls (body fetches, and batched-lookup chunks).
+ * Each is an independent round-trip, so they parallelize cleanly — but we cap
+ * the fan-out to stay well under GitHub's secondary rate limits and to avoid
+ * spawning an unbounded number of `gh` subprocesses on a deep stack.
  */
 export const GH_CONCURRENCY = 8;
+
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
 
 export async function findPRsForBranches(
   ctx: SpryContext,
   branches: string[],
   options?: FindPRsOptions,
 ): Promise<Map<string, PRInfo | null>> {
-  // Lookups run concurrently through a bounded pool; results come back in input
-  // order, so pairing each branch with its own PR is by index, not resolve
-  // order. A Map preserves insertion order, so the returned Map is branch-order.
-  const infos = await mapWithConcurrency(branches, GH_CONCURRENCY, (branch) =>
-    lookupOne(ctx, branch, options),
-  );
   const result = new Map<string, PRInfo | null>();
-  branches.forEach((branch, i) => result.set(branch, infos[i] ?? null));
+  if (branches.length === 0) return result;
+
+  // Batch: one `gh api graphql` per CHUNK (up to PR_QUERY_CHUNK_SIZE branches),
+  // not per branch — collapsing spinup-heavy subprocess spawns. Chunks run
+  // through the bounded pool so a very deep stack still parallelizes without
+  // unbounded fan-out. Results are positional, so branch↔PR pairing is by index
+  // regardless of which chunk resolves first; a Map keeps insertion order, so
+  // the returned Map is branch-order.
+  const chunks = chunk(branches, PR_QUERY_CHUNK_SIZE);
+  const chunkResults = await mapWithConcurrency(chunks, GH_CONCURRENCY, (branchChunk) =>
+    lookupChunk(ctx, branchChunk, options),
+  );
+
+  for (let c = 0; c < chunks.length; c++) {
+    const branchChunk = chunks[c] ?? [];
+    const infos = chunkResults[c] ?? [];
+    branchChunk.forEach((branch, i) => result.set(branch, infos[i] ?? null));
+  }
   return result;
 }
 

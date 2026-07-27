@@ -81,6 +81,10 @@ export function isAlreadyGone(stderr: string): boolean {
 // The SHA lets callers skip a push when the remote tip already matches the local
 // tip. The map still answers "does this branch exist?" via `.has(branch)`, so it
 // is a drop-in for the previous `Set<string>` at every call site.
+//
+// This hits the network (`ls-remote`), so it is authoritative. Callers that have
+// JUST fetched the prefix into remote-tracking refs can use the cheaper local
+// `listTrackedRemoteBranches` instead.
 export async function listRemoteBranches(
   git: GitRunner,
   remote: string,
@@ -101,6 +105,41 @@ export async function listRemoteBranches(
     const ref = trimmed.slice(tab + 1);
     if (ref.startsWith("refs/heads/")) {
       map.set(ref.slice("refs/heads/".length), sha);
+    }
+  }
+  return map;
+}
+
+// Same shape as `listRemoteBranches` (branch name → tip SHA, keyed as
+// `<prefix>/<id>`), but read LOCALLY from the remote-tracking refs
+// (`refs/remotes/<remote>/<prefix>/*`) via `for-each-ref` — no network. Valid
+// only right after those refs were refreshed by a fetch (as in `checkSync`); it
+// reflects the remote exactly as of that fetch, the same freshness `ls-remote`
+// would give at that moment. Safe for the push no-op check because the push
+// itself is guarded by `--force-with-lease` against the pre-fetch tips, so a
+// stale read can never cause a wrong push — only a redundant one at worst.
+export async function listTrackedRemoteBranches(
+  git: GitRunner,
+  remote: string,
+  prefix: string,
+  opts?: { cwd?: string },
+): Promise<Map<string, string>> {
+  const trackingPrefix = `refs/remotes/${remote}/`;
+  const result = await git.run(
+    ["for-each-ref", "--format=%(objectname) %(refname)", `${trackingPrefix}${prefix}/`],
+    { cwd: opts?.cwd },
+  );
+  const map = new Map<string, string>();
+  if (result.exitCode !== 0) return map;
+  for (const line of result.stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const sp = trimmed.indexOf(" ");
+    if (sp === -1) continue;
+    const sha = trimmed.slice(0, sp).trim();
+    const ref = trimmed.slice(sp + 1).trim();
+    if (ref.startsWith(trackingPrefix)) {
+      map.set(ref.slice(trackingPrefix.length), sha);
     }
   }
   return map;

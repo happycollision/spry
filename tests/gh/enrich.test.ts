@@ -23,13 +23,24 @@ function unit(id: string): PRUnit {
   };
 }
 
-function ghOk(prJson: object | null): CommandResult {
-  const body = JSON.stringify({
-    data: {
-      repository: { pullRequests: { nodes: prJson === null ? [] : [prJson] } },
-    },
-  });
-  return { stdout: body, stderr: "", exitCode: 0 };
+/**
+ * Batched (aliased) gh response. `table` maps a unit's branch
+ * (`spry/test/<id>`) to its PR JSON (or null). The stub reads the `bK=<branch>`
+ * args to emit the matching alias fields (data.repository.bK), mirroring the
+ * real batched query.
+ */
+function ghBatch(table: Record<string, object | null>): (args: string[]) => CommandResult {
+  return (args) => {
+    const repository: Record<string, { nodes: object[] }> = {};
+    for (const a of args) {
+      const m = /^(b\d+)=(.*)$/.exec(a);
+      if (!m) continue;
+      const branch = m[2]!;
+      const pr = branch in table ? table[branch]! : null;
+      repository[m[1]!] = { nodes: pr === null ? [] : [pr] };
+    }
+    return { stdout: JSON.stringify({ data: { repository } }), stderr: "", exitCode: 0 };
+  };
 }
 
 const samplePR = {
@@ -43,13 +54,17 @@ const samplePR = {
   commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
 };
 
-function makeCtx(responses: CommandResult[]): SpryContext {
-  let i = 0;
+/**
+ * ctx whose gh is driven by a per-call handler (args, attempt) → result. The
+ * batched lookup issues one call per chunk, so responses derive from the call's
+ * args (branches) rather than a fixed positional list; `attempt` enables retry
+ * sequences.
+ */
+function makeCtx(handler: (args: string[], attempt: number) => CommandResult): SpryContext {
+  let attempt = 0;
   const gh: GhClient = {
-    async run() {
-      const r = responses[i++];
-      if (!r) throw new Error("stub gh: no more responses");
-      return r;
+    async run(args) {
+      return handler(args, attempt++);
     },
   };
   const git: GitRunner = {
@@ -60,15 +75,23 @@ function makeCtx(responses: CommandResult[]): SpryContext {
   return { git, gh };
 }
 
+/** A handler that returns the same error result for every call. */
+function ghError(stderr: string, exitCode = 1): (args: string[]) => CommandResult {
+  return () => ({ stdout: "", stderr, exitCode });
+}
+
 describe("enrichUnits", () => {
   test("empty units array returns empty array, no gh call", async () => {
-    const ctx = makeCtx([]);
+    const ctx = makeCtx(() => {
+      throw new Error("should not call gh");
+    });
     const result = await enrichUnits(ctx, [], config);
     expect(result).toEqual([]);
   });
 
   test("populates pr field for each unit on success", async () => {
-    const ctx = makeCtx([ghOk(samplePR), ghOk(null)]);
+    // Branch names are `${branchPrefix}/${id}` = spry/test/<id>.
+    const ctx = makeCtx(ghBatch({ "spry/test/aaa11111": samplePR, "spry/test/bbb22222": null }));
     const result = await enrichUnits(ctx, [unit("aaa11111"), unit("bbb22222")], config);
 
     expect(result).toHaveLength(2);
@@ -80,7 +103,7 @@ describe("enrichUnits", () => {
   });
 
   test("returns error: 'no-gh' when gh is not installed", async () => {
-    const ctx = makeCtx([{ stdout: "", stderr: "/bin/sh: gh: command not found", exitCode: 127 }]);
+    const ctx = makeCtx(ghError("/bin/sh: gh: command not found", 127));
     const result = await enrichUnits(ctx, [unit("aaa11111"), unit("bbb22222")], config);
 
     expect(result).toHaveLength(2);
@@ -89,29 +112,20 @@ describe("enrichUnits", () => {
   });
 
   test("returns error: 'auth' when gh is not authenticated", async () => {
-    const ctx = makeCtx([
-      { stdout: "", stderr: "You are not logged into any GitHub hosts.", exitCode: 4 },
-    ]);
+    const ctx = makeCtx(ghError("You are not logged into any GitHub hosts.", 4));
     const result = await enrichUnits(ctx, [unit("aaa11111")], config);
     expect(result[0]!.error).toBe("auth");
   });
 
   test("returns error: 'no-remote' when repo is not a GitHub repo", async () => {
-    const ctx = makeCtx([
-      { stdout: "", stderr: "no GitHub remotes found in the current directory", exitCode: 1 },
-    ]);
+    const ctx = makeCtx(ghError("no GitHub remotes found in the current directory", 1));
     const result = await enrichUnits(ctx, [unit("aaa11111")], config);
     expect(result[0]!.error).toBe("no-remote");
   });
 
   test("returns error: 'network' for other post-retry failures", async () => {
-    // Three transient failures exhaust the retry budget
-    const transient = {
-      stdout: "",
-      stderr: "HTTP 503: Service Unavailable",
-      exitCode: 1,
-    };
-    const ctx = makeCtx([transient, transient, transient]);
+    // Every attempt is transient → the retry budget is exhausted → network.
+    const ctx = makeCtx(ghError("HTTP 503: Service Unavailable", 1));
     const result = await enrichUnits(ctx, [unit("aaa11111")], config);
     expect(result[0]!.error).toBe("network");
   });
