@@ -687,24 +687,40 @@ export async function parkMismatchedToTrunk(
   prMap: Map<string, PRInfo | null>,
   cwd: string | undefined,
 ): Promise<Set<string>> {
-  const failed = new Set<string>();
-  for (const unit of units) {
+  // Collect the PRs to park in stack order. Each is an independent `gh pr edit`
+  // (all → trunk), so the network calls run through a bounded pool; results are
+  // written back by index and logged in stack order below, keeping output
+  // byte-stable for the doc gate.
+  const toPark = units.flatMap((unit) => {
     const branch = branchForUnit(unit, config);
-    if (!branches.includes(branch)) continue;
+    if (!branches.includes(branch)) return [];
     const pr = prMap.get(branch);
-    if (!pr || pr.state !== "OPEN") continue;
+    if (!pr || pr.state !== "OPEN") return [];
     // Already on trunk (e.g. the bottom unit) — nothing to park.
-    if (pr.baseRefName === config.trunk) continue;
+    if (pr.baseRefName === config.trunk) return [];
     // Only park PRs whose base is actually changing; a PR already correctly
     // stacked and staying put needs no intermediate hop.
-    if (pr.baseRefName === sharedExpectedBaseFor(unit, units, config)) continue;
+    if (pr.baseRefName === sharedExpectedBaseFor(unit, units, config)) return [];
+    return [{ branch, number: pr.number }];
+  });
+
+  const results = await mapWithConcurrency(toPark, GH_CONCURRENCY, async ({ branch, number }) => {
     try {
-      await retargetPR(ctx, pr.number, config.trunk, { cwd });
-      console.log(`↻ parked PR #${pr.number} → ${config.trunk}`);
+      await retargetPR(ctx, number, config.trunk, { cwd });
+      return { branch, number, ok: true as const };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`⚠ Could not park PR #${pr.number}: ${message}`);
-      failed.add(branch);
+      return { branch, number, ok: false as const, message };
+    }
+  });
+
+  const failed = new Set<string>();
+  for (const r of results) {
+    if (r.ok) {
+      console.log(`↻ parked PR #${r.number} → ${config.trunk}`);
+    } else {
+      console.error(`⚠ Could not park PR #${r.number}: ${r.message}`);
+      failed.add(r.branch);
     }
   }
   return failed;
@@ -720,21 +736,41 @@ async function retargetMismatched(
 ): Promise<boolean> {
   if (branches.length === 0) return false;
 
-  let hadFailure = false;
-  for (const unit of units) {
+  // Collect the mismatched PRs in stack order, each with its own expected base.
+  // The `gh pr edit` calls are independent (each PR → its own base), so they
+  // run through a bounded pool; logs are emitted in stack order below to keep
+  // output byte-stable for the doc gate.
+  const toRetarget = units.flatMap((unit) => {
     const branch = branchForUnit(unit, config);
-    if (!branches.includes(branch)) continue;
+    if (!branches.includes(branch)) return [];
     const pr = prMap.get(branch);
-    if (!pr || pr.state !== "OPEN") continue;
+    if (!pr || pr.state !== "OPEN") return [];
     const expected = sharedExpectedBaseFor(unit, units, config);
-    if (pr.baseRefName === expected) continue;
-    try {
-      await retargetPR(ctx, pr.number, expected, { cwd });
-      console.log(`↻ retargeted PR #${pr.number} → ${expected}`);
-    } catch (err) {
+    if (pr.baseRefName === expected) return [];
+    return [{ number: pr.number, expected }];
+  });
+
+  const results = await mapWithConcurrency(
+    toRetarget,
+    GH_CONCURRENCY,
+    async ({ number, expected }) => {
+      try {
+        await retargetPR(ctx, number, expected, { cwd });
+        return { number, expected, ok: true as const };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { number, expected, ok: false as const, message };
+      }
+    },
+  );
+
+  let hadFailure = false;
+  for (const r of results) {
+    if (r.ok) {
+      console.log(`↻ retargeted PR #${r.number} → ${r.expected}`);
+    } else {
       hadFailure = true;
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`⚠ Could not retarget PR #${pr.number}: ${message}`);
+      console.error(`⚠ Could not retarget PR #${r.number}: ${r.message}`);
     }
   }
   return hadFailure;
