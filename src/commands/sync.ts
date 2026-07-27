@@ -154,7 +154,7 @@ export async function checkSync(
   });
 
   const commits = await getStackCommits(ctx.git, ref, { cwd });
-  const withTrailers = await parseCommitTrailers(commits, ctx.git, { cwd });
+  const withTrailers = parseCommitTrailers(commits, ctx.git, { cwd });
 
   const fetchResult = await fetchGroupRecords(ctx.git, config.remote, { cwd });
   if (!fetchResult.ok)
@@ -1072,7 +1072,7 @@ async function syncAllCommand(
 
     // 2. Parse this branch's stack into units.
     const commits = await getStackCommitsForBranch(ctx.git, branch, ref, { cwd });
-    const withTrailers = await parseCommitTrailers(commits, ctx.git, { cwd });
+    const withTrailers = parseCommitTrailers(commits, ctx.git, { cwd });
     const result = parseStack(withTrailers, groupTitles, commitGroups);
     if (!result.ok) {
       console.error(formatValidationError(result));

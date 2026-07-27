@@ -22,7 +22,7 @@ export async function viewCommand(ctx: SpryContext, opts: ViewOptions = {}): Pro
   const branch = await getCurrentBranch(ctx.git, { cwd });
   const ref = trunkRef(config);
   const commits = await getStackCommits(ctx.git, ref, { cwd });
-  const withTrailers = await parseCommitTrailers(commits, ctx.git, { cwd });
+  const withTrailers = parseCommitTrailers(commits, ctx.git, { cwd });
 
   const groupRecords = await loadGroupRecords(ctx.git, { cwd });
   const groupTitles = extractGroupTitles(groupRecords);
