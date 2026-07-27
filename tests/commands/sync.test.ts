@@ -5,7 +5,9 @@ import {
   checkSync,
   stackHasReorder,
   parkMismatchedToTrunk,
+  bodyPassIsNoop,
 } from "../../src/commands/sync.ts";
+import type { PRCache } from "../../src/gh/pr-cache.ts";
 import type { PRUnit } from "../../src/parse/types.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
 import { captureLogs, trapExit } from "../lib/capture.ts";
@@ -2008,6 +2010,11 @@ describe("updateStackBodies (end-of-sync PR body pass)", () => {
     );
     expect(bodyEdits).toHaveLength(0);
     expect(logs2.out.join("\n")).not.toContain("✎ updated");
+    // Short-circuit (spry-u1v1.2): nothing that feeds a body changed since the
+    // first sync (same open-PR set, tip == cached syncedHeadSha), so the body
+    // pass is skipped WHOLESALE — not even a `gh pr view` body fetch fires.
+    const bodyFetches = calls.filter((c) => c.args[0] === "pr" && c.args[1] === "view");
+    expect(bodyFetches).toHaveLength(0);
   });
 
   test("body update failure logs a warning and flips the exit code", async () => {
@@ -2053,5 +2060,129 @@ describe("updateStackBodies (end-of-sync PR body pass)", () => {
 
     expect(trap.exitCode).toBe(1);
     expect(logs.err.join("\n")).toMatch(/Could not update PR #10 body/);
+  });
+});
+
+describe("bodyPassIsNoop (body-pass short-circuit predicate)", () => {
+  const config: SpryConfig = {
+    trunk: "main",
+    remote: "origin",
+    branchPrefix: "spry/test",
+  } as SpryConfig;
+
+  function unit(id: string, tip: string): PRUnit {
+    return {
+      type: "single",
+      id,
+      title: undefined,
+      commitIds: [id],
+      commits: [tip],
+      subjects: ["s"],
+    };
+  }
+  function openPR(number: number, branch: string, base = "main"): PRInfo {
+    return {
+      number,
+      url: `https://github.com/o/r/pull/${number}`,
+      state: "OPEN",
+      title: "t",
+      baseRefName: base,
+      checksStatus: "none",
+      reviewDecision: "none",
+      reviewThreads: { resolved: 0, total: 0 },
+    };
+  }
+  function cacheEntry(number: number, branch: string, synced: string | undefined): PRCache[string] {
+    return {
+      ...openPR(number, branch),
+      branch,
+      cachedAt: "2020-01-01T00:00:00.000Z",
+      ...(synced === undefined ? {} : { syncedHeadSha: synced }),
+    };
+  }
+
+  test("returns false when prMap is undefined (lookup failed → run the pass)", () => {
+    expect(bodyPassIsNoop([unit("a", "sha1")], undefined, {}, config)).toBe(false);
+  });
+
+  test("true when the single open PR is unchanged (tip == cached syncedHeadSha)", () => {
+    const u = unit("a", "sha1");
+    const prMap = new Map<string, PRInfo | null>([["spry/test/a", openPR(10, "spry/test/a")]]);
+    const cache: PRCache = { a: cacheEntry(10, "spry/test/a", "sha1") };
+    expect(bodyPassIsNoop([u], prMap, cache, config)).toBe(true);
+  });
+
+  test("false when the unit tip changed since the cached sync (amend)", () => {
+    const u = unit("a", "sha2"); // amended tip
+    const prMap = new Map<string, PRInfo | null>([["spry/test/a", openPR(10, "spry/test/a")]]);
+    const cache: PRCache = { a: cacheEntry(10, "spry/test/a", "sha1") };
+    expect(bodyPassIsNoop([u], prMap, cache, config)).toBe(false);
+  });
+
+  test("false when a cache entry lacks syncedHeadSha (pre-drift cache)", () => {
+    const u = unit("a", "sha1");
+    const prMap = new Map<string, PRInfo | null>([["spry/test/a", openPR(10, "spry/test/a")]]);
+    const cache: PRCache = { a: cacheEntry(10, "spry/test/a", undefined) };
+    expect(bodyPassIsNoop([u], prMap, cache, config)).toBe(false);
+  });
+
+  test("false when a PR was opened this run (in prMap, absent from cache)", () => {
+    const a = unit("a", "sha1");
+    const b = unit("b", "sha2");
+    const prMap = new Map<string, PRInfo | null>([
+      ["spry/test/a", openPR(10, "spry/test/a")],
+      ["spry/test/b", openPR(11, "spry/test/b")], // just opened
+    ]);
+    const cache: PRCache = { a: cacheEntry(10, "spry/test/a", "sha1") }; // no b
+    expect(bodyPassIsNoop([a, b], prMap, cache, config)).toBe(false);
+  });
+
+  test("false when a PR number changed (stale record replaced)", () => {
+    const u = unit("a", "sha1");
+    const prMap = new Map<string, PRInfo | null>([["spry/test/a", openPR(12, "spry/test/a")]]);
+    const cache: PRCache = { a: cacheEntry(10, "spry/test/a", "sha1") };
+    expect(bodyPassIsNoop([u], prMap, cache, config)).toBe(false);
+  });
+
+  test("false after a reorder — moved commits get fresh tip SHAs", () => {
+    // A reorder rewrites every repositioned commit to a new SHA (rebasePlumbing
+    // → commit-tree), so at least one reordered unit's tip differs from its
+    // cached syncedHeadSha. The predicate catches the reorder via that tip
+    // change (it cannot see the previous STACK ORDER — the cache is an unordered
+    // id→entry map — but it does not need to, because the tip SHAs move). Here
+    // unit "b" moved and carries a new tip; the cache still has its old tip.
+    const a = unit("a", "sha1");
+    const b = unit("b", "sha2-new"); // rewritten by the reorder
+    const prMap = new Map<string, PRInfo | null>([
+      ["spry/test/a", openPR(10, "spry/test/a")],
+      ["spry/test/b", openPR(11, "spry/test/b")],
+    ]);
+    const cache: PRCache = {
+      a: cacheEntry(10, "spry/test/a", "sha1"),
+      b: cacheEntry(11, "spry/test/b", "sha2-old"),
+    };
+    expect(bodyPassIsNoop([b, a], prMap, cache, config)).toBe(false);
+  });
+
+  test("true for a multi-PR stack fully in sync", () => {
+    const a = unit("a", "sha1");
+    const b = unit("b", "sha2");
+    const prMap = new Map<string, PRInfo | null>([
+      ["spry/test/a", openPR(10, "spry/test/a")],
+      ["spry/test/b", openPR(11, "spry/test/b")],
+    ]);
+    const cache: PRCache = {
+      a: cacheEntry(10, "spry/test/a", "sha1"),
+      b: cacheEntry(11, "spry/test/b", "sha2"),
+    };
+    expect(bodyPassIsNoop([a, b], prMap, cache, config)).toBe(true);
+  });
+
+  test("false when a unit has no open PR now but the cache had one (PR closed)", () => {
+    const u = unit("a", "sha1");
+    const prMap = new Map<string, PRInfo | null>([["spry/test/a", null]]); // no live PR
+    const cache: PRCache = { a: cacheEntry(10, "spry/test/a", "sha1") };
+    // current open-set is empty, cached open-set has one → length mismatch.
+    expect(bodyPassIsNoop([u], prMap, cache, config)).toBe(false);
   });
 });

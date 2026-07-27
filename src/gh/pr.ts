@@ -1,6 +1,7 @@
 import type { SpryContext, CommandResult } from "../lib/context.ts";
 import { GhAuthError, GhNotInstalledError } from "./errors.ts";
 import { isTransientFailure, withRetry } from "./retry.ts";
+import { mapWithConcurrency } from "../lib/concurrency.ts";
 
 export type PRState = "OPEN" | "CLOSED" | "MERGED";
 export type ChecksStatus = "pending" | "passing" | "failing" | "none";
@@ -257,36 +258,26 @@ async function lookupOne(
 }
 
 /**
- * Max concurrent `gh api graphql` PR lookups. Each lookup is an independent
- * read (the query is keyed on `branch`), so they parallelize cleanly — but we
- * cap the fan-out to stay well under GitHub's secondary rate limits and to
- * avoid spawning an unbounded number of `gh` subprocesses on a deep stack.
+ * Max concurrent `gh` network calls (PR lookups, body fetches). Each is an
+ * independent round-trip, so they parallelize cleanly — but we cap the fan-out
+ * to stay well under GitHub's secondary rate limits and to avoid spawning an
+ * unbounded number of `gh` subprocesses on a deep stack.
  */
-const PR_LOOKUP_CONCURRENCY = 8;
+export const GH_CONCURRENCY = 8;
 
 export async function findPRsForBranches(
   ctx: SpryContext,
   branches: string[],
   options?: FindPRsOptions,
 ): Promise<Map<string, PRInfo | null>> {
-  const result = new Map<string, PRInfo | null>();
-  // Pre-seed keys in input order so the returned Map preserves branch order
-  // regardless of which lookups resolve first (a Map keeps insertion order).
-  for (const branch of branches) result.set(branch, null);
-
-  let next = 0;
-  async function worker(): Promise<void> {
-    for (let i = next++; i < branches.length; i = next++) {
-      const branch = branches[i];
-      if (branch === undefined) continue;
-      result.set(branch, await lookupOne(ctx, branch, options));
-    }
-  }
-
-  const workers = Array.from({ length: Math.min(PR_LOOKUP_CONCURRENCY, branches.length) }, () =>
-    worker(),
+  // Lookups run concurrently through a bounded pool; results come back in input
+  // order, so pairing each branch with its own PR is by index, not resolve
+  // order. A Map preserves insertion order, so the returned Map is branch-order.
+  const infos = await mapWithConcurrency(branches, GH_CONCURRENCY, (branch) =>
+    lookupOne(ctx, branch, options),
   );
-  await Promise.all(workers);
+  const result = new Map<string, PRInfo | null>();
+  branches.forEach((branch, i) => result.set(branch, infos[i] ?? null));
   return result;
 }
 
