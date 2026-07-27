@@ -9,6 +9,7 @@ import {
   branchForUnit,
   registerBranch,
   fetchRemote,
+  syncFetchRefspecs,
 } from "../git/index.ts";
 import { expectedBaseFor as sharedExpectedBaseFor } from "./stack-analysis.ts";
 import {
@@ -142,7 +143,15 @@ export async function checkSync(
     cwd,
   );
 
-  await fetchRemote(ctx.git, config.remote, { cwd });
+  // Narrowed fetch: only trunk + the spry branch prefix, the exact
+  // remote-tracking refs the rest of checkSync reads (trunkRef,
+  // snapshotRemoteTips, remote-branch existence). Avoids pulling unrelated refs
+  // on large repos. `sp rebase`/`sp clean` keep the bare fetch (arbitrary
+  // branches).
+  await fetchRemote(ctx.git, config.remote, {
+    cwd,
+    refspecs: syncFetchRefspecs(config.remote, config.trunk, config.branchPrefix),
+  });
 
   const commits = await getStackCommits(ctx.git, ref, { cwd });
   const withTrailers = await parseCommitTrailers(commits, ctx.git, { cwd });
