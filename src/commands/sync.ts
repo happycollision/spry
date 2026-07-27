@@ -143,25 +143,33 @@ export async function checkSync(
     cwd,
   );
 
-  // Narrowed fetch: only trunk + the spry branch prefix, the exact
-  // remote-tracking refs the rest of checkSync reads (trunkRef,
-  // snapshotRemoteTips, remote-branch existence). Avoids pulling unrelated refs
-  // on large repos. `sp rebase`/`sp clean` keep the bare fetch (arbitrary
-  // branches).
-  await fetchRemote(ctx.git, config.remote, {
-    cwd,
-    refspecs: syncFetchRefspecs(config.remote, config.trunk, config.branchPrefix),
-  });
+  // checkSync needs three independent remote reads: trunk + the spry branch
+  // prefix (the remote-tracking refs trunkRef/snapshotRemoteTips/remote-branch
+  // checks read), the group-records ref, and the PR-cache ref. These were three
+  // SEQUENTIAL `git fetch` spawns (~0.5s each = ~1.5s). They fetch disjoint
+  // local refs, so run them CONCURRENTLY — same remote, different ref updates,
+  // no lock contention — collapsing the wall clock to ~one round-trip.
+  //
+  // Why concurrent rather than one combined multi-refspec fetch: `git fetch`
+  // aborts the WHOLE command if any named refspec's source is missing, and the
+  // group-records ref is absent for any stack that never used `sp group` — so a
+  // combined fetch would fail (and fetch nothing) on the common no-groups case.
+  // The two bookkeeping fetches already tolerate a missing ref individually.
+  const [, groupFetch, prCacheFetch] = await Promise.all([
+    fetchRemote(ctx.git, config.remote, {
+      cwd,
+      refspecs: syncFetchRefspecs(config.remote, config.trunk, config.branchPrefix),
+    }),
+    fetchGroupRecords(ctx.git, config.remote, { cwd }),
+    fetchPRCache(ctx.git, config.remote, { cwd }),
+  ]);
+  if (!groupFetch.ok)
+    console.log(kleur.dim(`⚠ Could not fetch group records: ${groupFetch.warning}`));
+  if (!prCacheFetch.ok)
+    console.log(kleur.dim(`⚠ Could not fetch PR cache: ${prCacheFetch.warning}`));
 
   const commits = await getStackCommits(ctx.git, ref, { cwd });
   const withTrailers = parseCommitTrailers(commits, ctx.git, { cwd });
-
-  const fetchResult = await fetchGroupRecords(ctx.git, config.remote, { cwd });
-  if (!fetchResult.ok)
-    console.log(kleur.dim(`⚠ Could not fetch group records: ${fetchResult.warning}`));
-  const prCacheFetch = await fetchPRCache(ctx.git, config.remote, { cwd });
-  if (!prCacheFetch.ok)
-    console.log(kleur.dim(`⚠ Could not fetch PR cache: ${prCacheFetch.warning}`));
 
   const groupRecords = await loadGroupRecords(ctx.git, { cwd });
   const groupTitles = extractGroupTitles(groupRecords);
