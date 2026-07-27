@@ -144,6 +144,76 @@ test("writing the bottom-right cell does not scroll until more output follows", 
   expect(screen.cursor).toEqual({ x: 0, y: 0 });
 });
 
+test("alternate screen buffer: enter/write/exit restores the primary buffer", () => {
+  // ESC[?1049h enters the alt buffer, ESC[?1049l exits it. On exit the terminal
+  // restores the exact primary-buffer contents and cursor — the alt-buffer
+  // drawing must leave no trace on the primary buffer.
+  const screen = createScreenBuffer(80, 24);
+  screen.write("primary content");
+  screen.write("\x1b[?1049h"); // enter alt screen
+  screen.write("\x1b[2J\x1b[Halt screen drawing"); // clear + draw in alt buffer
+  screen.write("\x1b[?1049l"); // exit alt screen -> restore primary
+
+  expect(screen.lineAt(0)).toBe("primary content");
+  expect(screen.capture().text).not.toContain("alt screen drawing");
+});
+
+test("alternate screen buffer: a shorter post-exit line cannot inherit alt residue", () => {
+  // This is the doc-churn regression (spry-ohjb): a TUI draws a long line in the
+  // alt buffer, exits, then the command prints a SHORTER line. Without a real
+  // buffer swap the long line's trailing columns bled into the short line.
+  const screen = createScreenBuffer(80, 24);
+  screen.write("\x1b[?1049h"); // enter alt (TUI starts)
+  screen.write("\x1b[H> [ ] aaaa1111  Add login"); // picker line, 24 cols
+  screen.write("\x1b[?1049l"); // exit alt (TUI restores primary)
+  screen.write("\x1b[H"); // home on the (clean) primary buffer
+  screen.write("pushed spry/x"); // shorter command output, 13 cols
+
+  expect(screen.lineAt(0)).toBe("pushed spry/x");
+  expect(screen.capture().text).not.toContain("Add login");
+});
+
+test("alternate screen buffer: cursor is restored on exit", () => {
+  const screen = createScreenBuffer(80, 24);
+  screen.write("hello"); // cursor at x=5,y=0 on primary
+  screen.write("\x1b[?1049h");
+  screen.write("\x1b[10;20Hdeep in alt"); // move cursor far away in alt buffer
+  screen.write("\x1b[?1049l");
+
+  expect(screen.cursor).toEqual({ x: 5, y: 0 });
+});
+
+test("alternate screen buffer: entering starts from a cleared grid", () => {
+  const screen = createScreenBuffer(80, 24);
+  screen.write("primary line 0\nprimary line 1");
+  screen.write("\x1b[?1049h"); // enter alt: fresh cleared grid
+  const snap = screen.capture();
+
+  expect(snap.text).toBe(""); // alt buffer starts empty
+  expect(screen.lineAt(1)).toBe("");
+});
+
+test("alternate screen buffer: ?25h/?25l do not trigger a buffer swap", () => {
+  // Only ?1049 is the alt-screen mode. Cursor hide/show (?25) must stay no-ops
+  // and never save/restore a buffer.
+  const screen = createScreenBuffer(80, 24);
+  screen.write("primary");
+  screen.write("\x1b[?25l"); // hide cursor — NOT an alt-screen enter
+  screen.write(" more");
+  screen.write("\x1b[?25h"); // show cursor — NOT an alt-screen exit
+
+  expect(screen.lineAt(0)).toBe("primary more");
+});
+
+test("alternate screen buffer: exit without a prior enter is a safe no-op", () => {
+  const screen = createScreenBuffer(80, 24);
+  screen.write("primary content");
+  screen.write("\x1b[?1049l"); // spurious exit — must not clobber the buffer
+  screen.write(" kept");
+
+  expect(screen.lineAt(0)).toBe("primary content kept");
+});
+
 test("capture returns frozen snapshot", () => {
   const screen = createScreenBuffer(80, 5);
   screen.write("Line 0\nLine 1\nLine 2");

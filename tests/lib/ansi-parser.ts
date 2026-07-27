@@ -22,12 +22,39 @@ interface Cell {
 
 const BLANK: Cell = { char: " ", fg: null, bg: null, bold: false, dim: false };
 
+function blankGrid(cols: number, rows: number): Cell[][] {
+  return Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ ...BLANK })));
+}
+
 export function createScreenBuffer(cols: number, rows: number): ScreenBuffer {
-  const grid: Cell[][] = Array.from({ length: rows }, () =>
-    Array.from({ length: cols }, () => ({ ...BLANK })),
-  );
+  let grid: Cell[][] = blankGrid(cols, rows);
   const cursor = { x: 0, y: 0 };
   const style: Omit<Cell, "char"> = { fg: null, bg: null, bold: false, dim: false };
+
+  // Alternate screen buffer (DECSET/DECRST 1049), as used by the interactive
+  // TUIs (src/tui/screen.ts): ESC[?1049h saves the primary grid + cursor and
+  // switches to a fresh cleared grid; ESC[?1049l restores them. Modeling this
+  // faithfully is what keeps a TUI's rendered frame from bleeding into the
+  // command output printed AFTER the TUI exits (spry-ohjb): on a real terminal
+  // those live in separate buffers, so a doc test that captures the primary
+  // buffer post-exit sees only the real output, never picker/hint residue.
+  let savedPrimary: { grid: Cell[][]; cursor: { x: number; y: number } } | null = null;
+
+  function enterAltScreen(): void {
+    if (savedPrimary) return; // already in the alt buffer — ignore a repeat enter
+    savedPrimary = { grid, cursor: { ...cursor } };
+    grid = blankGrid(cols, rows);
+    cursor.x = 0;
+    cursor.y = 0;
+  }
+
+  function exitAltScreen(): void {
+    if (!savedPrimary) return; // never entered — a spurious exit is a no-op
+    grid = savedPrimary.grid;
+    cursor.x = savedPrimary.cursor.x;
+    cursor.y = savedPrimary.cursor.y;
+    savedPrimary = null;
+  }
 
   function getRow(row: number): Cell[] {
     return grid[row] ?? [];
@@ -266,7 +293,13 @@ export function createScreenBuffer(cols: number, rows: number): ScreenBuffer {
         break;
       }
       case "h":
+        // DECSET. Only ?1049 (alternate screen) is modeled; other private
+        // modes (e.g. ?25 cursor visibility) stay no-ops.
+        if (params === "?1049") enterAltScreen();
+        break;
       case "l":
+        // DECRST. Mirror of ?1049h.
+        if (params === "?1049") exitAltScreen();
         break;
     }
   }

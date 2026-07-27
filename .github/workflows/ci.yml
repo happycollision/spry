@@ -24,3 +24,9 @@ jobs:
       - run: bunx oxlint
       - run: bunx oxfmt --check .
       - run: bun test
+      # Guardrail against generated-doc churn (spry-ohjb): `bun test` above wrote
+      # the doc fragments to .test-tmp/doc-fragments/. Rebuild docs/generated/
+      # from them and fail if the result differs from what is committed. This
+      # makes the "docs must be regenerated and committed" rule machine-enforced
+      # instead of relying on an author remembering to diff by hand.
+      - run: bun run docs:verify

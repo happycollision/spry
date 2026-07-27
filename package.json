@@ -14,6 +14,7 @@
     "docker:shell:2.38": "./scripts/test-docker.sh shell 2.38",
     "docs:build": "bun run scripts/build-docs.ts && oxfmt docs/generated/",
     "docs:clean": "rm -rf .test-tmp/doc-fragments docs/generated",
+    "docs:verify": "./scripts/verify-docs.sh",
     "lint": "oxlint --type-aware",
     "types": "tsc --noEmit",
     "format": "oxfmt",

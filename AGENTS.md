@@ -257,6 +257,17 @@ in-flight work.
 
 Every user-facing command or UI output must have doc-producing tests in a `tests/commands/<command>.doc.test.ts` file using the `docTest` helper from `tests/lib/index.ts`. Doc tests are the source of truth for generated documentation in `docs/generated/`. See `tests/commands/sync.doc.test.ts` or `tests/commands/view.doc.test.ts` for the pattern.
 
+**Generated docs are machine-verified — `docs/generated/` must never drift.**
+After any run of the suite (which writes `.test-tmp/doc-fragments/`), run
+`bun run docs:verify`: it rebuilds `docs/generated/` from the fragments and
+fails if the result differs from what is committed. CI runs this right after
+`bun test`, so a stale or non-deterministic doc fails the PR instead of merging
+silently. If it fails, regenerate and commit:
+`bun run docs:clean && bun test && bun run docs:build`. (This gate exists
+because a doc-capture bug once let non-deterministic fragments churn the docs
+undetected — spry-ohjb; the "run it twice and eyeball the diff" convention did
+not reliably catch it.)
+
 ### Pre-merge record + playback check
 
 Before merging any branch, prove that record mode still works end-to-end and
