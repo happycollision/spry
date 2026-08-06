@@ -402,11 +402,12 @@ describe("sp land --through", () => {
 
 describe("sp land readiness", () => {
   const failingRollup = [{ __typename: "CheckRun", status: "COMPLETED", conclusion: "FAILURE" }];
-  const pendingRollup = [{ __typename: "CheckRun", status: "IN_PROGRESS" }];
 
+  // Note: "pending checks" (CI as the SOLE blocker) is no longer a hard
+  // blocker — it is the new `ci-pending` verdict, covered by the dedicated
+  // "sp land --poll nudge" describe block below.
   const cases: Array<[string, PRStub, RegExp]> = [
     ["failing checks", { number: 1, rollup: failingRollup }, /checks are failing/i],
-    ["pending checks", { number: 1, rollup: pendingRollup }, /checks are still running/i],
     [
       "changes requested",
       { number: 1, reviewDecision: "CHANGES_REQUESTED" },
@@ -590,6 +591,224 @@ describe("sp land unresolved review threads", () => {
     const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
     expect(after).toBe(tip);
     expect(logs.out.join("\n")).toContain("Landed");
+  });
+});
+
+describe("sp land --poll nudge (bare land, CI pending)", () => {
+  // A PR whose checks are still running (a single IN_PROGRESS check run).
+  const ciPending: PRStub = {
+    number: 1,
+    rollup: [{ __typename: "CheckRun", status: "IN_PROGRESS" }],
+  };
+
+  test("non-interactive shell → prints the --poll re-invoke command, does not land", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedStack(repo, git, [{ id: "aaa11111", subject: "first" }]);
+    const before = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+
+    const { gh } = stubGh(ghPrStub({ "spry/test/aaa11111": ciPending }));
+    const ctx = makeCtx(repo, gh);
+    const logs = await captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, {
+        cwd: repo.path,
+        through: "aaa11111",
+        isInteractive: () => false,
+      });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+    expect(after).toBe(before); // nothing landed
+    expect(logs.err.join("\n")).toContain("sp land --through aaa11111 --poll");
+    expect(trap.exitCode).toBe(1);
+  });
+
+  test("interactive shell, user declines → does not land", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedStack(repo, git, [{ id: "aaa11111", subject: "first" }]);
+    const before = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+
+    const { gh } = stubGh(ghPrStub({ "spry/test/aaa11111": ciPending }));
+    const ctx = makeCtx(repo, gh);
+    const logs = await captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, {
+        cwd: repo.path,
+        through: "aaa11111",
+        isInteractive: () => true,
+        confirm: async () => false, // "no" to the poll prompt
+      });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+    expect(after).toBe(before);
+    expect(trap.exitCode).toBeUndefined();
+    expect(logs.out.join("\n")).toMatch(/not landed/i);
+  });
+});
+
+describe("sp land --poll loop", () => {
+  test("pending → passing → lands", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedStack(repo, git, [{ id: "aaa11111", subject: "first" }]);
+    const tip = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+
+    const state: Record<string, PRStub> = {
+      "spry/test/aaa11111": {
+        number: 1,
+        rollup: [{ __typename: "CheckRun", status: "IN_PROGRESS" }],
+      },
+    };
+    const { gh } = stubGh(ghPrStub(state));
+    const ctx = makeCtx(repo, gh);
+
+    let sleeps = 0;
+    const sleep = async () => {
+      sleeps++;
+      state["spry/test/aaa11111"] = {
+        number: 1,
+        rollup: [{ __typename: "CheckRun", status: "COMPLETED", conclusion: "SUCCESS" }],
+      };
+    };
+
+    const logs = await captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, { cwd: repo.path, through: "aaa11111", poll: true, sleep });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+    expect(after).toBe(tip);
+    expect(sleeps).toBe(1);
+    expect(logs.out.join("\n")).toContain("Landed");
+  });
+
+  test("already green on first poll → lands with no CI-pending banner", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedStack(repo, git, [{ id: "aaa11111", subject: "first" }]);
+    const tip = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+
+    const { gh } = stubGh(
+      ghPrStub({
+        "spry/test/aaa11111": {
+          number: 1,
+          rollup: [{ __typename: "CheckRun", status: "COMPLETED", conclusion: "SUCCESS" }],
+        },
+      }),
+    );
+    const ctx = makeCtx(repo, gh);
+    let sleeps = 0;
+    const sleep = async () => {
+      sleeps++;
+    };
+
+    const logs = await captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, { cwd: repo.path, through: "aaa11111", poll: true, sleep });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+    expect(after).toBe(tip);
+    expect(sleeps).toBe(0); // landed immediately, never slept
+    expect(logs.out.join("\n")).not.toContain("CI pending");
+    expect(logs.out.join("\n")).toContain("Landed");
+  });
+
+  test("pending → failing → fails fast, does not land", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedStack(repo, git, [{ id: "aaa11111", subject: "first" }]);
+    const before = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+
+    const state: Record<string, PRStub> = {
+      "spry/test/aaa11111": {
+        number: 1,
+        rollup: [{ __typename: "CheckRun", status: "IN_PROGRESS" }],
+      },
+    };
+    const { gh } = stubGh(ghPrStub(state));
+    const ctx = makeCtx(repo, gh);
+    const sleep = async () => {
+      state["spry/test/aaa11111"] = {
+        number: 1,
+        rollup: [{ __typename: "CheckRun", status: "COMPLETED", conclusion: "FAILURE" }],
+      };
+    };
+
+    const logs = await captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, { cwd: repo.path, through: "aaa11111", poll: true, sleep });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+    expect(after).toBe(before);
+    expect(trap.exitCode).toBe(1);
+    expect(logs.err.join("\n")).toContain("CI checks are failing");
+  });
+
+  test("stays pending across several polls (counts sleeps, prints banner once)", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedStack(repo, git, [{ id: "aaa11111", subject: "first" }]);
+    const tip = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+
+    const state: Record<string, PRStub> = {
+      "spry/test/aaa11111": {
+        number: 1,
+        rollup: [{ __typename: "CheckRun", status: "IN_PROGRESS" }],
+      },
+    };
+    const { gh } = stubGh(ghPrStub(state));
+    const ctx = makeCtx(repo, gh);
+    let sleeps = 0;
+    const sleep = async () => {
+      sleeps++;
+      if (sleeps === 3) {
+        state["spry/test/aaa11111"] = {
+          number: 1,
+          rollup: [{ __typename: "CheckRun", status: "COMPLETED", conclusion: "SUCCESS" }],
+        };
+      }
+    };
+
+    const logs = await captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(ctx, { cwd: repo.path, through: "aaa11111", poll: true, sleep });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(sleeps).toBe(3);
+    const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+    expect(after).toBe(tip);
+    // Banner printed exactly once across the 3 pending polls.
+    const bannerCount = logs.out.filter((l) => l.includes("CI pending on")).length;
+    expect(bannerCount).toBe(1);
   });
 });
 

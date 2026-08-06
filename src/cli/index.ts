@@ -11,6 +11,22 @@ import type { SpryContext } from "../lib/context.ts";
 import { createSeamedGhClient } from "../lib/gh-seam.ts";
 import pkg from "../../package.json" with { type: "json" };
 
+/**
+ * Parse `--interval <sec>` to a positive number of seconds. Rejects non-numeric,
+ * NaN, zero, and negative values — a bad interval would otherwise reach the poll
+ * loop as `setTimeout(…, NaN|<=0)` and hot-loop the GitHub API. Throws (caught by
+ * the top-level handler, which prints `✗ <message>` and exits 1); returns
+ * undefined when the flag is absent so the loop's 30s default applies.
+ */
+function parseInterval(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    throw new Error(`--interval must be a positive number of seconds (got "${raw}")`);
+  }
+  return seconds;
+}
+
 const program = new Command();
 
 program
@@ -57,7 +73,18 @@ program
   .command("land")
   .description("Land the stack into trunk by fast-forwarding through a chosen commit")
   .option("--through <id>", "Land from the bottom through this group/commit id")
-  .action((opts: { through?: string }) => landCommand(ctx, { through: opts.through }));
+  .option(
+    "--poll",
+    "Watch CI and auto-land when the scope goes green (fail fast on a hard blocker)",
+  )
+  .option("--interval <sec>", "Poll cadence in seconds when --poll is set (default 30)")
+  .action((opts: { through?: string; poll?: boolean; interval?: string }) =>
+    landCommand(ctx, {
+      through: opts.through,
+      poll: opts.poll,
+      interval: parseInterval(opts.interval),
+    }),
+  );
 
 program
   .command("clean")

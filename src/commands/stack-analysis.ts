@@ -2,7 +2,8 @@ import type { GitRunner } from "../lib/context.ts";
 import type { SpryConfig } from "../git/config.ts";
 import { branchForUnit } from "../git/branch.ts";
 import type { PRUnit, CommitWithTrailers } from "../parse/index.ts";
-import type { PRCache, PRCacheEntry } from "../gh/pr-cache.ts";
+import type { PRCache } from "../gh/pr-cache.ts";
+import type { PRInfo } from "../gh/pr.ts";
 import { evaluateReadiness } from "./land-readiness.ts";
 import type { ReadinessResult } from "./land-readiness.ts";
 
@@ -111,12 +112,17 @@ export interface LandBlockersResult {
 /**
  * Combine structural flags (missingId/unpushed/misTargeted) with PR readiness
  * (evaluateReadiness) for a scope of units. Every reason ends actionable; the
- * caller prints them and points at `sp sync`. `prByUnit` maps unit id → cached
- * PR (or null when none) for exactly the units in `scope`.
+ * caller prints them and points at `sp sync`. `prByUnit` maps unit id → PR (or
+ * null when none) for exactly the units in `scope`. Typed as `PRInfo` (not the
+ * cache-specific `PRCacheEntry`) because this function only ever reads the
+ * fields `evaluateReadiness` needs (`state`, `checksStatus`, `reviewDecision`,
+ * `reviewThreads`, `number`) — all present on the base `PRInfo` shape. This
+ * lets both the up-front gate (cached `PRCacheEntry` values) and the `--poll`
+ * loop (fresh `PRInfo` from a live lookup) call it without a cast.
  */
 export function landBlockers(
   scope: UnitAnalysis[],
-  prByUnit: Record<string, PRCacheEntry | null>,
+  prByUnit: Record<string, PRInfo | null>,
 ): LandBlockersResult {
   const perUnit: UnitBlockers[] = [];
 

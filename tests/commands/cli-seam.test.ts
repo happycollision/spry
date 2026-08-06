@@ -32,3 +32,29 @@ test("command errors are printed without a Bun source-frame stack", async () => 
     await repo.cleanup();
   }
 });
+
+// The --interval guard fires during CLI arg parsing, before any git/gh work, so
+// a plain cwd is enough — no configured repo needed. A rejected interval must
+// never reach the poll loop (where it would become setTimeout(…, NaN|<=0) and
+// hot-loop the GitHub API).
+for (const bad of ["abc", "0", "-5"]) {
+  test(`land --interval ${bad} is rejected before doing any work`, async () => {
+    const { result } = await runSp(process.cwd(), "land", [
+      "--through",
+      "x",
+      "--poll",
+      "--interval",
+      bad,
+    ]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("--interval must be a positive number of seconds");
+    expect(result.stderr).toContain(`(got "${bad}")`);
+  });
+}
+
+test("land --interval 15 is accepted (positive value parses)", async () => {
+  // Not a poll run — no --poll, no configured repo — so it exits for another
+  // reason; the point is only that the interval parse does NOT reject 15.
+  const { result } = await runSp(process.cwd(), "land", ["--through", "x", "--interval", "15"]);
+  expect(result.stderr).not.toContain("--interval must be");
+});
