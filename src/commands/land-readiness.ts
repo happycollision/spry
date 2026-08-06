@@ -1,5 +1,8 @@
 import type { PRInfo } from "../gh/pr.ts";
 
+/** The blocker reason emitted when a PR's checks are still running. Polling can clear this. */
+export const CI_PENDING_REASON = "CI checks are still running";
+
 export interface ReadinessVerdict {
   blockers: { branch: string; prNumber: number; reasons: string[] }[];
   /** PR numbers that have unresolved review threads (prompt, not abort). */
@@ -29,7 +32,7 @@ export function evaluateReadiness(scope: { branch: string; pr: PRInfo | null }[]
     if (!pr) continue;
     const reasons: string[] = [];
     if (pr.checksStatus === "failing") reasons.push("CI checks are failing");
-    else if (pr.checksStatus === "pending") reasons.push("CI checks are still running");
+    else if (pr.checksStatus === "pending") reasons.push(CI_PENDING_REASON);
     if (pr.reviewDecision === "changes_requested") reasons.push("Changes have been requested");
     else if (pr.reviewDecision === "review_required") reasons.push("Review is required");
     if (reasons.length > 0) blockers.push({ branch, prNumber: pr.number, reasons });
