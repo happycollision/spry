@@ -13,6 +13,7 @@ import { waitForValue } from "../lib/wait-for.ts";
 
 const cliPath = join(import.meta.dir, "../../src/cli/index.ts");
 const harnessPath = join(import.meta.dir, "../fixtures/land-tui-harness.ts");
+const pollHarnessPath = join(import.meta.dir, "../fixtures/land-poll-harness.ts");
 const runSp = createRunner(cliPath);
 
 // Replay never touches GitHub (gh traffic is cassette-served), but it is NOT
@@ -68,6 +69,43 @@ const MERGED_POLL_WAIT_MS = 48 * 5000; // 240000
 // inheriting the full pathological 900000ms on top of everything else.
 const CANONICAL_RECORD_TIMEOUT_MS = SETUP_LAND_STACK_WAIT_MS + MERGED_POLL_WAIT_MS + 780000; // 1500000
 
+// How long the [SLOW_CI_<n>] marker holds a check registered-and-pending, in
+// seconds. Long enough that GitHub reliably registers the check as pending
+// before it completes (registration latency is typically <10s), short enough
+// that the record-mode wait doesn't drag: at 20s the nudge (order 30) catches
+// a pending rollup on its first or second 5s waitForRegisteredPending poll, and
+// the wait-loop (order 40) sees ~2-3 pending polls before green. The deployed
+// spry-check workflow reads this number from the commit-subject marker.
+const SLOW_CI_SECONDS = 20;
+
+// The bare-land CI-pending nudge (order 30) no longer races land's first query
+// against real CI turnaround (see the order-30 body comment): it marks its
+// stack commits [SLOW_CI_<n>] and explicitly waits, for EACH of the two branches
+// SEQUENTIALLY, until that branch's rollup is registered-and-pending, before
+// invoking `sp land` once. Budget for two full waitForRegisteredPending calls
+// at their worst case (2 * WAIT_FOR_CHECKS_TIMEOUT_MS = 480000ms) plus
+// generous headroom for PR creation, the land invocation itself, and gh
+// latency. (The [SLOW_CI] window itself is only SLOW_CI_SECONDS; the large
+// budget covers the poll ceiling, not the expected time.)
+const NUDGE_RECORD_TIMEOUT_MS = 2 * WAIT_FOR_CHECKS_TIMEOUT_MS + 60000; // 540000
+
+// Real interval (seconds) the --poll wait-loop doc test uses in RECORD mode,
+// passed via SPRY_POLL_INTERVAL. Short enough that the SLOW_CI_SECONDS window
+// yields a few distinct pending polls before green, long enough to give CI real
+// time to move between polls so each records a genuinely distinct rollup.
+const POLL_WAIT_LOOP_RECORD_INTERVAL_SECONDS = 8;
+
+// The --poll wait-loop doc test (order 40) never calls setupLandStack's CI
+// wait either — it opens the PRs and immediately spawns the polling harness,
+// which itself polls (in record mode) on POLL_WAIT_LOOP_RECORD_INTERVAL_SECONDS
+// until CI passes. Order 40 also marks its stack commits [SLOW_CI_<n>] (like
+// order 30) so the deployed workflow reliably stays pending for SLOW_CI_SECONDS,
+// giving the harness several real pending polls before CI flips green instead of
+// possibly finishing before the first poll. Budget generously: the SLOW_CI
+// sleep, plus margin for the green-confirmation poll and harness spawn/exit
+// overhead, still well inside WAIT_FOR_CHECKS_TIMEOUT_MS's own ceiling.
+const POLL_WAIT_LOOP_RECORD_TIMEOUT_MS = WAIT_FOR_CHECKS_TIMEOUT_MS + 60000; // 300000
+
 const repos: Array<{ cleanup(): Promise<void> }> = [];
 
 afterAll(async () => {
@@ -80,24 +118,52 @@ afterAll(async () => {
  * Build a 2-unit stack on `feature/x` and publish both spry branches to the
  * origin (the spry config is already pinned by `setupDocRepo`). In record
  * mode, open each PR already-stacked (bottom→trunk, upper→the bottom unit's
- * branch), matching a synced stack, and wait for CI to pass — land's readiness
- * gate refuses PRs with pending checks or mis-targeted bases. Because setup
- * never changes a PR base after CI starts, there is no pending-CI re-trigger
- * race. The repo's per-run seeded commit dates make each run's SHAs unique, so
- * GitHub never accumulates historical check runs on a reused SHA — every PR
- * gets a clean, single-run rollup.
+ * branch), matching a synced stack, and — unless `waitForGreen: false` —
+ * wait for CI to pass, since land's readiness gate refuses PRs with pending
+ * checks or mis-targeted bases. Because setup never changes a PR base after
+ * CI starts, there is no pending-CI re-trigger race. The repo's per-run seeded
+ * commit dates make each run's SHAs unique, so GitHub never accumulates
+ * historical check runs on a reused SHA — every PR gets a clean, single-run
+ * rollup.
+ *
+ * `waitForGreen: false` (record mode only) skips the wait entirely, opening
+ * the PRs and returning immediately so the caller observes CI mid-flight —
+ * this is exactly what the `--poll` nudge and wait-loop doc tests need: a
+ * genuinely pending rollup to record against.
+ *
+ * `slowCI: true` appends a `[SLOW_CI_<SLOW_CI_SECONDS>]` marker to both commit
+ * subjects (ids and trailers are unaffected), which the deployed spry-check CI
+ * workflow recognizes and sleeps that many seconds on before completing —
+ * keeping the rollup registered-and-pending for a reliable window instead of
+ * racing real CI turnaround. Callers that need a deterministic pending-CI
+ * observation (the `--poll` nudge and wait-loop doc tests) should combine this
+ * with `waitForGreen: false` and their own explicit pending-wait.
  */
 async function setupLandStack(
   repo: TestRepo,
-  opts: { recording: boolean; trunkName: string; branchPrefix: string },
+  opts: {
+    recording: boolean;
+    trunkName: string;
+    branchPrefix: string;
+    /** Default true. Set false to open PRs and return without waiting for CI. */
+    waitForGreen?: boolean;
+    /** Default false. Set true to mark both commits `[SLOW_CI_<SLOW_CI_SECONDS>]` so the deployed spry-check workflow sleeps that many seconds before completing. */
+    slowCI?: boolean;
+  },
 ): Promise<void> {
-  const { recording, trunkName, branchPrefix } = opts;
+  const { recording, trunkName, branchPrefix, waitForGreen = true, slowCI = false } = opts;
   await repo.git.run(["checkout", "-b", "feature/x"]);
   for (const [subject, id] of [
     ["Add login", "aaa11111"],
     ["Add logout", "bbb22222"],
   ] as const) {
-    await repo.git.run(["commit", "--allow-empty", "-m", `${subject}\n\nSpry-Commit-Id: ${id}`]);
+    const fullSubject = slowCI ? `${subject} [SLOW_CI_${SLOW_CI_SECONDS}]` : subject;
+    await repo.git.run([
+      "commit",
+      "--allow-empty",
+      "-m",
+      `${fullSubject}\n\nSpry-Commit-Id: ${id}`,
+    ]);
     const head = (await repo.git.run(["rev-parse", "HEAD"])).stdout.trim();
     await repo.git.run(["push", "origin", `${head}:refs/heads/${branchPrefix}/${id}`]);
   }
@@ -110,8 +176,10 @@ async function setupLandStack(
     await $`gh pr create --title ${"Add logout"} --head ${`${branchPrefix}/bbb22222`} --base ${`${branchPrefix}/aaa11111`} --body ${"Logout"}`
       .cwd(repo.path)
       .quiet();
-    await waitForChecks(repo.path, `${branchPrefix}/aaa11111`);
-    await waitForChecks(repo.path, `${branchPrefix}/bbb22222`);
+    if (waitForGreen) {
+      await waitForChecks(repo.path, `${branchPrefix}/aaa11111`);
+      await waitForChecks(repo.path, `${branchPrefix}/bbb22222`);
+    }
   }
 }
 
@@ -154,6 +222,57 @@ async function waitForChecks(
     await Bun.sleep(5000);
   }
   throw new Error(`CI checks did not pass for ${branch} within ${timeoutMs}ms`);
+}
+
+/**
+ * Record-mode only: poll until the PR for `branch` has a REGISTERED rollup
+ * (non-empty) that is still PENDING — at least one check not yet COMPLETED,
+ * and none failed. This is the mirror image of `waitForChecks`: instead of
+ * waiting for CI to finish, we need to catch it registered and still running,
+ * so that invoking `sp land` immediately afterward reliably observes land's
+ * readiness gate seeing `pending` (not "none") and prints the nudge.
+ *
+ * The gap this closes: right after `gh pr create`, GitHub has not yet
+ * registered any check run — `statusCheckRollup` reads `null`/empty, which
+ * land's readiness gate treats as "no blocker" (checksStatus "none"), not
+ * "pending". Invoking land during that pre-registration window would land the
+ * stack instead of nudging. Combined with `slowCI` stack commits (which make
+ * the deployed workflow sleep SLOW_CI_SECONDS before completing), waiting here
+ * for a non-empty-but-incomplete rollup gives a reliable window in which to
+ * invoke `sp land` and deterministically observe the nudge.
+ */
+async function waitForRegisteredPending(
+  cwd: string,
+  branch: string,
+  timeoutMs = WAIT_FOR_CHECKS_TIMEOUT_MS,
+): Promise<void> {
+  const { $ } = await import("bun");
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const res = await $`gh pr view ${branch} --json statusCheckRollup`.cwd(cwd).nothrow().quiet();
+    if (res.exitCode === 0) {
+      try {
+        const parsed = JSON.parse(res.stdout.toString()) as {
+          statusCheckRollup?: Array<{ status?: string; conclusion?: string | null }>;
+        };
+        const rollup = parsed.statusCheckRollup ?? [];
+        const anyIncomplete = rollup.some((c) => c.status !== "COMPLETED");
+        const anyFailed = rollup.some(
+          (c) =>
+            c.conclusion === "FAILURE" ||
+            c.conclusion === "TIMED_OUT" ||
+            c.conclusion === "CANCELLED",
+        );
+        if (rollup.length > 0 && anyIncomplete && !anyFailed) return;
+      } catch {
+        // fall through and retry on malformed output
+      }
+    }
+    await Bun.sleep(5000);
+  }
+  throw new Error(
+    `CI checks did not reach registered-and-pending for ${branch} within ${timeoutMs}ms`,
+  );
 }
 
 describe("sp land docs", () => {
@@ -312,6 +431,181 @@ describe("sp land docs", () => {
         expect(await driver.waitForExit({ timeout: 20000 })).toBe(0);
 
         const snap = driver.capture();
+        expect(snap.text).toContain("Landed");
+      });
+    },
+  );
+
+  docTest(
+    "Bare land nudges toward --poll when CI is still running",
+    {
+      section: "commands/land",
+      order: 30,
+      timeout: isRecording() ? NUDGE_RECORD_TIMEOUT_MS : REPLAY_TIMEOUT_MS,
+    },
+    async (doc) => {
+      // Non-canonical, non-exclusive: lands onto its own per-test trunk (like
+      // order 20), so it runs lock-free in parallel with the other fixture
+      // tests. The whole point of this test is to observe CI MID-FLIGHT.
+      // `runSp` (not the TUI harness) is used so the binary's real non-TTY
+      // stdin path fires: under a non-interactive shell, land can't prompt to
+      // poll, so it prints the reinvoke hint and exits 1 instead.
+      //
+      // DETERMINISTIC by construction, no timing race: setupLandStack marks
+      // both stack commits `[SLOW_CI_<n>]` (slowCI: true), which the deployed
+      // spry-check workflow recognizes and sleeps SLOW_CI_SECONDS on before
+      // completing — so CI stays registered-and-pending for a reliable window instead
+      // of racing real CI turnaround. We explicitly wait (waitForGreen: false,
+      // then waitForRegisteredPending for each branch) until both PRs' rollups
+      // are registered-and-pending before invoking `sp land` once, so land's
+      // readiness gate reliably observes `pending` (not the pre-registration
+      // "none") and prints the nudge. Land's scope is `--through bbb22222`,
+      // which covers BOTH units, and readiness gates on ALL in-scope PRs — so
+      // we wait for both branches, not just the top one.
+      const recording = isRecording();
+      await withGitHubFixture({ recording }, async (fixture) => {
+        const { repo, env, trunkName, branchPrefix } = await setupDocRepo(doc, {
+          recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
+          section: "commands/land",
+          order: 30,
+        });
+        repos.push(repo);
+
+        await setupLandStack(repo, {
+          recording,
+          trunkName,
+          branchPrefix,
+          waitForGreen: false,
+          slowCI: true,
+        });
+
+        if (recording) {
+          await waitForRegisteredPending(repo.path, `${branchPrefix}/aaa11111`);
+          await waitForRegisteredPending(repo.path, `${branchPrefix}/bbb22222`);
+        }
+
+        doc.prose(
+          "If CI is still running, a non-interactive `sp land` (no TTY — e.g. in a script or CI job) can't prompt to wait, so it prints a ready-to-copy re-invoke command and exits non-zero instead of blocking:",
+        );
+
+        const { command, result } = await runSp(repo.path, "land", ["--through", "bbb22222"], {
+          env,
+        });
+        doc.command(command);
+        doc.output(result.stdout + result.stderr);
+
+        const { expect } = await import("bun:test");
+        // The nudge path is EXPECTED to exit non-zero — that is the documented
+        // behavior (land refuses to guess in a non-interactive shell). Assert
+        // the exit code explicitly rather than treating any non-zero exit as a
+        // pass, so a different failure mode doesn't masquerade as the nudge.
+        expect(result.exitCode).toBe(1);
+        const combined = result.stdout + result.stderr;
+        expect(combined).toContain("sp land --through");
+        expect(combined).toContain("--poll");
+      });
+    },
+  );
+
+  docTest(
+    "sp land --poll waits for CI, then lands",
+    {
+      section: "commands/land",
+      order: 40,
+      timeout: isRecording() ? POLL_WAIT_LOOP_RECORD_TIMEOUT_MS : REPLAY_TIMEOUT_MS,
+    },
+    async (doc) => {
+      // Non-canonical, non-exclusive: like order 20/30, this lands onto its
+      // own per-test trunk, not the repo's real default branch — so it never
+      // contends the exclusive record lock and runs in parallel with the rest
+      // of the fixture tests.
+      //
+      // setupLandStack skips the CI wait (waitForGreen: false) so the PRs'
+      // real rollup is still `pending` when the harness is spawned. It also
+      // marks both stack commits `[SLOW_CI_<n>]` (slowCI: true), like order 30, so
+      // the deployed spry-check workflow sleeps SLOW_CI_SECONDS before completing —
+      // this keeps CI reliably pending across SEVERAL polls (poll interval is
+      // POLL_WAIT_LOOP_RECORD_INTERVAL_SECONDS = 8s in record mode, so a
+      // SLOW_CI_SECONDS window yields a few "still pending" polls) instead of
+      // risking CI finishing in one poll or before the first. In record mode
+      // the harness polls on that real interval so CI has time to go green
+      // between polls — each poll is a genuinely distinct `gh` call, recorded
+      // in sequence (pending, ..., passing). In replay those same calls are
+      // served back from the cassette in the same order with no real sleeping
+      // (the harness makes `sleep` a no-op in replay), so the wait loop
+      // reproduces deterministically offline with the exact same number of
+      // "still pending" iterations recorded live. (Unlike order 30's former
+      // race — now also removed — this test polls until CI passes rather than
+      // racing land's first query against it, so a re-record here is expected
+      // to be fully deterministic.)
+      const recording = isRecording();
+      await withGitHubFixture({ recording }, async (fixture) => {
+        const { repo, env, trunkName, branchPrefix } = await setupDocRepo(doc, {
+          recording,
+          fixtureOwner: fixture?.owner,
+          fixtureRepo: fixture?.repo,
+          section: "commands/land",
+          order: 40,
+        });
+        repos.push(repo);
+
+        await setupLandStack(repo, {
+          recording,
+          trunkName,
+          branchPrefix,
+          waitForGreen: false,
+          slowCI: true,
+        });
+
+        doc.prose(
+          "Pass `--poll` to wait for CI instead of nudging: `sp land` re-checks on a cadence (30s by default; `--interval <seconds>` to change it) and lands automatically the moment every in-scope PR is green:",
+        );
+        doc.command("sp land --through bbb22222 --poll");
+
+        const pollEnv = {
+          ...env,
+          // Same interval value in BOTH modes so the captured banner reads a
+          // sensible "polling every 8s…" in the generated doc rather than
+          // "every 0s". The value only feeds the banner TEXT and the record-mode
+          // spacing between real polls; the harness gates its actual sleep on
+          // isRecording() (not on this number), so replay still never waits.
+          SPRY_POLL_INTERVAL: String(POLL_WAIT_LOOP_RECORD_INTERVAL_SECONDS),
+        };
+
+        const driver = await createTerminalDriver("bun", [pollHarnessPath, repo.path, "bbb22222"], {
+          cols: 80,
+          rows: 24,
+          env: pollEnv,
+        });
+        repos.push({ cleanup: () => driver.close() });
+
+        const { expect } = await import("bun:test");
+        // Wait for the harness process to exit rather than for a "Landed"
+        // sentinel + close(): mirrors order 20's rationale (see
+        // docs/investigations/2026-07-07-group-reflog-nondeterminism.md) —
+        // waiting for exit avoids racing trailing cleanup work with a hard
+        // kill of the pty.
+        expect(await driver.waitForExit({ timeout: WAIT_FOR_CHECKS_TIMEOUT_MS })).toBe(0);
+
+        const snap = driver.capture();
+        // Capture only the STABLE head (the pending banner) and tail ("✓
+        // Landed") lines, not the full variable middle: the number of
+        // "…still pending" lines depends on exactly how many polls elapsed
+        // before CI went green, and while replay reproduces record's exact
+        // recorded sequence (so the count IS deterministic run-to-run), pinning
+        // the doc capture to the count as well would make the generated docs
+        // fragile to any future re-recording where CI happens to flip on a
+        // different poll. The banner + final line are what's worth documenting
+        // anyway.
+        const lines = snap.text.split("\n");
+        const bannerLine = lines.find((l) => l.includes("CI pending on"));
+        const landedLine = lines.find((l) => l.includes("Landed"));
+        expect(bannerLine).toBeDefined();
+        expect(landedLine).toBeDefined();
+        doc.output(`${bannerLine}\n  …\n${landedLine}\n`);
+
         expect(snap.text).toContain("Landed");
       });
     },

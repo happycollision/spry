@@ -30,6 +30,12 @@ This repository is used for integration testing of [spry](https://github.com/hap
 The CI workflow in this repository:
 - **PASSES** for commits without special markers
 - **FAILS** for commits containing \`[FAIL_CI]\` in the subject line
+- **RUNS SLOWLY** (sleeps, staying registered-and-pending for a fixed window)
+  for commits containing \`[SLOW_CI]\` in the subject line — used by the
+  \`sp land --poll\` doc tests to reliably observe a PR whose checks are
+  registered but still running. Bare \`[SLOW_CI]\` sleeps 90s; an explicit
+  \`[SLOW_CI_<seconds>]\` (e.g. \`[SLOW_CI_20]\`) sleeps that many seconds,
+  so the doc tests can pick the shortest window that still registers.
 
 ## Do Not
 
@@ -54,6 +60,27 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Slow down for SLOW_CI marker
+        run: |
+          echo "Checking commits for [SLOW_CI] / [SLOW_CI_<seconds>] marker..."
+
+          BASE_SHA=\${{ github.event.pull_request.base.sha }}
+          HEAD_SHA=\${{ github.event.pull_request.head.sha }}
+
+          # Match either the bare marker or an explicit-duration variant, e.g.
+          # [SLOW_CI] (default 90s) or [SLOW_CI_20] (sleep 20s). The explicit
+          # form lets the sp land --poll doc tests pick a duration just long
+          # enough to register a pending check without a long real-time wait.
+          SLOW_LINE=$(git log --format="%H %s" \${BASE_SHA}..\${HEAD_SHA} | grep -ioE "\\[SLOW_CI(_[0-9]+)?\\]" | head -1 || true)
+
+          if [ -n "$SLOW_LINE" ]; then
+            # Extract the optional _<seconds> suffix; default to 90 when bare.
+            SECONDS_TO_SLEEP=$(echo "$SLOW_LINE" | grep -oE "[0-9]+" || true)
+            SECONDS_TO_SLEEP=\${SECONDS_TO_SLEEP:-90}
+            echo "Found $SLOW_LINE; sleeping \${SECONDS_TO_SLEEP}s to hold the check pending."
+            sleep "$SECONDS_TO_SLEEP"
+          fi
 
       - name: Check for FAIL_CI marker
         run: |

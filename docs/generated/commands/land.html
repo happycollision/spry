@@ -45,5 +45,24 @@
     <pre class="screen">Select the unit to land through (↑/↓ move, enter select, esc cancel):
 <span class="ansi-cyan-fg">&gt;</span> <span class="ansi-cyan-fg">bbbb2222  Add login</span>
   aaaa1111  Add logout</pre>
+    <p>
+      If CI is still running, a non-interactive `sp land` (no TTY — e.g. in a script or CI job)
+      can't prompt to wait, so it prints a ready-to-copy re-invoke command and exits non-zero
+      instead of blocking:
+    </p>
+    <pre class="command">sp land --through aaaa1111</pre>
+    <pre class="output">✓ Updated PR cache (2 PRs)
+<span class="ansi-red-fg">Run `sp land --through aaaa1111 --poll` to wait for CI and land automatically.</span></pre>
+    <p>
+      Pass `--poll` to wait for CI instead of nudging: `sp land` re-checks on a cadence (30s by
+      default; `--interval &lt;seconds&gt;` to change it) and lands automatically the moment every
+      in-scope PR is green:
+    </p>
+    <pre class="command">sp land --through aaaa1111 --poll</pre>
+    <pre class="output">
+⧗ CI pending on #1001, #1005; polling every 8s (Ctrl-C to stop)…
+  …
+✓ Landed 2 PRs to main</pre
+    >
   </body>
 </html>

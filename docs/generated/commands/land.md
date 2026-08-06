@@ -25,3 +25,28 @@ Select the unit to land through (↑/↓ move, enter select, esc cancel):
   aaaa1111  Add logout
 
 ```
+
+If CI is still running, a non-interactive `sp land` (no TTY — e.g. in a script or CI job) can't prompt to wait, so it prints a ready-to-copy re-invoke command and exits non-zero instead of blocking:
+
+```
+sp land --through aaaa1111
+```
+
+```
+✓ Updated PR cache (2 PRs)
+Run `sp land --through aaaa1111 --poll` to wait for CI and land automatically.
+
+```
+
+Pass `--poll` to wait for CI instead of nudging: `sp land` re-checks on a cadence (30s by default; `--interval <seconds>` to change it) and lands automatically the moment every in-scope PR is green:
+
+```
+sp land --through aaaa1111 --poll
+```
+
+```
+⧗ CI pending on #1001, #1005; polling every 8s (Ctrl-C to stop)…
+  …
+✓ Landed 2 PRs to main
+
+```
