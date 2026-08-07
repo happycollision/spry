@@ -238,7 +238,7 @@ grouping: a PR unit's span is walked as usual, and any merge nodes inside it are
 recognized from the first-parent walk. `StackTree` output (`sp view --json`)
 represents a merge as a nested node inside its PR unit (see below).
 
-## Interactive TUI: shift-arrow toggle + message editor
+## Interactive TUI: shift-arrow merge/unmerge + message editor
 
 `sp group` today: `←/→` join/leave PR groups, `space` grab-to-move, `r` rename,
 `enter`/`esc`. The merge axis is a **separate dimension** shown alongside the PR
@@ -264,9 +264,15 @@ Constraints enforced live in the editor model:
 each), parallel to the existing PR-group letters. `EditorEvent` gains
 `{ type: "shift-arrow-right" } | { type: "shift-arrow-left" }`; the key reader
 (src/tui/index.ts / screen input) maps the CSI sequences for Shift+Arrow
-(`ESC [ 1 ; 2 C` / `ESC [ 1 ; 2 D`). `group-render.ts` shows merge-group spans
-distinctly (e.g. a bracket/`⑃` glyph in a dedicated column) so both axes are
-visible at once. `extractResult` returns updated `MergeGroupRecords` alongside the
+(`ESC [ 1 ; 2 C` / `ESC [ 1 ; 2 D`).
+
+**Rendering (decision):** a merge group's member rows are **indented** — the merge
+axis reads as depth, matching the "indent/outdent" mental model (`shift-→` indents
+a row into a merge, `shift-←` outdents it). The indent is orthogonal to and layers
+on top of the existing PR-group letter column, so both axes stay legible at once:
+the letter column still shows PR grouping; indentation shows merge membership.
+`group-render.ts` computes each row's indent depth from its merge-group span (0 or
+1 — no nesting). `extractResult` returns updated `MergeGroupRecords` alongside the
 existing `GroupRecords`.
 
 ### The message editor
@@ -326,11 +332,13 @@ rather than a flag on the group node:
 - **Contiguity + containment are validated** (fatal, pre-write): a `merge` node's
   commits must be contiguous and must not cross a PR-unit boundary — structurally
   guaranteed here by nesting, but re-checked against the live stack.
-- **Message on `--apply`:** the merge commit is created with a **placeholder
-  subject** (see open question 3) and an empty body. `--apply` never opens an
-  editor. For a richer message, the caller amends the materialized merge commit
-  with plain git afterward — it is a real commit, so no spry-specific flow is
-  needed. Keeps `--apply` and doc tests fully non-interactive and deterministic.
+- **Message on `--apply` (decision):** the merge commit is created with a
+  **synthesized placeholder subject** — `Merge: <first-member-subject>` — and an
+  empty body. `--apply` never opens an editor and never requires a `subject`
+  field on the node. The user or agent adjusts the message afterward with plain
+  git (`git commit --amend` / `git rebase -i`) — it is a real commit, so no
+  spry-specific flow is needed. Keeps `--apply` and doc tests fully
+  non-interactive and deterministic.
 
 `sp view --json` emits the same nested `merge` nodes (output side), so an apply
 doc can be built from a view. `StackTree` types (src/parse/types.ts) gain a
@@ -349,9 +357,11 @@ So:
 
 1. Acquire remote state (unchanged).
 2. Readiness gate (unchanged).
-3. **One ff-push** of trunk to the stack tip (unchanged mechanic; the tip and/or
+3. **Merge-commit gate (new):** if any in-scope commit being landed is a merge
+   commit, `sp land` **refuses unless `--merges` is passed** (see below).
+4. **One ff-push** of trunk to the stack tip (unchanged mechanic; the tip and/or
    intermediate PR heads may be merge commits, which does not affect the ff).
-4. Scrub landed state (unchanged): drop landed units' PR-cache and group records;
+5. Scrub landed state (unchanged): drop landed units' PR-cache and group records;
    delete remote branches iff `spry.autoDeleteOnLand`.
 
 Base-retargeting between stacked PRs is governed by the **existing** land/sync
@@ -359,6 +369,28 @@ behavior and is _not_ changed by this feature — merges do not introduce new PR
 so they add no retarget obligation. (This supersedes the earlier draft, which
 wrongly required a retarget step for merges when it modeled merge≡PR.) Land adds
 **no new `gh` calls**, so the land cassettes stay valid.
+
+### The `--merges` gate (decision)
+
+Merge commits land **permanently** into trunk history, and a merge group can be
+created (via `shift-→` with an empty/aborted editor edge case, or a single-commit
+merge, or an `--apply` synthesized subject) with a placeholder or unpolished
+message. To make landing merge commits a deliberate act rather than a silent one,
+`sp land` **requires an explicit `--merges` flag** when the scope it is about to
+land contains one or more merge commits. Without the flag, land aborts with a
+message naming the merge commit(s) and instructing the user to review/edit their
+messages and re-run with `--merges` (or to unmerge them in `sp group`).
+
+- Detection is local and free: the readiness walk already sees the stack; a merge
+  commit is any in-scope first-parent commit with two parents. No `gh` calls.
+- The gate keys on the **presence of merge commits in scope**, not on message
+  quality — spry does not judge whether a message is "good enough"; the flag is
+  the user's acknowledgment.
+- **Single-commit merge groups are allowed** (decision 3): a merge group may have
+  exactly one member. It is mechanically harmless and lets `shift-→` build a merge
+  incrementally from one row. Like any merge, landing it requires `--merges`.
+- Flag wiring: add `--merges` to the `land` command in `src/cli/index.ts`
+  (commander), threaded into `landCommand` options next to `--through`.
 
 ## `sp rebase` with merge groups
 
@@ -432,25 +464,26 @@ change is needed.
   / `sp view --json` show the nested `merge` node; `sp land` marks the containing
   PR MERGED (cassette, mirroring the proven #1723 flow). Deterministic because
   `--apply` seeds a placeholder subject with no editor.
+- **`--merges` gate:** unit-test that a scope containing a merge commit aborts
+  without `--merges` (naming the merge) and proceeds with it; single-commit merge
+  group still trips the gate.
 - **Cassettes:** land issues **no new `gh` calls**, so existing land cassettes
-  stay valid; add a merge-in-PR land scenario cassette. Follow the pre-merge
-  record+playback gate in AGENTS.md.
+  stay valid; add a merge-in-PR land scenario cassette (run with `--merges`).
+  Follow the pre-merge record+playback gate in AGENTS.md.
 - **The `$EDITOR` flow is interactive-only** and thus not doc-tested; cover the
   temp-file seed/parse (subject/body split, empty-abort) as a pure unit test on
   the seed/parse functions, with the spawn itself thin and manually verified.
 
-## Open questions for review
+## Resolved decisions
 
-1. **Merge-group rendering in the TUI.** How should a merge-group span render in
-   `group-render.ts` — a bracket in a dedicated column, a glyph, indentation,
-   color? It must be legible _simultaneously_ with the existing PR-group letters,
-   since the two axes coexist on the same rows.
-2. **Placeholder subject on `--apply`.** A materialized merge needs a subject, but
-   `--apply` supplies none. Synthesize `Merge: <first-member-subject>`, or require
-   an explicit `subject` field on the `merge` node (rejecting it if absent)? The
-   spec currently assumes a synthesized placeholder that the caller amends with
-   git.
-3. **Single-commit merge groups.** Should a merge group of exactly one commit be
-   allowed (a merge with a one-commit side branch)? Harmless mechanically and
-   simplifies incremental `shift-→` building, but arguably pointless. Allow, or
-   require ≥2 members?
+These were open during design and are now settled (folded into the sections
+above):
+
+1. **TUI rendering = indentation.** A merge group's member rows are indented
+   (depth 0/1), layered on top of the existing PR-group letter column so both
+   axes stay legible. Matches the indent/outdent mental model.
+2. **`--apply` synthesizes the subject.** Merge nodes need no `subject` field;
+   the merge commit is created as `Merge: <first-member-subject>`, and the user or
+   agent adjusts it later with plain git.
+3. **Single-commit merge groups allowed**, but landing any merge commit requires
+   the explicit **`sp land --merges`** gate.
