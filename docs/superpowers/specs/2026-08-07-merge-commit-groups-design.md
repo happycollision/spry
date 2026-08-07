@@ -240,14 +240,17 @@ represents a merge as a nested node inside its PR unit (see below).
 
 ## Interactive TUI
 
-> **Deferred to its own session.** The exact keybindings, movement model, and feel
-> of editing merge groups in the `sp group` TUI are **not specified here** — they
-> need hands-on trial-and-error, which is poorly served by a written spec written
-> up front. This work is sequenced **last** (see "Implementation sequencing") and
-> handed to a dedicated session via a standalone prompt
-> (`docs/superpowers/specs/2026-08-07-merge-group-tui-handoff.md`). This section
-> records only the **intent and invariants** that session must satisfy; it is free
-> to choose whatever interaction lands best.
+> **Deferred to its own session, and user-driven.** The exact keybindings,
+> movement model, and feel of editing merge groups in the `sp group` TUI are **not
+> specified here** — the user drives that interaction design directly by playing
+> with a runnable build and giving feedback, round after round, until they approve
+> it. A written spec up front would be premature. This work is sequenced **last**
+> (see "Implementation sequencing") and handed to a dedicated session via a
+> standalone prompt (`docs/superpowers/specs/2026-08-07-merge-group-tui-handoff.md`),
+> whose working loop is: build the user's starting model to a playable state → user
+> plays → feedback → adjust → repeat → **only on the user's thumbs-up** do the full
+> tests/codification. This section records only the **intent and invariants** that
+> session must satisfy; the interaction around them is the user's to shape.
 
 ### What the TUI must let the user express (intent)
 
@@ -256,9 +259,10 @@ represents a merge as a nested node inside its PR unit (see below).
 - **Move a commit through the stack** in a way that is aware of both PR-group and
   merge-group boundaries — e.g. stepwise movement that joins/exits a group as a
   commit crosses its edge, and a faster "jump to the next boundary" movement.
-  (Directional intent captured from design discussion: plain up/down for
-  cross-a-boundary join/exit, shift-up/down to jump a commit to a group boundary,
-  arrows for membership — but the final mapping is the session's call.)
+  (The user's starting model: plain up/down for cross-a-boundary join/exit,
+  shift-up/down to jump a commit to a group boundary, arrows for membership —
+  built first, then refined by the user through play. The final mapping is the
+  user's call.)
 - **Edit the merge commit message** on creation (see the message editor below),
   which is the one sub-part with a fixed contract.
 

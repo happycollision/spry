@@ -2,10 +2,35 @@
 
 **This is a standalone prompt for a fresh session.** It assumes no context from
 the design conversation. Read the two referenced docs, study the existing TUI
-code, then build and iterate on the interaction by hand. This task is
-**feel-driven trial-and-error** — expect to run the TUI repeatedly, tweak, and
-re-run. There is no single "correct" keymap to derive on paper; your job is to
-find one that feels right while honoring a small set of fixed invariants.
+code, then build the interaction to a runnable state and iterate **with the user
+driving**.
+
+## The working loop (read this first — it governs everything below)
+
+**The user drives the interaction design. You are their hands, not the designer.**
+Do NOT try to derive the "right" keymap on paper, and do NOT invest in an
+exhaustive test suite up front. The loop is:
+
+1. **Implement the user's starting model to a runnable, playable state as fast as
+   you reasonably can.** The starting model is in "The intent" below — treat it as
+   a concrete first cut to build, not a menu of options to evaluate. Correctness of
+   the invariants matters from the start; polish and test-coverage do not, yet.
+2. **Hand it to the user to actually play with.** Tell them exactly how to run it
+   (build a scratch stack, invoke `sp group`). The interactive TUI cannot be driven
+   by you over a closed stdin — the user runs it themselves.
+3. **Take their feedback, adjust, hand back. Repeat.** Expect many rounds. Keep
+   changes small and fast to try. Their felt experience is the spec; when their
+   feedback contradicts your instinct, their feedback wins.
+4. **Only after the user gives an explicit thumbs-up on the interaction** do you
+   "fully codify": write the complete unit tests for the settled model, the
+   message seed/parse tests, wire up any doc-test/`docs:verify` obligations, and
+   clean up. Writing heavy tests before the thumbs-up is wasted work — the keymap
+   is expected to change underneath them.
+
+Throughout, honor the fixed invariants below (contiguity+containment, axis
+independence, indentation rendering, single-commit merges allowed, batched
+materialization, the message-editor contract). Those are load-bearing and NOT part
+of what the user is iterating on — the interaction _around_ them is.
 
 ## Background you need
 
@@ -69,15 +94,16 @@ merge axis — mirror its shape.
 - Create / grow / shrink / dissolve a merge group over a **contiguous** run of
   commits, incrementally, with immediate visual feedback.
 - Move a commit through the stack in a way that is **aware of both PR-group and
-  merge-group boundaries**. Directional intent from the design discussion (NOT a
-  fixed spec — you decide the final mapping by feel):
+  merge-group boundaries**. The user's **starting model** — build this first, then
+  let them play and refine it:
   - plain **up/down**: move a commit such that it joins/exits a group as it crosses
     the group's edge;
   - **shift-up/down**: jump a commit to the next group boundary;
   - **arrows** (`←/→`, `shift-←/→`): membership toggles.
-    Treat these as a starting hypothesis to prototype, compare against alternatives,
-    and refine. The existing `space`-to-grab move mode is also fair game to rework if
-    a better model emerges — but keep PR-group editing working.
+    This is the concrete first cut to implement, not a hypothesis for you to
+    second-guess. The user will change it through play; their feedback drives where
+    it lands. The existing `space`-to-grab move mode may be reworked if the user's
+    feedback pushes that way — but keep PR-group editing working at all times.
 - Edit the merge commit **message** on creation (fixed contract, below).
 
 ## Invariants you MUST preserve (do not redesign these)
@@ -121,29 +147,39 @@ When a merge group is first created, open `$EDITOR` (fallback `$GIT_EDITOR`, the
 
 ## How to work
 
-- **TDD the pure parts.** `group-state.ts` transitions (create/grow/shrink/dissolve
-  merge group; contiguity + containment no-ops; move-with-boundary-awareness;
-  independence from PR groups) are pure functions over `GroupEditorState` — write
-  `bun test` cases first, they are fast and deterministic.
-- **Iterate the feel by running it.** Build a small throwaway stack in a scratch
-  repo and run `sp group` against it repeatedly. This is expected; budget for many
-  cycles.
-- **Use `--apply` as the oracle.** For any end state you reach in the TUI, confirm
-  the equivalent `--apply` doc produces the same `MergeGroupRecords` and the same
-  materialized history. If they diverge, the TUI logic is wrong.
-- **Keep PR-group editing green.** Existing `sp group` behavior and its tests must
-  keep passing.
-- Follow `AGENTS.md`: doc tests for user-facing output, `bun run docs:verify`, and
-  the beads/session protocol. Note the interactive TUI itself is not doc-tested —
-  cover the pure model + the message seed/parse with unit tests; the spawn is thin
-  and manually verified.
+**During iteration (before the user's thumbs-up):**
+
+- **Optimize for round-trip speed, not coverage.** Get to something the user can
+  run quickly; make each feedback change small and fast to re-try. Do not write the
+  full test suite yet — the model is expected to change.
+- **A thin correctness net is fine and encouraged**, but keep it minimal: a couple
+  of `bun test` cases pinning the invariants (contiguity/containment no-ops, axis
+  independence) so refactoring the keymap can't silently violate them. That is not
+  the full suite — it is a guardrail while you move fast.
+- **Keep PR-group editing green** the whole time. Existing `sp group` behavior and
+  its tests must not regress, even mid-iteration.
+- **Tell the user how to play each round:** how to build a scratch stack and run
+  `sp group`. You cannot drive the interactive TUI yourself (closed stdin); the
+  user runs it and reports back.
+
+**After the user's explicit thumbs-up (codify):**
+
+- **Full unit tests** for the settled `group-state.ts` transitions
+  (create/grow/shrink/dissolve; boundary-aware movement; every invariant) and the
+  message seed/parse (subject/body split, empty-abort).
+- **Use `--apply` as the oracle:** assert the TUI's `enter` output produces the
+  same `MergeGroupRecords` and the same materialized history as the equivalent
+  `--apply` doc.
+- Follow `AGENTS.md`: `bun run docs:verify`, and the beads/session protocol. The
+  interactive TUI itself is not doc-tested (the spawn is thin, manually verified);
+  the pure model + seed/parse carry the coverage.
 
 ## Definition of done
 
 - Merge groups can be created, grown, shrunk, dissolved, and message-edited
   interactively, honoring every invariant above.
-- The TUI's `enter` output is identical in effect to the equivalent `--apply` doc.
+- **The user has explicitly approved the interaction** — this is the gate that
+  unlocks the codify step, and it is a real acceptance criterion, not a formality.
+- The settled model + message seed/parse are fully unit-tested; the TUI's `enter`
+  output matches the equivalent `--apply` doc.
 - PR-group editing is unchanged and still passing.
-- Pure model + message seed/parse are unit-tested; PR-group tests still green.
-- You have iterated on the interaction enough to be confident it feels right (this
-  is a real acceptance criterion, not a formality).
