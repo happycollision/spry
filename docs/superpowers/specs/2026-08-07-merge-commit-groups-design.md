@@ -238,42 +238,48 @@ grouping: a PR unit's span is walked as usual, and any merge nodes inside it are
 recognized from the first-parent walk. `StackTree` output (`sp view --json`)
 represents a merge as a nested node inside its PR unit (see below).
 
-## Interactive TUI: shift-arrow merge/unmerge + message editor
+## Interactive TUI
 
-`sp group` today: `←/→` join/leave PR groups, `space` grab-to-move, `r` rename,
-`enter`/`esc`. The merge axis is a **separate dimension** shown alongside the PR
-grouping. Add:
+> **Deferred to its own session.** The exact keybindings, movement model, and feel
+> of editing merge groups in the `sp group` TUI are **not specified here** — they
+> need hands-on trial-and-error, which is poorly served by a written spec written
+> up front. This work is sequenced **last** (see "Implementation sequencing") and
+> handed to a dedicated session via a standalone prompt
+> (`docs/superpowers/specs/2026-08-07-merge-group-tui-handoff.md`). This section
+> records only the **intent and invariants** that session must satisfy; it is free
+> to choose whatever interaction lands best.
 
-- **`shift-→` (merge):** fold the cursor's row into a merge group. If the row is
-  adjacent to an existing merge group, it joins it; otherwise it starts a new
-  single-member merge group at the cursor (which the user extends by pressing
-  `shift-→` on adjacent rows, the same incremental way `→` builds PR groups
-  today). On first creation of a merge group, open the message editor (below).
-- **`shift-←` (unmerge):** remove the cursor's row from its merge group. Removing
-  the last member dissolves the merge group. No editor.
+### What the TUI must let the user express (intent)
 
-Constraints enforced live in the editor model:
+- **Create / grow / shrink / dissolve a merge group** over a contiguous run of
+  commits, incrementally, with immediate visual feedback.
+- **Move a commit through the stack** in a way that is aware of both PR-group and
+  merge-group boundaries — e.g. stepwise movement that joins/exits a group as a
+  commit crosses its edge, and a faster "jump to the next boundary" movement.
+  (Directional intent captured from design discussion: plain up/down for
+  cross-a-boundary join/exit, shift-up/down to jump a commit to a group boundary,
+  arrows for membership — but the final mapping is the session's call.)
+- **Edit the merge commit message** on creation (see the message editor below),
+  which is the one sub-part with a fixed contract.
 
-- A merge group's members must be **contiguous** and must lie **within a single
-  PR unit** (the containment invariant). `shift-→` is a no-op if it would make a
-  merge group straddle a PR boundary or become non-contiguous.
-- The merge axis and PR-group axis are independent: a row can be in a PR group, a
-  merge group, both, or neither.
+### Invariants the interaction must preserve (fixed)
 
-`GroupEditorState` gains a `mergeGroups` structure (row-index spans + a minted id
-each), parallel to the existing PR-group letters. `EditorEvent` gains
-`{ type: "shift-arrow-right" } | { type: "shift-arrow-left" }`; the key reader
-(src/tui/index.ts / screen input) maps the CSI sequences for Shift+Arrow
-(`ESC [ 1 ; 2 C` / `ESC [ 1 ; 2 D`).
+These are load-bearing for the rest of the design and are **not** up for
+rediscovery in the TUI session:
 
-**Rendering (decision):** a merge group's member rows are **indented** — the merge
-axis reads as depth, matching the "indent/outdent" mental model (`shift-→` indents
-a row into a merge, `shift-←` outdents it). The indent is orthogonal to and layers
-on top of the existing PR-group letter column, so both axes stay legible at once:
-the letter column still shows PR grouping; indentation shows merge membership.
-`group-render.ts` computes each row's indent depth from its merge-group span (0 or
-1 — no nesting). `extractResult` returns updated `MergeGroupRecords` alongside the
-existing `GroupRecords`.
+- A merge group's members are **contiguous** and lie **within a single PR unit**
+  (the containment invariant). Any interaction that would straddle a PR boundary
+  or break contiguity must be a no-op or auto-corrected, never persisted.
+- The merge axis and PR-group axis are **independent**: a row can be in a PR
+  group, a merge group, both, or neither.
+- **Rendering = indentation** for the merge axis (depth 0/1, no nesting), layered
+  on top of the existing PR-group letter column so both axes are legible at once.
+- Single-commit merge groups are **allowed**.
+- Editing is **batched**: the TUI mutates an in-memory model and commits the whole
+  change set on `enter` via `extractResult`, which returns updated
+  `MergeGroupRecords` alongside the existing `GroupRecords`. The
+  materialize/unmerge plumbing rewrites run once, then. Nothing rewrites history
+  keystroke-by-keystroke.
 
 ### The message editor
 
@@ -451,10 +457,39 @@ exactly as today, and independently mark any contiguous run of commits within a 
 as a merge group when you want that run to land as one merge commit. No policy
 change is needed.
 
+## Implementation sequencing
+
+The interactive `sp group` TUI is built **last**, as its own session, because its
+interaction model is trial-and-error work (see "Interactive TUI"). Everything
+before it is deterministic, testable via `--apply`, and can be fully built and
+merged without ever opening the TUI:
+
+1. **Data model** — `MergeGroupRecord` + `refs/spry/merge-groups`
+   load/save/push (`src/git/merge-groups.ts`).
+2. **Stack-walk** — first-parent + side-branch recognition of materialized merges
+   (`getStackCommits`/`parseStack`), `StackTreeMerge` node.
+3. **Materialize / unmerge plumbing** — re-root + two-parent `commit-tree`, and
+   the inverse, with pinned date/identity.
+4. **`sp group --apply`** — nested `merge` node parse, contiguity/containment
+   validation, driving (1)–(3). This is the non-interactive entry point that makes
+   everything below testable and agent-dogfoodable.
+5. **`sp view` / `--json`** — render/emit nested merge nodes.
+6. **`sp rebase`** — merge-aware `rebasePlumbing`.
+7. **`sp land --merges`** gate.
+8. **PR body** — `spry:merge-note` region.
+9. **Interactive TUI** — deferred to the handoff session; depends only on the
+   in-memory model + `extractResult` contract from (1)/(4), so it slots on top of
+   finished, tested plumbing.
+
+The handoff prompt for step 9 lives at
+`docs/superpowers/specs/2026-08-07-merge-group-tui-handoff.md` and is written to
+be self-contained (no dependency on this conversation's context).
+
 ## Testing
 
-- **Unit:** `group-state` shift-arrow transitions (merge create/extend/dissolve,
-  contiguity + containment no-ops); `MergeGroupRecords` round-trip on
+- **Unit:** `group-state` merge-group transitions (create/grow/shrink/dissolve,
+  contiguity + containment no-ops, independence from PR-group edits) — owned by the
+  deferred TUI session; `MergeGroupRecords` round-trip on
   `refs/spry/merge-groups`; stack-walk over a materialized merge (first-parent +
   side-branch extraction) including a merge _interleaved with_ plain commits in
   one PR span; merge-aware `rebasePlumbing` producing the proven trees;
