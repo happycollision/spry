@@ -38,12 +38,47 @@ history tells the merge story:
 merge API — a PR is marked `MERGED` by reachability from the default branch after
 an ff-push).
 
-This must be **opt-in per group**. Flat groups and per-commit PRs are unchanged.
+This must be **opt-in per merge group**. Flat groups and per-commit PRs are
+unchanged.
+
+### Two independent axes: PR groups vs. merge groups
+
+The central model correction (2026-08-07): **a PR group and a merge group are not
+the same thing.**
+
+- A **PR group** is the unit that becomes one PR (today's `sp group`
+  grouping — stored in `refs/spry/groups`).
+- A **merge group** is a set of contiguous commits that materialize as a **merge
+  commit** in branch history.
+
+They relate by containment, not identity:
+
+- A single PR group (or a single per-commit PR unit's span) can contain **zero or
+  more merge groups**, freely interleaved with plain commits. E.g. one PR =
+  `p1, merge(m1,m2), p3` — the merge commit is **internal to that PR's branch
+  history**.
+- A merge group **must be fully contained within one PR unit** — it may never
+  straddle a PR boundary. Rationale: a merge lands atomically and cannot be
+  half-approved, so splitting a merge across two PRs (one approvable without the
+  other) is incoherent. This containment is a validation invariant, not just a
+  convention.
+
+The PR head is the PR unit's **top commit** (which may itself be a merge commit,
+or a plain commit sitting above merges). The PR diff is the usual three-dot
+`base..head`, so it shows the unit's cumulative change; merge commits are internal
+history. Proven on `spry-check` (PR #1723): a PR branch with an internal merge
+commit shows the correct cumulative diff, reports CLEAN/MERGEABLE, and marks
+MERGED on the trunk ff-push.
+
+Because a merge lives **inside** one PR, materializing a merge never introduces a
+new PR and never requires base-retargeting for the merge itself. Base-retargeting
+remains solely a between-stacked-PRs concern (see `sp land`).
 
 ## Goals
 
-- A group can be marked a **merge commit**; its commits land under a real merge
-  commit in trunk, producing the clean self-contained graph above.
+- A contiguous run of commits within a PR unit can be marked a **merge group**;
+  those commits land under a real merge commit in trunk, producing the clean
+  self-contained graph above.
 - The merge commit is **materialized in the local stack** as you work — a real
   commit in `git log`, editable with plain git — not a land-time illusion.
 - Fast-forward-as-MERGED-marker is preserved: every merge group's PR flips to
@@ -52,47 +87,49 @@ This must be **opt-in per group**. Flat groups and per-commit PRs are unchanged.
 - Both surfaces supported: the interactive `sp group` TUI and the non-interactive
   `sp group --apply <json>` (so the agent can dogfood it and doc tests can cover
   it).
-- Merge-group PR bodies warn readers that the PR contains a merge commit and show
-  the commit relationships.
+- A PR whose branch contains merge commits gets body text warning readers and
+  showing the commit relationships.
 
 ## Non-goals
 
-- **No nesting.** A merge group cannot contain sub-merge-groups. "Indent" is a
-  binary merge-vs-flat toggle, not a depth.
+- **No nesting.** A merge group cannot contain sub-merge-groups. `shift-→` is a
+  binary merge/unmerge toggle, not a depth.
 - **No GitHub merge API.** Landing stays ff-only.
-- **No commit-message rewriting on the title axis.** Flattening a merge group
-  (shift-left) does not seed a commit subject from the title; it simply drops the
-  merge (see "Title ↔ subject").
-- **No auto-migration.** Existing flat groups stay flat until explicitly toggled.
+- **No commit-message rewriting on unmerge.** Unmerging (`shift-←`) does not seed
+  a commit subject from the merge message; it simply drops the merge commit and
+  leaves the member commits' own subjects untouched.
+- **No coupling to PR grouping.** Merge groups neither create nor dissolve PR
+  groups; the two axes are edited independently.
+- **No auto-migration.** Existing repos have zero merge groups until explicitly
+  created.
 
 ## Proven mechanics (evidence base)
 
 Every non-obvious claim here was verified, not assumed. Recorded in the
 `merge-commit-groups-experiment` memory.
 
-1. **Clean graph + MERGED both achievable.** Re-root each merge group's commits
-   onto that group's merge parent (previous merge commit / previous plain commit),
-   and **push those re-rooted commits as the PR head branches**. Side branches
-   then contain only their own group's commits (no cross-linking), and because the
-   pushed PR head SHA equals the merge commit's second-parent SHA, GitHub marks
-   the PR `MERGED` and attributes `mergeCommit` to the synthesized merge commit.
-   Proven end-to-end on `spry-check` (PRs #1646/#1647 → both MERGED, clean graph).
+1. **Clean self-contained merge graph.** Re-rooting a merge group's commits onto
+   the merge parent (the commit below it) and building the merge with
+   `commit-tree <finalTree> -p <mergeParent> -p <reRootedTip>` yields a merge
+   whose side branch contains only that group's commits — no cross-linking with
+   neighbors. Proven building the exact multi-merge "tulip" graph.
 
-2. **Head SHA must match, not just tree.** A merge whose second parent is a
-   _tree-identical but different-SHA_ replay leaves the PR **OPEN** (spry-check PR
-   #1645). GitHub's merged-by-reachability keys on the actual head SHA. So the
-   re-rooted commits are not throwaway — they **are** the pushed PR heads.
+2. **A PR branch with an internal merge lands MERGED on a plain ff-push.** A PR
+   whose branch history contains a merge commit (interleaved with plain commits)
+   shows the correct cumulative three-dot diff, reports CLEAN/MERGEABLE, and marks
+   `MERGED` (mergeCommit = the PR head) when trunk ff's to that head. This is the
+   load-bearing result for the nested model. Proven on `spry-check` PR #1723.
 
-3. **Order of operations on land: retarget bases → then ff-push.** A stacked PR
-   whose base is still a lower group's branch does NOT flip to MERGED on ff-push;
-   deleting its base branch afterward makes it CLOSED, not MERGED. Retargeting
-   every in-scope PR's base to trunk _before_ the ff-push (while commits still
-   differ, so GitHub accepts the retarget) makes all PRs MERGED. Proven with
-   scenarios A (fail) and B (pass) on spry-check.
+3. **Reachability keys on the head SHA, not the tree** (constrains the internal
+   commits). A commit is "in" trunk only if its actual SHA is reachable; a
+   tree-identical but different-SHA twin does not count (spry-check PR #1645 left
+   a PR OPEN). Consequence: the re-rooted commits inside the PR branch must be the
+   ones actually pushed on that branch — re-rooting is a real history rewrite of
+   the branch, not a throwaway copy applied only at land.
 
 4. **Determinism.** `git commit-tree` defaults to wall-clock dates, so an
-   untouched group would still mint a new SHA on regen. Pinning author/committer
-   date + identity makes an unchanged group regenerate to the _identical_ SHA.
+   untouched merge would still mint a new SHA on regen. Pinning author/committer
+   date + identity makes an unchanged merge regenerate to the _identical_ SHA.
 
 5. **Rebase preserves merges via plumbing.** Extending spry's existing
    `mergeTree`-based `rebasePlumbing` reproduces `git rebase --rebase-merges`
@@ -100,59 +137,88 @@ Every non-obvious claim here was verified, not assumed. Recorded in the
    side-branch commit must be **3-way merged** onto the new trunk line (not have
    its old tree reused), or trunk's new changes are silently dropped.
 
+(Provenance note: an earlier draft also relied on a "retarget stacked-PR bases →
+then ff-push" finding — proven on spry-check scenarios A/B — for a model where
+each merge was its own PR. That model was corrected: merges are now internal to a
+PR, so that retarget behavior is ordinary between-stacked-PR land/sync mechanics,
+not something this feature adds.)
+
 ## Data model
 
-### `GroupRecord.merge`
+Because merge groups are a **separate axis** from PR groups, they get their own
+storage rather than a flag on `GroupRecord`. `GroupRecord` (the PR group) is
+unchanged: `{ title, members }`.
 
-`refs/spry/groups` stores `GroupRecord` as JSON. Add one optional field:
+### Merge-group records — `refs/spry/merge-groups`
+
+A new ref, `refs/spry/merge-groups`, stores merge-group definitions as JSON,
+keyed by merge-group id (a spry commit id, minted like PR-group ids). Each record
+names its contiguous members in stack order:
 
 ```ts
-export interface GroupRecord {
-  title: string;
-  members: string[];      // Spry-Commit-Id values, in order
-  merge?: boolean;        // NEW. absent | false = flat group (today's behavior).
-                          // true = materialized merge commit.
+export interface MergeGroupRecord {
+  members: string[]; // Spry-Commit-Id values, contiguous, in stack order.
+                     // subject/body live on the materialized merge commit itself,
+                     // NOT here — the commit owns its message (edited with git).
 }
+export type MergeGroupRecords = Record<string, MergeGroupRecord>;
 ```
 
-Backward-compatible: every existing record parses as `merge: undefined` → flat.
-`merge` is the single source of truth for a group's kind. `loadGroupRecords` /
-`saveGroupRecord` (src/git/group-titles.ts) carry the field through verbatim;
-the malformed-blob `catch` already tolerates unknown fields.
+Modeled on the existing `refs/spry/groups` load/save/push helpers
+(src/git/group-titles.ts) — a parallel `src/git/merge-groups.ts` with
+`loadMergeGroupRecords` / `saveMergeGroupRecord` / `pushMergeGroupRecords` and the
+same tolerant-of-unknown-fields JSON parsing. Fully backward-compatible: a repo
+with no `refs/spry/merge-groups` ref has zero merge groups.
+
+Why a separate ref and no `title` field:
+
+- **Separate ref** keeps the two axes independent — a merge group's membership is
+  not tied to any PR group's membership, and a PR group's record needs no new
+  fields. It also means the merge-group data self-heals/rebuilds on its own
+  cadence, exactly like the PR-cache and groups refs do.
+- **No `title` in the record**: the merge commit is a real commit, so its subject
+  and body live **on the commit**. The record only needs to identify which
+  commits form the merge so the stack-walker and rematerializer can find it. This
+  avoids a title/subject sync problem — there is one source of truth (the commit
+  message), edited with plain git.
 
 ### The merge commit's message
 
-The merge commit is a real commit. Its **subject line is the group title**; its
-body is whatever the user writes. There is no separate "merge body" field in the
-GroupRecord — the message lives on the commit, edited with git. The title in the
-GroupRecord and the merge commit's subject are kept in sync (see below), so the
-record stays the human-readable index even though the commit owns the full text.
+The merge commit is a real commit. Its subject and body are whatever the user
+wrote (via `$EDITOR` on the interactive path, or a placeholder on `--apply`,
+amendable with git afterward). Nothing in spry's refs duplicates the message.
 
-## Materialization: what "make this a merge" does to the local branch
+## Materialization: what "make this a merge group" does to the local branch
 
-Toggling a group to `merge: true` **rewrites the local branch now**:
+Marking a contiguous set of commits as a merge group **rewrites the local branch
+now**:
 
-1. **Re-root the group's commits** onto the group's merge parent — the previous
-   group's merge commit, or the previous plain commit, or trunk for the bottom
-   group. Re-rooting uses the same 3-way `mergeTree` replay spry already uses for
-   rebase, so it correctly carries any lower changes. The re-rooted commits get
-   new SHAs.
+1. **Re-root the merge group's commits** onto the merge parent — the commit
+   immediately below the group in the stack (a plain commit, trunk, or a lower
+   merge commit). Re-rooting uses the same 3-way `mergeTree` replay spry already
+   uses for rebase, so it correctly carries any lower changes. The re-rooted
+   commits get new SHAs.
 2. **Insert a merge commit**: `commit-tree <groupFinalTree> -p <mergeParent> -p
-<reRootedGroupTip> -m "<title>\n\n<body>"`, with pinned date + identity.
-3. **Re-root everything above the group** (higher groups, plain commits, higher
-   merges) onto the new merge commit — again via the existing replay path,
-   preserving any higher merges' structure.
+<reRootedGroupTip> -m "<subject>\n\n<body>"`, with pinned date + identity. The
+   message comes from the editor (interactive) or a placeholder (`--apply`).
+3. **Re-root everything above the group** (plain commits, other merge groups)
+   onto the new merge commit — again via the existing replay path, preserving any
+   higher merges' structure.
 4. **Move the local branch ref** to the new tip (force-with-lease semantics
    locally; this is a history rewrite of the current branch, exactly like a
-   rebase — same blast radius: the toggled group and everything above it).
+   rebase — same blast radius: the merge group and everything above it).
 
-Flattening (`merge: false`) is the inverse: drop the merge commit, re-root the
-group's commits linearly onto the merge parent, re-root everything above. Commit
-subjects are untouched.
+Unmerging is the inverse: drop the merge commit, re-root the group's commits
+linearly onto the merge parent, re-root everything above. Commit subjects are
+untouched.
 
 Because the merge is materialized, `git log` shows it, the agent can
 `git commit --amend` / `git rebase -i` its message, and `sp land` has nothing to
 synthesize — it ff-pushes what is already there.
+
+Materializing a merge group does **not** change any PR group's membership. A merge
+group is a span _within_ a PR unit; the PR unit still opens as one PR whose head
+is its top commit.
 
 ### Stack-walk change (required)
 
@@ -160,52 +226,67 @@ synthesize — it ff-pushes what is already there.
 which flattens a merge and drops parent info. It must learn merges:
 
 - Walk **`--first-parent base..HEAD`** for the trunk line (this yields, in order:
-  bottom plain commits, merge commits, higher plain commits).
+  the outer sequence of plain commits and merge commits).
 - For each first-parent commit that is a merge (2 parents), read its
-  **second-parent side branch** (`<mergeParent>..<secondParent>`) as that group's
-  member commits.
-- Map each merge commit to its `GroupRecord` via `merge: true` + membership.
+  **second-parent side branch** (`<mergeParent>..<secondParent>`) as that merge
+  group's member commits.
+- Match each merge commit to its `MergeGroupRecord` by membership.
 
-`parseStack` (src/parse/stack.ts) gains a notion of a merge unit whose commits are
-the side branch and whose "landing commit" is the merge. `StackTreeGroup` gains a
-`merge?: boolean` output field mirroring the record.
+`parseStack` (src/parse/stack.ts) gains a notion of a merge node whose commits are
+the side branch and whose "landing commit" is the merge. This is orthogonal to PR
+grouping: a PR unit's span is walked as usual, and any merge nodes inside it are
+recognized from the first-parent walk. `StackTree` output (`sp view --json`)
+represents a merge as a nested node inside its PR unit (see below).
 
 ## Interactive TUI: shift-arrow toggle + message editor
 
-`sp group` today: `←/→` join/leave groups, `space` grab-to-move, `r` rename,
-`enter`/`esc`. Add:
+`sp group` today: `←/→` join/leave PR groups, `space` grab-to-move, `r` rename,
+`enter`/`esc`. The merge axis is a **separate dimension** shown alongside the PR
+grouping. Add:
 
-- **`shift-→` (indent):** mark the cursor's group `merge: true`. Requires the
-  cursor to be on a grouped row; no-op on ungrouped rows. On toggle-on, open the
-  message editor (below).
-- **`shift-←` (outdent):** mark the group `merge: false` (flatten). No editor.
+- **`shift-→` (merge):** fold the cursor's row into a merge group. If the row is
+  adjacent to an existing merge group, it joins it; otherwise it starts a new
+  single-member merge group at the cursor (which the user extends by pressing
+  `shift-→` on adjacent rows, the same incremental way `→` builds PR groups
+  today). On first creation of a merge group, open the message editor (below).
+- **`shift-←` (unmerge):** remove the cursor's row from its merge group. Removing
+  the last member dissolves the merge group. No editor.
 
-`GroupEntry` (src/tui/group-state.ts) gains `merge: boolean`. `EditorEvent` gains
+Constraints enforced live in the editor model:
+
+- A merge group's members must be **contiguous** and must lie **within a single
+  PR unit** (the containment invariant). `shift-→` is a no-op if it would make a
+  merge group straddle a PR boundary or become non-contiguous.
+- The merge axis and PR-group axis are independent: a row can be in a PR group, a
+  merge group, both, or neither.
+
+`GroupEditorState` gains a `mergeGroups` structure (row-index spans + a minted id
+each), parallel to the existing PR-group letters. `EditorEvent` gains
 `{ type: "shift-arrow-right" } | { type: "shift-arrow-left" }`; the key reader
 (src/tui/index.ts / screen input) maps the CSI sequences for Shift+Arrow
-(`ESC [ 1 ; 2 C` / `ESC [ 1 ; 2 D`). `group-render.ts` shows a merge group
-distinctly (e.g. a `⑃`/merge glyph or an indent marker) so the state is visible.
+(`ESC [ 1 ; 2 C` / `ESC [ 1 ; 2 D`). `group-render.ts` shows merge-group spans
+distinctly (e.g. a bracket/`⑃` glyph in a dedicated column) so both axes are
+visible at once. `extractResult` returns updated `MergeGroupRecords` alongside the
+existing `GroupRecords`.
 
 ### The message editor
 
-When a group becomes a merge, spry opens **`$EDITOR`** (falling back to
+When a merge group is first created, spry opens **`$EDITOR`** (falling back to
 `$GIT_EDITOR`, then `vi`) on a temp file seeded git-style:
 
 ```
-<current group title>
+<first member's subject>
 
 # Lines starting with # are ignored. The first line is the merge commit
-# subject and becomes the group title. Everything below the blank line is
-# the merge commit body.
+# subject. Everything below the blank line is the merge commit body.
 ```
 
-On save: line 1 → group title (and thus the merge subject); the rest → body.
-Empty message (or an unmodified editor exit) **aborts the in-memory toggle**: the
-group reverts to flat in the editor model, so nothing is materialized on `enter`.
-This is coherent with batched materialization — the abort happens before any
-rewrite, matching git's own abort-on-empty convention. (The `--apply` path never
-opens the editor and so never hits this; it uses the placeholder-subject rule
-below, governed by open question 3.)
+On save: line 1 → merge commit subject; the rest → body. The message is held in
+the editor model and written onto the merge commit when it materializes on
+`enter`. Empty message (or an unmodified editor exit) **aborts creating the merge
+group**: the rows revert to un-merged in the editor model, so nothing is
+materialized. This matches git's own abort-on-empty convention. (The `--apply`
+path never opens the editor; it uses the placeholder-subject rule below.)
 
 Because the TUI owns the alternate screen buffer, launching `$EDITOR` must:
 `EXIT_ALT_SCREEN` → restore cooked/echo tty mode → spawn `$EDITOR` inheriting the
@@ -220,52 +301,64 @@ edits an in-memory model and commits the whole change set on `enter` via
 
 ## Non-interactive `--apply`
 
-`sp group --apply <json>` gains `merge` on group nodes:
+Because a merge group is a span _inside_ a PR unit, `--apply` represents it as a
+**nested `merge` node** in the commit list of a group (or of the top-level stack),
+rather than a flag on the group node:
 
 ```jsonc
-{ "type": "group", "id": "...", "title": "Ship auth", "merge": true,
-  "commits": [ ... ] }
+{
+  "type": "group", "id": "...", "title": "Ship auth",
+  "commits": [
+    { "type": "commit", "id": "..." },
+    { "type": "merge", "id": "...", "commits": [
+        { "type": "commit", "id": "..." },
+        { "type": "commit", "id": "..." }
+    ] },
+    { "type": "commit", "id": "..." }
+  ]
+}
 ```
 
-- `merge: true` on a group node materializes it as a merge commit; `false`/absent
-  flattens/leaves flat (PUT semantics, consistent with the existing apply model).
+- A `merge` node materializes its `commits` as one merge commit; its absence
+  leaves those commits plain (PUT semantics, consistent with the existing apply
+  model). A `merge` node's `id` follows the same identity rules as group ids
+  (retained id / `id:null` to mint / `reissueId`).
+- **Contiguity + containment are validated** (fatal, pre-write): a `merge` node's
+  commits must be contiguous and must not cross a PR-unit boundary — structurally
+  guaranteed here by nesting, but re-checked against the live stack.
 - **Message on `--apply`:** the merge commit is created with a **placeholder
-  subject = the group title** and an empty body. `--apply` never opens an editor.
-  If a richer message is wanted, the caller edits the materialized merge commit
-  with plain git afterward (`git commit --amend`, `git rebase -i`) — the merge is
-  a real commit, so no spry-specific flow is needed. This keeps `--apply` and doc
-  tests fully non-interactive and deterministic.
+  subject** (see open question 3) and an empty body. `--apply` never opens an
+  editor. For a richer message, the caller amends the materialized merge commit
+  with plain git afterward — it is a real commit, so no spry-specific flow is
+  needed. Keeps `--apply` and doc tests fully non-interactive and deterministic.
 
-`sp view --json` reports `merge` on group nodes (output side), so an apply doc can
-be built from a view.
+`sp view --json` emits the same nested `merge` nodes (output side), so an apply
+doc can be built from a view. `StackTree` types (src/parse/types.ts) gain a
+`StackTreeMerge` node: `{ type: "merge", id, commits: StackTreeCommit[] }`,
+allowed inside a group's `commits` and at the top level.
 
 ## `sp land` with merge groups
 
-Land today: acquire remote state → readiness gate → **one ff-push to the stack
-tip** → scrub landed state. No base retargeting (a deliberate rebuild decision,
-because retargeting-then-moving-trunk once corrupted PR diffs).
+**Land is essentially unchanged.** Because every merge group is contained within a
+single PR unit, the merge commits are **internal to a PR branch** — landing still
+fast-forwards trunk to the stack tip, and each PR marks MERGED by reachability
+exactly as today. Proven on `spry-check` PR #1723 (a PR whose branch contained an
+internal merge commit landed MERGED on a plain ff-push).
 
-Merge groups require the retarget step back — but **only as a MERGED marker, and
-only because the merge commit carries the reachability**, which is exactly why the
-old diff-corruption problem does not recur (each PR keeps its own scoped base diff;
-the merge commit, not a moved base, is what marks it merged). Concretely:
+So:
 
 1. Acquire remote state (unchanged).
 2. Readiness gate (unchanged).
-3. **For each in-scope PR whose unit is (or is under) a merge group, retarget its
-   base to trunk** — via `gh pr edit --base <trunk>` — _before_ the ff-push, while
-   the head still differs from trunk so GitHub accepts the retarget. Flat/per-commit
-   PRs are retargeted the same way only if they sit above a merge group and their
-   base branch is about to become unreachable; otherwise unchanged. (Exact
-   predicate: any PR whose current base is a branch that will not be an ancestor of
-   trunk's new position must be retargeted to trunk first.)
-4. **One ff-push** of trunk to the stack tip (unchanged mechanic; the tip is now a
-   merge commit or sits above one).
-5. Scrub landed state (unchanged): drop landed units' PR-cache entries and group
-   records; delete remote branches iff `spry.autoDeleteOnLand`.
+3. **One ff-push** of trunk to the stack tip (unchanged mechanic; the tip and/or
+   intermediate PR heads may be merge commits, which does not affect the ff).
+4. Scrub landed state (unchanged): drop landed units' PR-cache and group records;
+   delete remote branches iff `spry.autoDeleteOnLand`.
 
-This adds `gh` calls (the retargets) to land's previously gh-free push path — a
-cassette/doc-test consideration, not a correctness one.
+Base-retargeting between stacked PRs is governed by the **existing** land/sync
+behavior and is _not_ changed by this feature — merges do not introduce new PRs,
+so they add no retarget obligation. (This supersedes the earlier draft, which
+wrongly required a retarget step for merges when it modeled merge≡PR.) Land adds
+**no new `gh` calls**, so the land cassettes stay valid.
 
 ## `sp rebase` with merge groups
 
@@ -282,79 +375,82 @@ the same first-parent + side-branch structure the stack-walker uses:
 
 Proven byte-identical to `git rebase --rebase-merges`. The dry-run conflict
 predict (already a dry `rebasePlumbing`) works unchanged since it rides the same
-`mergeTree` calls. **Trap encoded in the implementation:** never reuse a group's
-old trees verbatim; always 3-way merge, or trunk's new changes vanish.
+`mergeTree` calls. **Trap encoded in the implementation:** never reuse a merge
+group's old trees verbatim; always 3-way merge, or trunk's new changes vanish.
 
-## PR body for merge groups
+## PR body when a PR contains merge groups
 
-A merge-group PR's body (src/gh/pr-body.ts) gains a warning region and a
-relationship block, spliced like the existing spry regions (its own
-begin/end markers, user edits outside preserved). Content:
+A PR whose branch contains one or more internal merge commits gets an added
+`spry:merge-note` region in its body (src/gh/pr-body.ts), spliced like the other
+spry regions (own begin/end markers, user edits outside preserved). The PR is
+still an ordinary PR — this region is additive context, not a replacement for the
+normal body. Content:
 
-- **Warning:** a callout that this PR lands as a **merge commit**, and that its
-  N commits represent the whole group and land together as one merge — reviewers
-  should read it as a unit.
-- **Relationship block:** a fenced code block sketching the merge shape, e.g.
+- **Warning:** a callout that this PR's branch contains **N merge commit(s)**;
+  each merge folds a set of commits that should be reviewed as a unit and land
+  together atomically.
+- **Relationship block(s):** one fenced code block per contained merge, sketching
+  the shape from the merge's ordered member subjects:
 
   ````
   ```
-  Merge group: <title>
+  Merge: <merge subject>
   |\
-  | * <subject of commit N>
-  | * <subject of commit 1>
+  | * <subject of member M>
+  | * <subject of member 1>
   |/
   * <merge parent>
   ```
   ````
 
-  built from the group's ordered member subjects. This is generated content in a
-  new `spry:merge-note` region; flat/per-commit PRs never get it.
+The region is emitted only when the PR unit's span contains ≥1 merge node;
+per-commit and merge-free grouped PRs never get it. `generateBodyContent` is
+unchanged for the normal body; a new `generateMergeNote(mergeNodes)` produces the
+region, wired into `buildInitialBody` / `spliceBody` alongside the existing
+regions. `BETA_WARNING`'s "Do not manually merge stacked PRs" line stays.
 
-`generateBodyContent` branches on the unit being a merge group to emit the
-warning + relationship block instead of (or in addition to) today's bulleted
-subject list. `BETA_WARNING`'s existing "Do not manually merge stacked PRs" line
-stays.
+## Per-commit-PR / grouping policy interaction (dogfooding)
 
-## Per-commit-PR policy interaction (dogfooding)
-
-Our AGENTS.md policy is "every commit gets its own PR." A merge group is
-inherently **one PR for N commits** — that is the point of the feature, and it is
-already true of today's flat groups. No policy change: a merge group is a single
-unit with a single PR, grouped precisely because those commits belong together.
-When dogfooding this feature's own commits, group the ones that form a coherent
-merge and open the group's single PR, exactly as the existing grouping guidance
-already directs.
+Our AGENTS.md policy is "every commit gets its own PR," relaxed to "coherent
+groups get one PR." Merge groups are **orthogonal** to that policy: a merge group
+is a shape _within_ a PR unit, not a PR boundary. A per-commit PR can contain a
+merge; a grouped PR can contain several. Dogfooding guidance: choose PR boundaries
+exactly as today, and independently mark any contiguous run of commits within a PR
+as a merge group when you want that run to land as one merge commit. No policy
+change is needed.
 
 ## Testing
 
-- **Unit:** `group-state` shift-arrow transitions (merge on/off, no-op on
-  ungrouped, dissolve interaction); `GroupRecord` round-trip with `merge`;
-  stack-walk over a materialized merge (first-parent + side-branch extraction);
-  merge-aware `rebasePlumbing` producing the proven trees; PR-body merge-note
-  splicing.
-- **Doc tests (`--apply` path):** materialize a merge via an apply doc, `sp view`
-  shows the merge group; `sp land` marks the group's PR MERGED (cassette). Because
-  `--apply` seeds a placeholder subject with no editor, these stay deterministic.
-- **Cassettes:** land now issues `gh pr edit --base` retargets — re-record the
-  land cassettes for merge-group scenarios. Follow the pre-merge record+playback
-  gate in AGENTS.md.
+- **Unit:** `group-state` shift-arrow transitions (merge create/extend/dissolve,
+  contiguity + containment no-ops); `MergeGroupRecords` round-trip on
+  `refs/spry/merge-groups`; stack-walk over a materialized merge (first-parent +
+  side-branch extraction) including a merge _interleaved with_ plain commits in
+  one PR span; merge-aware `rebasePlumbing` producing the proven trees;
+  `generateMergeNote` + splice; `--apply` contiguity/containment validation
+  (fatal-error taxonomy).
+- **Doc tests (`--apply` path):** materialize a merge via an apply doc; `sp view`
+  / `sp view --json` show the nested `merge` node; `sp land` marks the containing
+  PR MERGED (cassette, mirroring the proven #1723 flow). Deterministic because
+  `--apply` seeds a placeholder subject with no editor.
+- **Cassettes:** land issues **no new `gh` calls**, so existing land cassettes
+  stay valid; add a merge-in-PR land scenario cassette. Follow the pre-merge
+  record+playback gate in AGENTS.md.
 - **The `$EDITOR` flow is interactive-only** and thus not doc-tested; cover the
-  temp-file seed/parse (title↔subject split, empty-abort) as a pure unit test on
+  temp-file seed/parse (subject/body split, empty-abort) as a pure unit test on
   the seed/parse functions, with the spawn itself thin and manually verified.
 
 ## Open questions for review
 
-1. **Retarget predicate scope.** The spec retargets any PR whose base will become
-   unreachable. Is retargeting _only_ merge-group PRs (and leaving a
-   flat-above-merge PR to be healed by the next `sp sync`) acceptable instead, to
-   minimize land's new `gh` calls? Trade-off: fewer calls vs. a transient
-   wrong-base PR until next sync.
-2. **Merge glyph in the TUI.** Any preference for how a merge group renders
-   (indent, glyph, color)? Affects `group-render.ts` only.
-3. **Empty-title merge.** A merge needs a subject. Reject `merge: true` with an
-   empty title at apply/validation time, or fall back to a synthesized
-   `Merge group: <first-subject>`? Spec currently implies the title is required.
-
-```
-
-```
+1. **Merge-group rendering in the TUI.** How should a merge-group span render in
+   `group-render.ts` — a bracket in a dedicated column, a glyph, indentation,
+   color? It must be legible _simultaneously_ with the existing PR-group letters,
+   since the two axes coexist on the same rows.
+2. **Placeholder subject on `--apply`.** A materialized merge needs a subject, but
+   `--apply` supplies none. Synthesize `Merge: <first-member-subject>`, or require
+   an explicit `subject` field on the `merge` node (rejecting it if absent)? The
+   spec currently assumes a synthesized placeholder that the caller amends with
+   git.
+3. **Single-commit merge groups.** Should a merge group of exactly one commit be
+   allowed (a merge with a one-commit side branch)? Harmless mechanically and
+   simplifies incremental `shift-→` building, but arguably pointless. Allow, or
+   require ≥2 members?
