@@ -36,6 +36,18 @@ export type GroupRecords = Record<string, GroupRecord>;
 // Maps Spry-Commit-Id → group ID — built from GroupRecords, passed to parseStack
 export type CommitGroupMap = Record<string, string>;
 
+// A merge group: a contiguous run of commits that materializes as a real merge
+// commit in branch history. This is a SEPARATE axis from PR grouping
+// (GroupRecord) — a PR unit may contain zero or more merge groups. Stored in
+// refs/spry/merge-groups, keyed by merge-group id. The merge commit's subject
+// and body live ON the materialized merge commit itself, not here — the record
+// only identifies which commits form the merge.
+export interface MergeGroupRecord {
+  members: string[]; // Spry-Commit-Id values, contiguous, in stack order
+}
+
+export type MergeGroupRecords = Record<string, MergeGroupRecord>;
+
 export type StackParseResult =
   | { ok: true; units: PRUnit[] }
   | {
