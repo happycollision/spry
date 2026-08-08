@@ -1,9 +1,10 @@
 import type { SpryContext } from "../lib/context.ts";
-import { loadConfig, trunkRef, getCurrentBranch, getStackCommits } from "../git/index.ts";
+import { loadConfig, trunkRef, getCurrentBranch, getExpandedStackCommits } from "../git/index.ts";
 import { resolveRemoteTrackingTip } from "../git/branch.ts";
 import { classifyDrift } from "../git/drift.ts";
 import type { Drift } from "../git/drift.ts";
 import { loadGroupRecords, buildCommitGroupMap, extractGroupTitles } from "../git/group-titles.ts";
+import { loadMergeGroupRecords, buildCommitMergeGroupMap } from "../git/merge-groups.ts";
 import { parseCommitTrailers, parseStack } from "../parse/index.ts";
 import { buildStackTree } from "../parse/stack-tree.ts";
 import { enrichFromCache } from "../gh/enrich.ts";
@@ -21,7 +22,9 @@ export async function viewCommand(ctx: SpryContext, opts: ViewOptions = {}): Pro
   const config = await loadConfig(ctx.git, { cwd });
   const branch = await getCurrentBranch(ctx.git, { cwd });
   const ref = trunkRef(config);
-  const commits = await getStackCommits(ctx.git, ref, { cwd });
+  // Expanded: each materialized merge commit is replaced by its side-branch
+  // members, so PR-unit detection and merge-node wrapping see the real commits.
+  const commits = await getExpandedStackCommits(ctx.git, ref, { cwd });
   const withTrailers = parseCommitTrailers(commits, ctx.git, { cwd });
 
   const groupRecords = await loadGroupRecords(ctx.git, { cwd });
@@ -45,10 +48,13 @@ export async function viewCommand(ctx: SpryContext, opts: ViewOptions = {}): Pro
     drift.push(classifyDrift({ localTip, syncedHeadSha, remoteTrackingTip }));
   }
 
+  const mergeRecords = await loadMergeGroupRecords(ctx.git, { cwd });
+  const mergeMap = buildCommitMergeGroupMap(mergeRecords);
+
   if (opts.json) {
-    console.log(JSON.stringify(buildStackTree(enriched, drift), null, 2));
+    console.log(JSON.stringify(buildStackTree(enriched, drift, mergeMap), null, 2));
     return;
   }
 
-  console.log(formatStackView(enriched, branch, commits.length, ref, drift));
+  console.log(formatStackView(enriched, branch, commits.length, ref, drift, mergeMap));
 }

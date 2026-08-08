@@ -14,6 +14,8 @@ export {
   getMergeBase,
   getStackCommits,
   getStackCommitsForBranch,
+  getExpandedStackCommits,
+  getMergeMembers,
 } from "./queries.ts";
 
 export type {

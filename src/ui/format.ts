@@ -70,6 +70,7 @@ export function formatStackView(
   commitCount: number,
   trunkRef: string,
   drift: Drift[] = [],
+  mergeMap: Record<string, string> = {},
 ): string {
   if (enriched.length === 0) {
     return `No commits ahead of ${trunkRef}`;
@@ -112,9 +113,25 @@ export function formatStackView(
     const glyphs = driftGlyphs(drift[idx]);
     const marker = glyphs ? `${glyphs} ` : "";
 
+    // A merge-group member is shown indented one extra level, with a ⑃ marker on
+    // the first member of each contiguous run, so the merge axis reads as depth
+    // (independent of the PR-group letter/title above).
+    const mergeMark = (id: string | undefined, prevId: string | undefined): string => {
+      if (!id) return "";
+      const mg = mergeMap[id];
+      if (!mg) return "";
+      const prevMg = prevId ? mergeMap[prevId] : undefined;
+      return mg === prevMg ? "  " : "⑃ ";
+    };
+
     if (unit.type === "single") {
+      const id = unit.commitIds[0];
       const idDisplay = getCommitIdDisplay(unit.commitIds, 0);
-      lines.push(`  ${icon} ${marker}${unit.title ?? unit.subjects[0] ?? "Untitled"} ${idDisplay}`);
+      const mm = mergeMark(id, undefined);
+      const indent = mm ? `  ${mm}` : "";
+      lines.push(
+        `  ${icon} ${marker}${indent}${unit.title ?? unit.subjects[0] ?? "Untitled"} ${idDisplay}`,
+      );
       if (showPRLine) lines.push(prMetaLine(pr));
     } else {
       let groupTitle: string;
@@ -132,7 +149,9 @@ export function formatStackView(
         const prefix = isLast ? "└─" : "├─";
         const subject = unit.subjects[i] ?? "Unknown commit";
         const idDisplay = getCommitIdDisplay(unit.commitIds, i);
-        lines.push(`    ${prefix} ${subject} ${idDisplay}`);
+        const mm = mergeMark(unit.commitIds[i], unit.commitIds[i - 1]);
+        const indent = mm ? `${mm}` : "";
+        lines.push(`    ${prefix} ${indent}${subject} ${idDisplay}`);
       }
     }
   }

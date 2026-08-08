@@ -131,6 +131,29 @@ export async function getStackCommitsForBranch(
   return parseCommitLog(result.stdout);
 }
 
+// The stack as a flat oldest-first commit list with each merge commit REPLACED by
+// its side-branch members (expanded via getMergeMembers). The merge commit itself
+// — which carries no Spry-Commit-Id — is dropped from the list; its members (which
+// do carry ids) take its place, so PR-unit detection and merge-node wrapping both
+// see the real member commits. On a linear stack this equals getStackCommits.
+export async function getExpandedStackCommits(
+  git: GitRunner,
+  trunkRef: string,
+  options?: QueryOptions,
+): Promise<CommitInfo[]> {
+  const firstParent = await getStackCommits(git, trunkRef, options);
+  const out: CommitInfo[] = [];
+  for (const commit of firstParent) {
+    if ((commit.parents?.length ?? 0) >= 2) {
+      const members = await getMergeMembers(git, commit.hash, options);
+      out.push(...members);
+    } else {
+      out.push(commit);
+    }
+  }
+  return out;
+}
+
 // Expand a merge commit's side-branch members: the commits reachable from its
 // SECOND parent but not its first (oldest-first). Returns the member CommitInfos
 // (with their own parents populated). Returns [] if the commit is not a merge.

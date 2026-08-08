@@ -110,7 +110,9 @@ export interface StackTreeGroup {
   remoteAhead?: boolean; // output only
   pr?: PrStateInfo | null | "CLOSE" | "ADOPT";
   reissueId?: boolean; // input only
-  commits: StackTreeCommit[];
+  // May contain plain commits and/or merge nodes (StackTreeGroupChild, declared
+  // below — type aliases hoist, so the forward reference is fine).
+  commits: StackTreeGroupChild[];
 }
 
 // A merge node: a set of commits that materialize as one merge commit. It nests
