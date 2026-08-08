@@ -46,10 +46,11 @@ export {
   generateBodyContent,
   generateStackLinks,
   generateFooter,
+  generateMergeNote,
   buildInitialBody,
   spliceBody,
 } from "./pr-body.ts";
-export type { BuildInitialBodyOptions, SpliceBodyOptions } from "./pr-body.ts";
+export type { BuildInitialBodyOptions, SpliceBodyOptions, MergeNote } from "./pr-body.ts";
 export { findPRTemplate } from "./pr-template.ts";
 export {
   loadPRCache,

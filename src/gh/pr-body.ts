@@ -11,6 +11,8 @@ export const MARKERS = {
   INFO: "<!-- spry:info - Your edits outside of spry markers will be preserved on sync. -->",
   BODY_BEGIN: "<!-- spry:body:begin -->",
   BODY_END: "<!-- spry:body:end -->",
+  MERGE_NOTE_BEGIN: "<!-- spry:merge-note:begin -->",
+  MERGE_NOTE_END: "<!-- spry:merge-note:end -->",
   STACK_LINKS_BEGIN: "<!-- spry:stack-links:begin -->",
   STACK_LINKS_END: "<!-- spry:stack-links:end -->",
   FOOTER_BEGIN: "<!-- spry:footer:begin -->",
@@ -69,6 +71,43 @@ export function generateFooter(): string {
   return BETA_WARNING;
 }
 
+// A merge contained in a PR's branch: its subject and its member commit subjects
+// (oldest-first), for the merge-note relationship block.
+export interface MergeNote {
+  subject: string;
+  memberSubjects: string[];
+  mergeParentSubject?: string;
+}
+
+/**
+ * The spry:merge-note region content for a PR whose branch contains merge
+ * commit(s): a warning that the PR contains N merge commits (each folding a set of
+ * commits that land together atomically and should be reviewed as a unit), plus
+ * one fenced relationship block per merge sketching its shape from the member
+ * subjects. Returns "" when there are no merges (region stays empty/absent).
+ */
+export function generateMergeNote(merges: MergeNote[]): string {
+  if (merges.length === 0) return "";
+  const n = merges.length;
+  const parts: string[] = [
+    `> ⑃ **This PR contains ${n} merge commit${n === 1 ? "" : "s"}.** Each merge folds a set of commits that land together as one merge — review them as a unit.`,
+    "",
+  ];
+  for (const m of merges) {
+    const block = ["```", `Merge: ${m.subject}`, "|\\"];
+    // Members newest-first under the side branch (graph convention).
+    for (const s of [...m.memberSubjects].reverse()) block.push(`| * ${s}`);
+    block.push("|/");
+    block.push(`* ${m.mergeParentSubject ?? "(merge parent)"}`);
+    block.push("```");
+    parts.push(block.join("\n"));
+    parts.push("");
+  }
+  // Drop the trailing blank line.
+  while (parts.length > 0 && parts[parts.length - 1] === "") parts.pop();
+  return parts.join("\n");
+}
+
 /**
  * Stack-links block for the spry:stack-links region.
  *
@@ -119,6 +158,8 @@ export interface BuildInitialBodyOptions {
   commits: CommitInfo[];
   /** Rendered stack-links block (from generateStackLinks); "" for an empty region. */
   stackLinks: string;
+  /** Rendered merge-note block (from generateMergeNote); "" for an empty region. */
+  mergeNote?: string;
   /** Repo PR template, seeded ONCE into the user region under the body. */
   prTemplate?: string;
 }
@@ -135,13 +176,23 @@ export interface BuildInitialBodyOptions {
  * its begin/end markers, adjacent, for the same reason.)
  */
 export function buildInitialBody(opts: BuildInitialBodyOptions): string {
-  const { unit, commits, stackLinks, prTemplate } = opts;
+  const { unit, commits, stackLinks, mergeNote, prTemplate } = opts;
   const parts: string[] = [MARKERS.INFO, ""];
 
   const bodyContent = generateBodyContent(unit, commits);
   parts.push(MARKERS.BODY_BEGIN);
   if (bodyContent) parts.push(bodyContent);
   parts.push(MARKERS.BODY_END, "");
+
+  // Merge-note region (between body and stack-links). Unlike stack-links, this
+  // region is OMITTED entirely when there is no note — the vast majority of PRs
+  // contain no merge commits, and emitting an always-present empty region would
+  // churn every existing PR body. When a merge IS present, spliceBody's append
+  // path inserts the region on the next sync (before stack-links).
+  const note = mergeNote ?? "";
+  if (note) {
+    parts.push(MARKERS.MERGE_NOTE_BEGIN, note, MARKERS.MERGE_NOTE_END, "");
+  }
 
   const template = prTemplate?.trim();
   if (template) {
@@ -169,6 +220,8 @@ export interface SpliceBodyOptions {
   bodyContent: string;
   /** Rendered stack-links block; "" replaces an existing region's content with empty. */
   stackLinks: string;
+  /** Rendered merge-note block; "" replaces an existing region's content with empty. */
+  mergeNote?: string;
 }
 
 /**
@@ -207,8 +260,18 @@ function stripMarker(body: string, marker: string): string {
 export function spliceBody(existing: string, opts: SpliceBodyOptions): string {
   let out = existing;
 
+  const mergeNote = opts.mergeNote ?? "";
+
   const bodyReplaced = replaceRegion(out, MARKERS.BODY_BEGIN, MARKERS.BODY_END, opts.bodyContent);
   if (bodyReplaced !== null) out = bodyReplaced;
+
+  const mergeNoteReplaced = replaceRegion(
+    out,
+    MARKERS.MERGE_NOTE_BEGIN,
+    MARKERS.MERGE_NOTE_END,
+    mergeNote,
+  );
+  if (mergeNoteReplaced !== null) out = mergeNoteReplaced;
 
   const linksReplaced = replaceRegion(
     out,
@@ -227,6 +290,7 @@ export function spliceBody(existing: string, opts: SpliceBodyOptions): string {
   if (footerReplaced !== null) out = footerReplaced;
 
   const hasBody = bodyReplaced !== null;
+  const hasMergeNote = mergeNoteReplaced !== null;
   const hasLinks = linksReplaced !== null;
   const hasFooter = footerReplaced !== null;
 
@@ -234,6 +298,9 @@ export function spliceBody(existing: string, opts: SpliceBodyOptions): string {
   // stray BEGIN/END left by a hand-edit can't pair with the fresh region later.
   if (!hasBody) {
     out = stripMarker(stripMarker(out, MARKERS.BODY_BEGIN), MARKERS.BODY_END);
+  }
+  if (!hasMergeNote) {
+    out = stripMarker(stripMarker(out, MARKERS.MERGE_NOTE_BEGIN), MARKERS.MERGE_NOTE_END);
   }
   if (!hasLinks) {
     out = stripMarker(stripMarker(out, MARKERS.STACK_LINKS_BEGIN), MARKERS.STACK_LINKS_END);
@@ -248,6 +315,12 @@ export function spliceBody(existing: string, opts: SpliceBodyOptions): string {
     appends.push(MARKERS.BODY_BEGIN);
     if (opts.bodyContent) appends.push(opts.bodyContent);
     appends.push(MARKERS.BODY_END);
+  }
+  // Append the merge-note region only when there IS a note (same rationale as
+  // stack-links below: a spry-created body already carries the markers and hits
+  // the in-place replace above; this append is only for legacy/healed bodies).
+  if (!hasMergeNote && mergeNote) {
+    appends.push(MARKERS.MERGE_NOTE_BEGIN, mergeNote, MARKERS.MERGE_NOTE_END);
   }
   // Append the stack-links region only when there ARE links. This path is only
   // reached for bodies with no well-formed stack-links markers at all (e.g. a
