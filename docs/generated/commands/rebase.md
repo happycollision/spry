@@ -46,7 +46,19 @@ sp rebase --all
 ```
 
 ```
+main: ✓ already up to date
 feature: ✓ already up to date
+
+```
+
+`sp rebase --all` treats the local default branch as an implicit member: when it is behind trunk with no commits of its own, it is fast-forwarded up to trunk:
+
+```
+sp rebase --all
+```
+
+```
+main: ✓ Fast-forwarded to main
 
 ```
 
@@ -57,6 +69,7 @@ sp rebase --all
 ```
 
 ```
+main: ✓ already up to date
 feature-one: ✓ Rebased 1 commit onto main
 feature-two: ✓ Rebased 2 commits onto main
 

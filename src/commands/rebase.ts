@@ -126,16 +126,21 @@ async function rebaseAllCommand(
   }
 
   const tracked = await loadTrackedBranches(ctx.git, { cwd });
-  if (tracked.length === 0) {
-    console.log("✓ No tracked branches");
-    return;
-  }
+
+  // The local default branch is an implicit member of every --all run: it is
+  // treated like any spry branch (same behind-check, same loop), but since it
+  // normally has no commits of its own the "rebase" collapses to a
+  // fast-forward. It is injected implicitly and never persisted into the
+  // tracked store (de-dup guards against it also appearing in `tracked`).
+  const branches = [config.trunk, ...tracked.filter((b) => b !== config.trunk)];
 
   const ref = trunkRef(config);
   const stillTracked: string[] = [];
   let hadFailure = false;
 
-  for (const branch of tracked) {
+  for (const branch of branches) {
+    const isDefaultBranch = branch === config.trunk;
+
     // Check if branch still exists locally
     const revParse = await ctx.git.run(["rev-parse", "--verify", `refs/heads/${branch}`], { cwd });
     if (revParse.exitCode !== 0) {
@@ -143,7 +148,11 @@ async function rebaseAllCommand(
       continue;
     }
 
-    stillTracked.push(branch);
+    // Only real tracked branches are persisted; the implicit default branch is
+    // re-injected next run and never written to the store.
+    if (!isDefaultBranch) {
+      stillTracked.push(branch);
+    }
 
     const behind = await isStackBehindTrunkForBranch(ctx.git, branch, ref, { cwd });
     if (!behind) {
@@ -153,7 +162,16 @@ async function rebaseAllCommand(
 
     const commits = await getStackCommitsForBranch(ctx.git, branch, ref, { cwd });
     if (commits.length === 0) {
-      console.log(`${branch}: ✓ no commits in stack`);
+      // Behind with no commits of its own: fast-forward the branch up to trunk
+      // instead of replaying (the local default branch's normal trailing state).
+      const oldTip = await getFullSha(ctx.git, branch, { cwd });
+      const newTip = await getFullSha(ctx.git, ref, { cwd });
+      if (branch === currentBranch) {
+        await finalizeRewrite(ctx.git, branch, oldTip, newTip, { cwd });
+      } else {
+        await updateRef(ctx.git, `refs/heads/${branch}`, newTip, oldTip, { cwd });
+      }
+      console.log(`${branch}: ✓ Fast-forwarded to ${config.trunk}`);
       continue;
     }
 

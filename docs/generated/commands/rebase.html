@@ -54,13 +54,23 @@
       reports each as up to date:
     </p>
     <pre class="command">sp rebase --all</pre>
-    <pre class="output">feature: ✓ already up to date</pre>
+    <pre class="output">
+main: ✓ already up to date
+feature: ✓ already up to date</pre
+    >
+    <p>
+      `sp rebase --all` treats the local default branch as an implicit member: when it is behind
+      trunk with no commits of its own, it is fast-forwarded up to trunk:
+    </p>
+    <pre class="command">sp rebase --all</pre>
+    <pre class="output">main: ✓ Fast-forwarded to main</pre>
     <p>
       When multiple tracked branches are behind trunk, `sp rebase --all` rebases each one in turn
       without requiring a manual checkout:
     </p>
     <pre class="command">sp rebase --all</pre>
     <pre class="output">
+main: ✓ already up to date
 feature-one: ✓ Rebased 1 commit onto main
 feature-two: ✓ Rebased 2 commits onto main</pre
     >

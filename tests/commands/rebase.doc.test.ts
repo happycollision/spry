@@ -163,6 +163,46 @@ describe("sp rebase --all docs", () => {
   );
 
   docTest(
+    "Fast-forwarding the local default branch",
+    { section: "commands/rebase", order: 45 },
+    async (doc) => {
+      const repo = await createRepo();
+      repos.push(repo);
+      doc.scrub(repo);
+      const git = createRealGitRunner();
+
+      await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
+      await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+      await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
+
+      await repo.fetch();
+
+      // Advance origin/main and leave the local default branch one commit behind
+      // it (the normal state after teammates merge while you were away).
+      const localTip = (
+        await git.run(["rev-parse", repo.defaultBranch], { cwd: repo.path })
+      ).stdout.trim();
+      await git.run(["commit", "--allow-empty", "-m", "Teammate change"], { cwd: repo.path });
+      await git.run(["push", "origin", repo.defaultBranch], { cwd: repo.path });
+      await git.run(["reset", "--hard", localTip], { cwd: repo.path });
+      await repo.fetch();
+
+      doc.prose(
+        "`sp rebase --all` treats the local default branch as an implicit member: " +
+          "when it is behind trunk with no commits of its own, it is fast-forwarded up to trunk:",
+      );
+
+      const { command, result } = await runSp(repo.path, "rebase", ["--all"]);
+      doc.command(command);
+      doc.output(result.stdout);
+
+      const { expect } = await import("bun:test");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Fast-forwarded");
+    },
+  );
+
+  docTest(
     "Rebasing multiple tracked branches",
     { section: "commands/rebase", order: 50 },
     async (doc) => {

@@ -330,3 +330,231 @@ describe("sp rebase --all", () => {
     expect(logs.out.join("\n")).toContain("feature-clean");
   });
 });
+
+describe("sp rebase --all: local default branch", () => {
+  // Push a new commit to origin/main and leave the local default branch one
+  // commit behind it. Returns { originTip, localTip } where localTip is the
+  // (older) tip local main now points at.
+  async function makeDefaultBranchBehind(
+    repo: TestRepo,
+  ): Promise<{ originTip: string; localTip: string }> {
+    const git = createRealGitRunner();
+    const localTip = (
+      await git.run(["rev-parse", repo.defaultBranch], { cwd: repo.path })
+    ).stdout.trim();
+    // Advance origin/main by one commit, then move local main back so it trails.
+    await repo.commit("trunk advance");
+    const originTip = (
+      await git.run(["rev-parse", "HEAD"], { cwd: repo.path })
+    ).stdout.trim();
+    await git.run(["push", "origin", repo.defaultBranch], { cwd: repo.path });
+    await git.run(["reset", "--hard", localTip], { cwd: repo.path });
+    await repo.fetch();
+    return { originTip, localTip };
+  }
+
+  test("checked-out default branch behind: fast-forwards ref and working tree", async () => {
+    const repo = await makeConfiguredRepo();
+    await repo.fetch();
+    const git = createRealGitRunner();
+    const { originTip, localTip } = await makeDefaultBranchBehind(repo);
+
+    // Sitting on main (checked out), behind origin/main.
+    expect(await repo.currentBranch()).toBe(repo.defaultBranch);
+    const beforeTip = (
+      await git.run(["rev-parse", repo.defaultBranch], { cwd: repo.path })
+    ).stdout.trim();
+    expect(beforeTip).toBe(localTip);
+
+    const ctx = makeCtx(repo);
+    const logs = await captureLogs();
+    const trap = trapExit();
+    try {
+      await rebaseCommand(ctx, { cwd: repo.path, all: true });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBeUndefined();
+    // Local main fast-forwarded to origin/main.
+    const afterTip = (
+      await git.run(["rev-parse", repo.defaultBranch], { cwd: repo.path })
+    ).stdout.trim();
+    expect(afterTip).toBe(originTip);
+    // Working tree updated (still on main, clean).
+    expect(await repo.currentBranch()).toBe(repo.defaultBranch);
+    const status = await git.run(["status", "--porcelain"], { cwd: repo.path });
+    expect(status.stdout.trim()).toBe("");
+    // The default branch was not persisted into the tracked store.
+    const tracked = await loadTrackedBranches(git, { cwd: repo.path });
+    expect(tracked).not.toContain(repo.defaultBranch);
+  });
+
+  test("default branch behind while a different branch is checked out: fast-forwards ref only", async () => {
+    const repo = await makeConfiguredRepo();
+    await repo.fetch();
+    const git = createRealGitRunner();
+    const { originTip } = await makeDefaultBranchBehind(repo);
+
+    // Move onto a feature branch built off origin/main (already up to date), so
+    // the ONLY branch that needs moving is the background default branch. This
+    // isolates the updateRef fast-forward path (main is not the checked-out
+    // branch, so its working tree stays put).
+    const feature = await repo.branch("feature-elsewhere");
+    await git.run(["reset", "--hard", "origin/main"], { cwd: repo.path });
+    await repo.commitFiles(
+      { "elsewhere.ts": "work\n" },
+      "elsewhere\n\nSpry-Commit-Id: eee55555",
+    );
+    const featureTip = (
+      await git.run(["rev-parse", "HEAD"], { cwd: repo.path })
+    ).stdout.trim();
+
+    const ctx = makeCtx(repo);
+    const logs = await captureLogs();
+    const trap = trapExit();
+    try {
+      await rebaseCommand(ctx, { cwd: repo.path, all: true });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBeUndefined();
+    // Local main fast-forwarded to origin/main via the updateRef path (main was
+    // not the checked-out branch).
+    const afterMain = (
+      await git.run(["rev-parse", repo.defaultBranch], { cwd: repo.path })
+    ).stdout.trim();
+    expect(afterMain).toBe(originTip);
+    expect(logs.out.join("\n")).toContain("Fast-forwarded");
+    // Still on the feature branch, tip unchanged (it was already up to date),
+    // working tree clean.
+    expect(await repo.currentBranch()).toBe(feature);
+    const afterHead = (
+      await git.run(["rev-parse", "HEAD"], { cwd: repo.path })
+    ).stdout.trim();
+    expect(afterHead).toBe(featureTip);
+    const status = await git.run(["status", "--porcelain"], { cwd: repo.path });
+    expect(status.stdout.trim()).toBe("");
+  });
+
+  test("default branch already up to date: no ref change", async () => {
+    const repo = await makeConfiguredRepo();
+    await repo.fetch();
+    const git = createRealGitRunner();
+    const beforeTip = (
+      await git.run(["rev-parse", repo.defaultBranch], { cwd: repo.path })
+    ).stdout.trim();
+
+    const ctx = makeCtx(repo);
+    const logs = await captureLogs();
+    const trap = trapExit();
+    try {
+      await rebaseCommand(ctx, { cwd: repo.path, all: true });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBeUndefined();
+    expect(logs.out.join("\n")).toContain("up to date");
+    const afterTip = (
+      await git.run(["rev-parse", repo.defaultBranch], { cwd: repo.path })
+    ).stdout.trim();
+    expect(afterTip).toBe(beforeTip);
+  });
+
+  test("default branch behind and a stack branch behind: both handled in one run", async () => {
+    const repo = await makeConfiguredRepo();
+    await repo.fetch();
+    const git = createRealGitRunner();
+
+    // Build a feature branch with a real stack commit off the current main.
+    const feature = await repo.branch("feature-stack");
+    await repo.commitFiles(
+      { "stack.ts": "stack\n" },
+      "stack work\n\nSpry-Commit-Id: fff66666",
+    );
+    const featureOrigTip = (
+      await git.run(["rev-parse", "HEAD"], { cwd: repo.path })
+    ).stdout.trim();
+    await registerBranch(git, feature, { cwd: repo.path });
+
+    // Advance origin/main (different file, no conflict) and leave local main behind.
+    await repo.checkout(repo.defaultBranch);
+    const localMainTip = (
+      await git.run(["rev-parse", repo.defaultBranch], { cwd: repo.path })
+    ).stdout.trim();
+    await repo.commit("trunk advance");
+    const originTip = (
+      await git.run(["rev-parse", "HEAD"], { cwd: repo.path })
+    ).stdout.trim();
+    await git.run(["push", "origin", repo.defaultBranch], { cwd: repo.path });
+    await git.run(["reset", "--hard", localMainTip], { cwd: repo.path });
+    await repo.fetch();
+
+    // Stay on main so the stack branch is a background rebase.
+    const ctx = makeCtx(repo);
+    const logs = await captureLogs();
+    const trap = trapExit();
+    try {
+      await rebaseCommand(ctx, { cwd: repo.path, all: true });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBeUndefined();
+    // Default branch fast-forwarded.
+    const afterMain = (
+      await git.run(["rev-parse", repo.defaultBranch], { cwd: repo.path })
+    ).stdout.trim();
+    expect(afterMain).toBe(originTip);
+    // Stack branch rebased onto the new origin/main (ref moved, now based on trunk).
+    const afterFeature = (
+      await git.run(["rev-parse", `refs/heads/${feature}`], { cwd: repo.path })
+    ).stdout.trim();
+    expect(afterFeature).not.toBe(featureOrigTip);
+    const featureBase = (
+      await git.run(["merge-base", `refs/heads/${feature}`, "origin/main"], { cwd: repo.path })
+    ).stdout.trim();
+    expect(featureBase).toBe(originTip);
+  });
+
+  test("bare sp rebase on the default branch: unchanged no-op", async () => {
+    const repo = await makeConfiguredRepo();
+    await repo.fetch();
+    const git = createRealGitRunner();
+    const { localTip } = await makeDefaultBranchBehind(repo);
+
+    // Bare rebase (no --all), sitting on main behind origin/main.
+    const ctx = makeCtx(repo);
+    const logs = await captureLogs();
+    const trap = trapExit();
+    try {
+      await rebaseCommand(ctx, { cwd: repo.path });
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.message !== "process.exit") throw e;
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+
+    expect(trap.exitCode).toBeUndefined();
+    // Local main is NOT moved by bare rebase — still at the old tip.
+    const afterTip = (
+      await git.run(["rev-parse", repo.defaultBranch], { cwd: repo.path })
+    ).stdout.trim();
+    expect(afterTip).toBe(localTip);
+  });
+});
