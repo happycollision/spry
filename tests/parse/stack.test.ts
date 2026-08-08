@@ -1,7 +1,13 @@
 // tests/parse/stack.test.ts
 import { test, expect, describe } from "bun:test";
-import { detectPRUnits, parseStack, type CommitWithTrailers } from "../../src/parse/stack.ts";
-import type { CommitGroupMap } from "../../src/parse/types.ts";
+import {
+  detectPRUnits,
+  parseStack,
+  buildStackModel,
+  flattenStackModel,
+  type CommitWithTrailers,
+} from "../../src/parse/stack.ts";
+import type { CommitGroupMap, CommitMergeGroupMap } from "../../src/parse/types.ts";
 
 function makeCommit(
   hash: string,
@@ -171,5 +177,109 @@ describe("parseStack", () => {
     const result = parseStack([]);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.units).toEqual([]);
+  });
+});
+
+function makeMerge(
+  hash: string,
+  subject: string,
+  members: CommitWithTrailers[],
+): CommitWithTrailers {
+  // A merge commit: 2 parents (the actual SHAs don't matter to buildStackModel,
+  // only that there are >= 2), plus its expanded side-branch members.
+  return {
+    hash,
+    subject,
+    body: subject,
+    trailers: {},
+    parents: ["p1", "p2"],
+    mergeMembers: members,
+  };
+}
+
+describe("buildStackModel", () => {
+  test("all-plain stack yields all commit nodes", () => {
+    const commits = [
+      makeCommit("aaa", "c1", { "Spry-Commit-Id": "a1" }),
+      makeCommit("bbb", "c2", { "Spry-Commit-Id": "b2" }),
+    ];
+    const model = buildStackModel(commits);
+    expect(model.map((n) => n.type)).toEqual(["commit", "commit"]);
+  });
+
+  test("recognizes a merge commit and nests its members", () => {
+    const m1 = makeCommit("m1h", "m1", { "Spry-Commit-Id": "m1" });
+    const m2 = makeCommit("m2h", "m2", { "Spry-Commit-Id": "m2" });
+    const merge = makeMerge("mergeh", "Merge: group X", [m1, m2]);
+    const firstParent = [
+      makeCommit("p1h", "p1", { "Spry-Commit-Id": "p1" }),
+      merge,
+      makeCommit("p4h", "p4", { "Spry-Commit-Id": "p4" }),
+    ];
+    const mergeGroups: CommitMergeGroupMap = { m1: "mg1", m2: "mg1" };
+    const model = buildStackModel(firstParent, mergeGroups);
+
+    expect(model.map((n) => n.type)).toEqual(["commit", "merge", "commit"]);
+    const mergeNode = model[1];
+    if (mergeNode?.type !== "merge") throw new Error("expected merge node");
+    expect(mergeNode.mergeGroupId).toBe("mg1");
+    expect(mergeNode.members.map((m) => m.subject)).toEqual(["m1", "m2"]);
+    expect(mergeNode.merge.subject).toBe("Merge: group X");
+  });
+
+  test("merge with no matching record resolves mergeGroupId to null", () => {
+    const merge = makeMerge("mergeh", "Merge", [
+      makeCommit("m1h", "m1", { "Spry-Commit-Id": "m1" }),
+    ]);
+    const model = buildStackModel([merge], {}); // empty map
+    const node = model[0];
+    if (node?.type !== "merge") throw new Error("expected merge node");
+    expect(node.mergeGroupId).toBeNull();
+  });
+
+  test("a commit with 2+ parents but no expanded members is still a merge node", () => {
+    // Topology says merge (2 parents) even if members weren't expanded.
+    const merge: CommitWithTrailers = {
+      hash: "mh",
+      subject: "Merge",
+      body: "Merge",
+      trailers: {},
+      parents: ["p1", "p2"],
+    };
+    const model = buildStackModel([merge]);
+    expect(model[0]?.type).toBe("merge");
+  });
+});
+
+describe("flattenStackModel", () => {
+  test("splices merge members back in place, preserving order", () => {
+    const m1 = makeCommit("m1h", "m1", { "Spry-Commit-Id": "m1" });
+    const m2 = makeCommit("m2h", "m2", { "Spry-Commit-Id": "m2" });
+    const model = buildStackModel([
+      makeCommit("p1h", "p1", { "Spry-Commit-Id": "p1" }),
+      makeMerge("mergeh", "Merge", [m1, m2]),
+      makeCommit("p4h", "p4", { "Spry-Commit-Id": "p4" }),
+    ]);
+    const flat = flattenStackModel(model);
+    expect(flat.map((c) => c.subject)).toEqual(["p1", "m1", "m2", "p4"]);
+  });
+
+  test("flattened members feed PR grouping unchanged (merge members join one group)", () => {
+    // A merge group's members carry the SAME PR-group id => one group unit.
+    const m1 = makeCommit("m1h", "m1", { "Spry-Commit-Id": "m1" });
+    const m2 = makeCommit("m2h", "m2", { "Spry-Commit-Id": "m2" });
+    const model = buildStackModel([
+      makeCommit("p1h", "p1", { "Spry-Commit-Id": "p1" }),
+      makeMerge("mergeh", "Merge", [m1, m2]),
+    ]);
+    const flat = flattenStackModel(model);
+    const commitGroups: CommitGroupMap = { p1: "g1", m1: "g1", m2: "g1" };
+    const result = parseStack(flat, {}, commitGroups);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.units).toHaveLength(1);
+      expect(result.units[0]).toMatchObject({ type: "group", id: "g1" });
+      expect(result.units[0]?.commits).toEqual(["p1h", "m1h", "m2h"]);
+    }
   });
 });

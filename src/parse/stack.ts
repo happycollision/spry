@@ -3,6 +3,7 @@ import type {
   PRUnit,
   GroupTitles,
   CommitGroupMap,
+  CommitMergeGroupMap,
   StackParseResult,
 } from "./types.ts";
 
@@ -11,6 +12,93 @@ export interface CommitWithTrailers {
   subject: string;
   body: string;
   trailers: CommitTrailers;
+  // Parent SHAs (from the first-parent walk). 2+ parents => a merge commit.
+  parents?: string[];
+  // For a merge commit: its side-branch member commits, oldest-first.
+  mergeMembers?: CommitWithTrailers[];
+}
+
+// The merge-aware stack model: the FIRST-PARENT sequence of the stack, where each
+// node is either a plain commit or a merge (nesting its member commits). This is
+// the read-side representation the --apply validator (step 4) and the StackTree
+// builder (step 5) consume; PR grouping (parseStack/detectPRUnits) operates on the
+// flattened member list independently.
+export interface StackModelPlain {
+  type: "commit";
+  commit: CommitWithTrailers;
+}
+
+export interface StackModelMerge {
+  type: "merge";
+  // The materialized merge commit itself (its SHA, subject, message live here).
+  merge: CommitWithTrailers;
+  // Resolved merge-group id (from the CommitMergeGroupMap via member ids), or null
+  // when the merge commit exists in history but no MergeGroupRecord matches it.
+  mergeGroupId: string | null;
+  // The side-branch member commits, oldest-first.
+  members: CommitWithTrailers[];
+}
+
+export type StackModelNode = StackModelPlain | StackModelMerge;
+
+function commitId(commit: CommitWithTrailers): string | undefined {
+  return commit.trailers["Spry-Commit-Id"];
+}
+
+/**
+ * Build the merge-aware stack model from the FIRST-PARENT commit sequence.
+ *
+ * `firstParentCommits` is the outer line (oldest-first) as returned by the
+ * first-parent stack walk; a commit with `mergeMembers` set (2+ parents) is a
+ * merge commit and its `mergeMembers` are its side-branch commits. `mergeGroups`
+ * maps a member's Spry-Commit-Id to its merge-group id.
+ *
+ * A merge commit is matched to a merge-group id by looking up its members in
+ * `mergeGroups`; when the members carry a consistent id it is used, otherwise the
+ * node's `mergeGroupId` is null (the merge exists in history but is unrecorded —
+ * self-heals on the next `sp group`).
+ */
+export function buildStackModel(
+  firstParentCommits: CommitWithTrailers[],
+  mergeGroups: CommitMergeGroupMap = {},
+): StackModelNode[] {
+  const nodes: StackModelNode[] = [];
+  for (const commit of firstParentCommits) {
+    const isMerge = (commit.parents?.length ?? 0) >= 2 || (commit.mergeMembers?.length ?? 0) > 0;
+    if (isMerge) {
+      const members = commit.mergeMembers ?? [];
+      // Resolve the merge-group id from members: the id every recorded member
+      // agrees on. null if members disagree or none are recorded.
+      let mergeGroupId: string | null = null;
+      const seen = new Set<string>();
+      for (const m of members) {
+        const id = commitId(m);
+        const gid = id ? mergeGroups[id] : undefined;
+        if (gid) seen.add(gid);
+      }
+      if (seen.size === 1) mergeGroupId = [...seen][0] ?? null;
+      nodes.push({ type: "merge", merge: commit, mergeGroupId, members });
+    } else {
+      nodes.push({ type: "commit", commit });
+    }
+  }
+  return nodes;
+}
+
+/**
+ * Flatten a merge-aware stack model back to a plain oldest-first commit list, with
+ * each merge's members spliced in place of the merge commit. This is what PR
+ * grouping (parseStack/detectPRUnits) walks — a merge group's members are
+ * contiguous and belong to a single PR unit, so PR detection is unaffected by
+ * whether they are materialized as a merge.
+ */
+export function flattenStackModel(nodes: StackModelNode[]): CommitWithTrailers[] {
+  const out: CommitWithTrailers[] = [];
+  for (const node of nodes) {
+    if (node.type === "merge") out.push(...node.members);
+    else out.push(node.commit);
+  }
+  return out;
 }
 
 export function detectPRUnits(

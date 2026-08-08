@@ -1,4 +1,4 @@
-import type { MergeGroupRecord, MergeGroupRecords } from "../parse/types.ts";
+import type { MergeGroupRecord, MergeGroupRecords, CommitMergeGroupMap } from "../parse/types.ts";
 import { remoteSpryRef } from "../lib/refs-seam.ts";
 
 interface GitOpts {
@@ -18,6 +18,18 @@ interface GitRunner {
 // is not tied to any PR group's membership. Mirrors the storage shape of
 // src/git/group-titles.ts (a flat tree of one JSON blob per id).
 const MERGE_GROUPS_REF = "refs/spry/merge-groups";
+
+// Maps each member Spry-Commit-Id to its merge-group id. Analogue of
+// buildCommitGroupMap (src/git/group-titles.ts) for the merge axis.
+export function buildCommitMergeGroupMap(records: MergeGroupRecords): CommitMergeGroupMap {
+  const map: CommitMergeGroupMap = {};
+  for (const [mergeGroupId, record] of Object.entries(records)) {
+    for (const commitId of record.members) {
+      map[commitId] = mergeGroupId;
+    }
+  }
+  return map;
+}
 
 export async function loadMergeGroupRecords(
   git: GitRunner,

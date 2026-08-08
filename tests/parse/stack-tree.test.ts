@@ -58,6 +58,7 @@ test("buildStackTree emits commit and group nodes with PR state", () => {
   expect(tree.stack).toHaveLength(2);
   const c0 = tree.stack[0]!;
   expect(c0).toMatchObject({ type: "commit", id: "aaaaaaaa", sha: "hash_a", subject: "feat: a" });
+  if (c0.type !== "commit") throw new Error("expected commit node");
   expect(c0.pr).toEqual({ number: 12, state: "OPEN" });
 
   const g = tree.stack[1]!;

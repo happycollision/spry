@@ -196,3 +196,111 @@ describe("getStackCommitsForBranch", () => {
     expect(commits).toEqual([]);
   });
 });
+
+// --- Merge-aware stack walk (step 2) ---
+
+// Build a stack: base -> c1 (plain) -> merge[c2,c3] -> c4 (plain), materialized
+// with git plumbing, and return the SHAs. Deterministic dates/identity so it's
+// stable. Uses the repo's default branch as base.
+async function buildMergeStack(repoPath: string): Promise<{ mergeSha: string }> {
+  const { $ } = await import("bun");
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_DATE: "1700000000 +0000",
+    GIT_COMMITTER_DATE: "1700000000 +0000",
+    GIT_AUTHOR_NAME: "spry",
+    GIT_AUTHOR_EMAIL: "spry@local",
+    GIT_COMMITTER_NAME: "spry",
+    GIT_COMMITTER_EMAIL: "spry@local",
+  };
+  // Linear c1..c4 on a stack branch.
+  await $`git checkout -qb stack`.cwd(repoPath).env(env).quiet();
+  for (const c of ["c1", "c2", "c3", "c4"]) {
+    await $`git commit --allow-empty -m ${c}`.cwd(repoPath).env(env).quiet();
+  }
+  const rev = async (r: string) =>
+    (await $`git rev-parse ${r}`.cwd(repoPath).env(env).quiet().text()).trim();
+  const tree = async (r: string) =>
+    (await $`git rev-parse ${r + "^{tree}"}`.cwd(repoPath).env(env).quiet().text()).trim();
+
+  const c1 = await rev("stack~3");
+  const c2 = await rev("stack~2");
+  const c3 = await rev("stack~1");
+  const c4 = await rev("stack");
+
+  const commitTree = async (treeArg: string, msg: string, parents: string[]) => {
+    const ps = parents.flatMap((p) => ["-p", p]);
+    return (
+      await $`git commit-tree ${treeArg} ${ps} -m ${msg}`.cwd(repoPath).env(env).quiet().text()
+    ).trim();
+  };
+
+  const g2 = await commitTree(await tree(c2), "commit c2", [c1]);
+  const g3 = await commitTree(await tree(c3), "commit c3", [g2]);
+  const merge = await commitTree(await tree(c3), "Merge: group X", [c1, g3]);
+  const p4 = await commitTree(await tree(c4), "commit c4", [merge]);
+  // `stack` is the checked-out branch, so `branch -f` is refused; move it via a
+  // hard reset to the synthesized tip instead.
+  await $`git reset --hard ${p4}`.cwd(repoPath).env(env).quiet();
+  return { mergeSha: merge };
+}
+
+describe("getStackCommits with a materialized merge", () => {
+  test("first-parent walk yields the outer line: plain, merge, plain (members excluded)", async () => {
+    const repo = await repos.create();
+    await repo.fetch();
+    await buildMergeStack(repo.path);
+
+    const commits = await getStackCommits(git, `origin/${repo.defaultBranch}`, {
+      cwd: repo.path,
+    });
+    // c1 is the original plain commit (subject "c1"); the merge sits above it;
+    // c4 was re-rooted onto the merge (subject "commit c4"). Members c2/c3 are on
+    // the second-parent side branch and must NOT appear in the first-parent walk.
+    expect(commits.map((c) => c.subject)).toEqual(["c1", "Merge: group X", "commit c4"]);
+    // The merge commit has two parents; the plain commits have one.
+    const merge = commits.find((c) => c.subject === "Merge: group X");
+    expect(merge?.parents?.length).toBe(2);
+    const c1 = commits.find((c) => c.subject === "c1");
+    expect(c1?.parents?.length).toBe(1);
+  });
+
+  test("a linear stack's first-parent walk is unchanged (regression)", async () => {
+    const repo = await repos.create();
+    await repo.fetch();
+    await repo.branch("linear");
+    await repo.commit("first");
+    await repo.commit("second");
+    const commits = await getStackCommits(git, `origin/${repo.defaultBranch}`, {
+      cwd: repo.path,
+    });
+    expect(commits.map((c) => c.subject).map((s) => s.replace(/\s.*/, ""))).toEqual([
+      "first",
+      "second",
+    ]);
+    // parents populated, single-parent each.
+    expect(commits.every((c) => (c.parents?.length ?? 0) === 1)).toBe(true);
+  });
+});
+
+describe("getMergeMembers", () => {
+  test("expands a merge commit's side-branch members oldest-first", async () => {
+    const { getMergeMembers } = await import("../../src/git/queries.ts");
+    const repo = await repos.create();
+    await repo.fetch();
+    const { mergeSha } = await buildMergeStack(repo.path);
+
+    const members = await getMergeMembers(git, mergeSha, { cwd: repo.path });
+    expect(members.map((m) => m.subject)).toEqual(["commit c2", "commit c3"]);
+  });
+
+  test("returns [] for a non-merge commit", async () => {
+    const { getMergeMembers } = await import("../../src/git/queries.ts");
+    const repo = await repos.create();
+    await repo.fetch();
+    await repo.branch("plain");
+    const sha = await repo.commit("just one");
+    const members = await getMergeMembers(git, sha, { cwd: repo.path });
+    expect(members).toEqual([]);
+  });
+});

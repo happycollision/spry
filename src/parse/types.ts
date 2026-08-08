@@ -5,6 +5,13 @@ export interface CommitInfo {
   subject: string;
   body: string;
   trailers: Record<string, string>;
+  // Parent SHAs (from `%P`), populated by the first-parent stack walk. A commit
+  // with 2+ parents is a merge commit. Optional so existing constructors/tests
+  // that don't care about topology stay valid (absent = unknown / not a merge).
+  parents?: string[];
+  // For a merge commit: its side-branch member commits, oldest-first (as returned
+  // by getMergeMembers). Absent on non-merge commits.
+  mergeMembers?: CommitInfo[];
 }
 
 export type CommitTrailers = Record<string, string>;
@@ -47,6 +54,11 @@ export interface MergeGroupRecord {
 }
 
 export type MergeGroupRecords = Record<string, MergeGroupRecord>;
+
+// Maps Spry-Commit-Id → merge-group ID — built from MergeGroupRecords, the merge
+// analogue of CommitGroupMap. Passed to parseStack so it can recognize which
+// commits belong to a materialized merge.
+export type CommitMergeGroupMap = Record<string, string>;
 
 export type StackParseResult =
   | { ok: true; units: PRUnit[] }
@@ -101,7 +113,24 @@ export interface StackTreeGroup {
   commits: StackTreeCommit[];
 }
 
-export type StackTreeNode = StackTreeCommit | StackTreeGroup;
+// A merge node: a set of commits that materialize as one merge commit. It nests
+// its member commits, and may appear at the top level or inside a group's
+// `commits` (a merge group is always fully contained within a PR unit). Distinct
+// axis from StackTreeGroup (PR grouping) — a merge node is about branch history
+// shape, not PR boundaries.
+export interface StackTreeMerge {
+  type: "merge";
+  id: string | null; // output: real merge-group id; input: id (keep) or null (mint)
+  sha?: string; // output only: the materialized merge commit's SHA
+  subject?: string; // output only: the merge commit's subject
+  reissueId?: boolean; // input only
+  commits: StackTreeCommit[];
+}
+
+export type StackTreeNode = StackTreeCommit | StackTreeGroup | StackTreeMerge;
+
+// A node allowed inside a group's `commits`: a plain commit or a merge node.
+export type StackTreeGroupChild = StackTreeCommit | StackTreeMerge;
 
 export interface StackTree {
   stack: StackTreeNode[];

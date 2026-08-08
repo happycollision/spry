@@ -74,6 +74,10 @@ export async function getMergeBase(
   return result.stdout.trim();
 }
 
+// Format: hash \0 subject \0 body \0 parents \x01. The trailing %P (parents) field
+// lets the stack walk see topology — a commit with 2+ parents is a merge commit.
+const STACK_LOG_FORMAT = "%H%x00%s%x00%b%x00%P%x01";
+
 function parseCommitLog(output: string): CommitInfo[] {
   const trimmed = output.trim();
   if (!trimmed) return [];
@@ -84,10 +88,17 @@ function parseCommitLog(output: string): CommitInfo[] {
     const hash = (fields[0] ?? "").trim();
     const subject = (fields[1] ?? "").trim();
     const body = (fields[2] ?? "").replace(/\n+$/, "");
-    return { hash, subject, body, trailers: {} };
+    const parentsRaw = (fields[3] ?? "").trim();
+    const parents = parentsRaw ? parentsRaw.split(/\s+/) : [];
+    return { hash, subject, body, trailers: {}, parents };
   });
 }
 
+// Walk the FIRST-PARENT line of the stack. On a linear stack this is identical to
+// a plain `base..HEAD` walk; on a stack containing materialized merge commits it
+// yields only the outer trunk line (plain commits + merge commits), excluding each
+// merge's second-parent side branch. Use getMergeMembers to expand a merge's
+// members.
 export async function getStackCommits(
   git: GitRunner,
   trunkRef: string,
@@ -95,7 +106,7 @@ export async function getStackCommits(
 ): Promise<CommitInfo[]> {
   const base = await getMergeBase(git, trunkRef, options);
   const result = await git.run(
-    ["log", "--reverse", "--format=%H%x00%s%x00%b%x01", `${base}..HEAD`],
+    ["log", "--first-parent", "--reverse", `--format=${STACK_LOG_FORMAT}`, `${base}..HEAD`],
     { cwd: options?.cwd },
   );
   return parseCommitLog(result.stdout);
@@ -108,7 +119,36 @@ export async function getStackCommitsForBranch(
   options?: QueryOptions,
 ): Promise<CommitInfo[]> {
   const result = await git.run(
-    ["log", "--reverse", "--format=%H%x00%s%x00%b%x01", `${trunkRef}..${branch}`],
+    [
+      "log",
+      "--first-parent",
+      "--reverse",
+      `--format=${STACK_LOG_FORMAT}`,
+      `${trunkRef}..${branch}`,
+    ],
+    { cwd: options?.cwd },
+  );
+  return parseCommitLog(result.stdout);
+}
+
+// Expand a merge commit's side-branch members: the commits reachable from its
+// SECOND parent but not its first (oldest-first). Returns the member CommitInfos
+// (with their own parents populated). Returns [] if the commit is not a merge.
+export async function getMergeMembers(
+  git: GitRunner,
+  mergeSha: string,
+  options?: QueryOptions,
+): Promise<CommitInfo[]> {
+  const parentsResult = await git.run(["rev-list", "--parents", "-n", "1", mergeSha], {
+    cwd: options?.cwd,
+  });
+  // Output: "<sha> <parent1> <parent2> ...". Fewer than 2 parents => not a merge.
+  const shas = parentsResult.stdout.trim().split(/\s+/);
+  const firstParent = shas[1];
+  const secondParent = shas[2];
+  if (!firstParent || !secondParent) return [];
+  const result = await git.run(
+    ["log", "--reverse", `--format=${STACK_LOG_FORMAT}`, `${firstParent}..${secondParent}`],
     { cwd: options?.cwd },
   );
   return parseCommitLog(result.stdout);
