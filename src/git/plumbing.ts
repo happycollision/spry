@@ -187,6 +187,13 @@ export async function rewriteCommitChain(
     } else if (originalParents.length > 0) {
       parents.push(originalParents[0] ?? "");
     }
+    // Preserve a merge commit's SECOND parent. This walk only re-links the
+    // first-parent (trunk) line, so without this a materialized merge group
+    // would be silently flattened into an ordinary commit and its whole side
+    // branch — every member commit — would be dropped from history.
+    for (const extra of originalParents.slice(1)) {
+      if (extra) parents.push(extra);
+    }
 
     const newSha = await createCommit(git, tree, parents, message, env, options);
     mapping.set(commit, newSha);

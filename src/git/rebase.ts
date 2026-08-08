@@ -47,6 +47,13 @@ async function computeIdRewrites(
 
   const missingIds: string[] = [];
   for (const commit of commits) {
+    // A materialized merge commit deliberately carries NO Spry-Commit-Id: it is
+    // identified by its members (see MergeGroupRecord), and `--apply` never
+    // mints one either. Skipping it is load-bearing, not just an optimization —
+    // stamping an id would send it through the linear rewriteCommitChain below,
+    // which rebuilds every commit with a single parent and would silently drop
+    // the merge's second parent, destroying the whole side branch.
+    if ((commit.parents?.length ?? 0) >= 2) continue;
     // `commit.body` is body-only; interpret-trailers needs the full message.
     const fullMessage = commit.body ? `${commit.subject}\n\n${commit.body}` : commit.subject;
     const trailers = await parseTrailers(fullMessage, git);
