@@ -279,3 +279,76 @@ describe("buildMaterializePlan", () => {
     if (!r.ok) expect(r.error).toMatch(/more than one merge group/i);
   });
 });
+
+import { rebaseStackWithMerges } from "../../src/git/materialize.ts";
+import { getStackCommits } from "../../src/git/queries.ts";
+
+describe("rebaseStackWithMerges", () => {
+  test("preserves a merge across a trunk-moved rebase, matching git rebase --rebase-merges", async () => {
+    const repo = await makeRepo();
+    // Build base, then a stack: c1 plain, merge[c2,c3], c4 plain.
+    const { base, shas } = await linearStack(repo.path, ["c1", "c2", "c3", "c4"]);
+    const [c1, c2, c3, c4] = shas as [string, string, string, string];
+    const mat = await materialize(
+      git,
+      base,
+      [
+        { type: "commit", sha: c1 },
+        { type: "merge", members: [c2, c3], message: "Merge: group X" },
+        { type: "commit", sha: c4 },
+      ],
+      { cwd: repo.path },
+    );
+    expect(mat.ok).toBe(true);
+    if (!mat.ok) return;
+    await $`git reset --hard ${mat.newTip}`.cwd(repo.path).quiet();
+
+    // Move trunk forward with a non-conflicting commit on a separate branch.
+    await $`git checkout -q -b newtrunk ${base}`.cwd(repo.path).quiet();
+    await Bun.write(`${repo.path}/trunk.txt`, "trunk moved\n");
+    await $`git add trunk.txt`.cwd(repo.path).quiet();
+    await $`git commit -q -m ${"trunk moves"}`.cwd(repo.path).quiet();
+    const newTrunk = (await $`git rev-parse newtrunk`.cwd(repo.path).quiet().text()).trim();
+    await $`git checkout -q -`.cwd(repo.path).quiet();
+
+    // Ground truth: git rebase --rebase-merges of the materialized stack.
+    await $`git branch porcelain ${mat.newTip}`.cwd(repo.path).quiet();
+    await $`git checkout -q porcelain`.cwd(repo.path).quiet();
+    await $`git rebase --rebase-merges ${newTrunk}`
+      .cwd(repo.path)
+      .env({
+        ...process.env,
+        GIT_AUTHOR_DATE: "1700000000 +0000",
+        GIT_COMMITTER_DATE: "1700000000 +0000",
+        GIT_AUTHOR_NAME: "spry",
+        GIT_AUTHOR_EMAIL: "spry@local",
+        GIT_COMMITTER_NAME: "spry",
+        GIT_COMMITTER_EMAIL: "spry@local",
+      })
+      .quiet();
+    const porcelainTip = (await $`git rev-parse porcelain`.cwd(repo.path).quiet().text()).trim();
+    await $`git checkout -q ${mat.newTip}`.cwd(repo.path).quiet();
+
+    // Our plumbing rebase: get the materialized stack's first-parent commits, rebase onto newTrunk.
+    const fp = await getStackCommits(git, newTrunk, { cwd: repo.path });
+    // getStackCommits diffs base..HEAD; HEAD is detached at mat.newTip now.
+    const result = await rebaseStackWithMerges(git, newTrunk, fp, { cwd: repo.path });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // Structure: one merge preserved.
+    expect(result.mergeShas).toHaveLength(1);
+    // Content: our rebased tip tree matches git rebase --rebase-merges' tip tree.
+    expect(await getTree(git, result.newTip, { cwd: repo.path })).toBe(
+      await getTree(git, porcelainTip, { cwd: repo.path }),
+    );
+    // And it carried trunk's new file (the dropped-change trap, at rebase scale).
+    const files = (
+      await $`git ls-tree -r --name-only ${result.newTip}`.cwd(repo.path).quiet().text()
+    )
+      .trim()
+      .split("\n");
+    expect(files).toContain("trunk.txt");
+    expect(files).toContain("c2.txt");
+  });
+});

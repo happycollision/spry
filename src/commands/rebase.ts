@@ -12,6 +12,7 @@ import {
 import { isDetachedHead } from "../git/queries.ts";
 import { requireCleanWorkingTree } from "../git/status.ts";
 import { rebasePlumbing, finalizeRewrite } from "../git/plumbing.ts";
+import { rebaseStackWithMerges } from "../git/materialize.ts";
 import { parseConflictOutput } from "../git/conflict.ts";
 import { fetchRemote, isStackBehindTrunk, isStackBehindTrunkForBranch } from "../git/behind.ts";
 import {
@@ -71,33 +72,56 @@ export async function rebaseCommand(ctx: SpryContext, opts: RebaseOptions = {}):
 
   const ontoSha = await getFullSha(ctx.git, ref, { cwd });
   const commitHashes = commits.map((c) => c.hash);
+  const hasMerge = commits.some((c) => (c.parents?.length ?? 0) >= 2);
 
-  // 4. Dry-run: rebasePlumbing creates commit objects but does NOT update refs
-  const result = await rebasePlumbing(ctx.git, ontoSha, commitHashes, { cwd });
-
-  if (!result.ok) {
-    const parsed = parseConflictOutput(result.conflictInfo);
-    const shortSha = result.conflictCommit.slice(0, 8);
-    const msg = await getCommitMessage(ctx.git, result.conflictCommit, { cwd });
-    const subject = msg.split("\n")[0] ?? result.conflictCommit;
-
-    console.error(`✗ Rebase would conflict on commit ${shortSha}: ${subject}`);
-    if (parsed.files.length > 0) {
-      console.error("");
-      console.error("  Conflicting files:");
-      for (const f of parsed.files) {
-        console.error(`    - ${f}`);
+  // 4. Dry-run: build commit objects but do NOT update refs. A stack containing a
+  // materialized merge commit is rebased merge-aware (members replayed, merge
+  // rebuilt with two parents); a linear stack uses the existing plumbing path
+  // (byte-identical behavior, and a distinct conflict-result shape).
+  let newTip: string;
+  if (hasMerge) {
+    const result = await rebaseStackWithMerges(ctx.git, ontoSha, commits, { cwd });
+    if (!result.ok) {
+      const parsed = parseConflictOutput(result.conflictInfo);
+      const shortSha = result.conflictSha.slice(0, 8);
+      const msg = await getCommitMessage(ctx.git, result.conflictSha, { cwd });
+      const subject = msg.split("\n")[0] ?? result.conflictSha;
+      console.error(`✗ Rebase would conflict on commit ${shortSha}: ${subject}`);
+      if (parsed.files.length > 0) {
+        console.error("");
+        console.error("  Conflicting files:");
+        for (const f of parsed.files) console.error(`    - ${f}`);
       }
+      console.error("");
+      console.error("  Resolve the upstream changes manually, then run `sp rebase` again.");
+      console.error("  Or use `git rebase` for interactive conflict resolution.");
+      process.exit(1);
     }
-    console.error("");
-    console.error("  Resolve the upstream changes manually, then run `sp rebase` again.");
-    console.error("  Or use `git rebase` for interactive conflict resolution.");
-    process.exit(1);
+    newTip = result.newTip;
+  } else {
+    const result = await rebasePlumbing(ctx.git, ontoSha, commitHashes, { cwd });
+    if (!result.ok) {
+      const parsed = parseConflictOutput(result.conflictInfo);
+      const shortSha = result.conflictCommit.slice(0, 8);
+      const msg = await getCommitMessage(ctx.git, result.conflictCommit, { cwd });
+      const subject = msg.split("\n")[0] ?? result.conflictCommit;
+      console.error(`✗ Rebase would conflict on commit ${shortSha}: ${subject}`);
+      if (parsed.files.length > 0) {
+        console.error("");
+        console.error("  Conflicting files:");
+        for (const f of parsed.files) console.error(`    - ${f}`);
+      }
+      console.error("");
+      console.error("  Resolve the upstream changes manually, then run `sp rebase` again.");
+      console.error("  Or use `git rebase` for interactive conflict resolution.");
+      process.exit(1);
+    }
+    newTip = result.newTip;
   }
 
   // 5. Apply: update branch ref and working tree
   const oldTip = commitHashes.at(-1) ?? "";
-  await finalizeRewrite(ctx.git, branch, oldTip, result.newTip, { cwd });
+  await finalizeRewrite(ctx.git, branch, oldTip, newTip, { cwd });
 
   const n = commits.length;
   console.log(`✓ Rebased ${n} commit${n === 1 ? "" : "s"} onto ${config.trunk}`);

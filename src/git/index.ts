@@ -88,7 +88,7 @@ export {
   buildCommitMergeGroupMap,
 } from "./merge-groups.ts";
 
-export { materialize, buildMaterializePlan } from "./materialize.ts";
+export { materialize, buildMaterializePlan, rebaseStackWithMerges } from "./materialize.ts";
 export type {
   PlanNode,
   MergeGroupSpec,
