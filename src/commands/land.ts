@@ -1,6 +1,6 @@
 import kleur from "kleur";
 import type { SpryContext } from "../lib/context.ts";
-import { loadConfig, branchForUnit } from "../git/index.ts";
+import { loadConfig, branchForUnit, trunkRef } from "../git/index.ts";
 import type { SpryConfig } from "../git/index.ts";
 import type { GroupRecords } from "../parse/index.ts";
 import { loadGroupRecords, saveAllGroupRecords, pushGroupRecords } from "../git/group-titles.ts";
@@ -24,6 +24,8 @@ export interface LandOptions {
   /** Poll cadence in seconds; default 30. Only meaningful with --poll / an accepted nudge. */
   interval?: number;
   cwd?: string;
+  /** Acknowledge that the landed scope contains merge commit(s). */
+  merges?: boolean;
   /** Injected for testability; default to a real TUI. */
   confirm?: (message: string) => Promise<boolean>;
   pickThrough?: (units: PRUnit[]) => Promise<string | null>;
@@ -45,6 +47,48 @@ interface LandPlan {
 }
 
 const DEFAULT_INTERVAL_SECONDS = 30;
+
+// The "%h %s" lines for every merge commit (2+ parents) in `<ref>..<tip>`. Local
+// and free — no gh calls. Exported for testing.
+export async function mergeCommitsInRange(
+  ctx: SpryContext,
+  ref: string,
+  tip: string,
+  opts: { cwd?: string } = {},
+): Promise<string[]> {
+  const res = await ctx.git.run(
+    ["rev-list", "--min-parents=2", "--format=%h %s", `${ref}..${tip}`],
+    { cwd: opts.cwd },
+  );
+  // `rev-list --format` prints a "commit <sha>" line before each formatted line;
+  // keep only the formatted "%h %s" lines.
+  return res.stdout
+    .trim()
+    .split("\n")
+    .filter((l) => l && !l.startsWith("commit "));
+}
+
+export type MergeGateResult = { ok: true } | { ok: false; messageLines: string[] };
+
+// Pure decision for the --merges gate: given the merge commits about to land and
+// whether --merges was passed, either allow (ok) or produce the refusal message.
+export function evaluateMergeGate(
+  mergeLines: string[],
+  mergesFlag: boolean,
+  trunk: string,
+): MergeGateResult {
+  if (mergeLines.length === 0 || mergesFlag) return { ok: true };
+  return {
+    ok: false,
+    messageLines: [
+      `✗ This land includes ${mergeLines.length} merge commit(s). Landing them writes them permanently into ${trunk}.`,
+      ...mergeLines.map((l) => `    ${l}`),
+      "",
+      "  Review/edit their messages, then re-run with `sp land --merges`.",
+      "  Or unmerge them first in `sp group`.",
+    ],
+  };
+}
 
 export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Promise<void> {
   const cwd = opts.cwd;
@@ -155,17 +199,36 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
     await runPollLoop(ctx, config, plan, units.length, opts);
     return;
   }
-  await performLand(ctx, config, plan, units.length, cwd);
+  await performLand(ctx, config, plan, units.length, cwd, opts.merges ?? false);
 }
 
-/** The push + cleanup tail. Consumes ONLY the frozen plan (no HEAD read). */
+/**
+ * The push + cleanup tail. Consumes ONLY the frozen plan (no HEAD read).
+ *
+ * `mergesAck` is the resolved `--merges` acknowledgment, threaded in rather than
+ * re-read from `opts` so this stays plan-only and both entry points (direct land
+ * and the `--poll` loop) apply the identical merge gate before the ff-push.
+ */
 async function performLand(
   ctx: SpryContext,
   config: SpryConfig,
   plan: LandPlan,
   totalUnits: number,
   cwd: string | undefined,
+  mergesAck: boolean,
 ): Promise<void> {
+  // 3c. Merge-commit gate: landing merge commits permanently writes them into
+  // trunk history and they may carry placeholder/unpolished messages, so require
+  // an explicit --merges acknowledgment. Detection is local and free — any commit
+  // with 2+ parents in the range being landed (<trunk>..<tip>). No gh calls.
+  const ref = trunkRef(config);
+  const mergeLines = await mergeCommitsInRange(ctx, ref, plan.tip, { cwd });
+  const gate = evaluateMergeGate(mergeLines, mergesAck, config.trunk);
+  if (!gate.ok) {
+    for (const line of gate.messageLines) console.error(line);
+    process.exit(1);
+  }
+
   // 4. One ff push to the target tip.
   const result = await pushBranch(ctx.git, {
     cwd,
@@ -375,7 +438,7 @@ async function runPollLoop(
     const verdict = classifyScope(blockers, prMap);
 
     if (verdict.kind === "ready") {
-      await performLand(ctx, config, plan, totalUnits, opts.cwd);
+      await performLand(ctx, config, plan, totalUnits, opts.cwd, opts.merges ?? false);
       return;
     }
     if (verdict.kind === "hard") {

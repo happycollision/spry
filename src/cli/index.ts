@@ -78,11 +78,13 @@ program
     "Watch CI and auto-land when the scope goes green (fail fast on a hard blocker)",
   )
   .option("--interval <sec>", "Poll cadence in seconds when --poll is set (default 30)")
-  .action((opts: { through?: string; poll?: boolean; interval?: string }) =>
+  .option("--merges", "Acknowledge landing merge commit(s) into trunk")
+  .action((opts: { through?: string; poll?: boolean; interval?: string; merges?: boolean }) =>
     landCommand(ctx, {
       through: opts.through,
       poll: opts.poll,
       interval: parseInterval(opts.interval),
+      merges: opts.merges,
     }),
   );
 

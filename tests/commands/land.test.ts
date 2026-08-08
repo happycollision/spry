@@ -1,5 +1,5 @@
 import { describe, test, expect, afterAll } from "bun:test";
-import { landCommand } from "../../src/commands/land.ts";
+import { landCommand, evaluateMergeGate, mergeCommitsInRange } from "../../src/commands/land.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
 import { captureLogs, trapExit } from "../lib/capture.ts";
 import type {
@@ -1111,5 +1111,65 @@ describe("sp land cleanup tail", () => {
     // The error names the unpushed problem and points at `sp sync`.
     expect(logs.err.join("\n")).toMatch(/not pushed|stale/i);
     expect(logs.err.join("\n")).toMatch(/sp sync/);
+  });
+});
+
+describe("sp land --merges gate", () => {
+  test("evaluateMergeGate allows when there are no merge commits", () => {
+    expect(evaluateMergeGate([], false, "main")).toEqual({ ok: true });
+  });
+
+  test("evaluateMergeGate allows merges when --merges was passed", () => {
+    expect(evaluateMergeGate(["abc123 Merge: x"], true, "main")).toEqual({ ok: true });
+  });
+
+  test("evaluateMergeGate refuses merges without --merges, naming them and --merges", () => {
+    const r = evaluateMergeGate(["abc123 Merge: x", "def456 Merge: y"], false, "main");
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    const text = r.messageLines.join("\n");
+    expect(text).toMatch(/2 merge commit/i);
+    expect(text).toContain("Merge: x");
+    expect(text).toContain("Merge: y");
+    expect(text).toContain("main");
+    expect(text).toContain("--merges");
+  });
+
+  test("mergeCommitsInRange finds a merge commit in <ref>..<tip>", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    const env = {
+      GIT_AUTHOR_DATE: "1700000000 +0000",
+      GIT_COMMITTER_DATE: "1700000000 +0000",
+      GIT_AUTHOR_NAME: "spry",
+      GIT_AUTHOR_EMAIL: "spry@local",
+      GIT_COMMITTER_NAME: "spry",
+      GIT_COMMITTER_EMAIL: "spry@local",
+    };
+    await git.run(["checkout", "-b", "feature"], { cwd: repo.path });
+    const base = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    await git.run(["commit", "--allow-empty", "-m", "m1"], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "m2"], { cwd: repo.path });
+    const m2 = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    const m2tree = (await git.run(["rev-parse", "HEAD^{tree}"], { cwd: repo.path })).stdout.trim();
+    const merge = (
+      await git.run(["commit-tree", m2tree, "-p", base, "-p", m2, "-m", "Merge: m1"], {
+        cwd: repo.path,
+        env,
+      })
+    ).stdout.trim();
+    await git.run(["reset", "--hard", merge], { cwd: repo.path });
+    const tip = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+
+    const ctx = makeCtx(repo, stubGh(ghPrStub({})).gh);
+    const lines = await mergeCommitsInRange(ctx, base, tip, { cwd: repo.path });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("Merge: m1");
+
+    // A merge-free range finds nothing.
+    await git.run(["checkout", "-b", "linear", base], { cwd: repo.path });
+    await git.run(["commit", "--allow-empty", "-m", "plain"], { cwd: repo.path });
+    const linTip = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
+    expect(await mergeCommitsInRange(ctx, base, linTip, { cwd: repo.path })).toEqual([]);
   });
 });
