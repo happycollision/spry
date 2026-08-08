@@ -537,3 +537,104 @@ test("--apply reads the doc from stdin when apply is '-'", async () => {
   if (!gid) throw new Error("no group record found");
   expect(records[gid]?.title).toBe("Via stdin");
 });
+
+// --- merge groups (step 4) ---
+
+import { loadMergeGroupRecords } from "../../src/git/merge-groups.ts";
+
+async function firstParentSubjects(repo: TestRepo): Promise<string[]> {
+  const git = createRealGitRunner();
+  const log = await git.run(
+    ["log", "--first-parent", "--reverse", "--format=%s", `origin/${repo.defaultBranch}..HEAD`],
+    { cwd: repo.path },
+  );
+  return log.stdout.trim() ? log.stdout.trim().split("\n") : [];
+}
+
+async function mergeCount(repo: TestRepo): Promise<number> {
+  const git = createRealGitRunner();
+  const log = await git.run(
+    ["log", "--min-parents=2", "--format=%H", `origin/${repo.defaultBranch}..HEAD`],
+    { cwd: repo.path },
+  );
+  return log.stdout.trim() ? log.stdout.trim().split("\n").length : 0;
+}
+
+test("--apply materializes a top-level merge group into a real merge commit", async () => {
+  const repo = await makeRepo();
+  await repo.commitFiles({ "p1.txt": "P1" }, "feat: p1\n\nSpry-Commit-Id: p1p1p1p1");
+  await repo.commitFiles({ "m1.txt": "M1" }, "feat: m1\n\nSpry-Commit-Id: m1m1m1m1");
+  await repo.commitFiles({ "m2.txt": "M2" }, "feat: m2\n\nSpry-Commit-Id: m2m2m2m2");
+
+  const treeBefore = (
+    await createRealGitRunner().run(["rev-parse", "HEAD^{tree}"], { cwd: repo.path })
+  ).stdout.trim();
+
+  const res = await applyDoc(repo, {
+    stack: [
+      { type: "commit", id: "p1p1p1p1" },
+      {
+        type: "merge",
+        id: "mgmgmgmg",
+        commits: [
+          { type: "commit", id: "m1m1m1m1" },
+          { type: "commit", id: "m2m2m2m2" },
+        ],
+      },
+    ],
+  });
+
+  expect(res.code).toBeUndefined();
+  // A real merge commit now exists, and the first-parent line shows p1 then the
+  // synthesized merge (members are on the side branch).
+  expect(await mergeCount(repo)).toBe(1);
+  const fp = await firstParentSubjects(repo);
+  expect(fp[0]).toContain("p1");
+  expect(fp[1]).toMatch(/^Merge:/);
+  // Merge-group record saved under the given id.
+  const mrecords = await loadMergeGroupRecords(repo.git, { cwd: repo.path });
+  expect(mrecords["mgmgmgmg"]).toEqual({ members: ["m1m1m1m1", "m2m2m2m2"] });
+  // Final content is unchanged (merge introduces no diff).
+  const treeAfter = (
+    await createRealGitRunner().run(["rev-parse", "HEAD^{tree}"], { cwd: repo.path })
+  ).stdout.trim();
+  expect(treeAfter).toBe(treeBefore);
+});
+
+test("--apply materializes a merge nested inside a PR group", async () => {
+  const repo = await makeRepo();
+  await repo.commitFiles({ "c1.txt": "C1" }, "feat: c1\n\nSpry-Commit-Id: c1c1c1c1");
+  await repo.commitFiles({ "c2.txt": "C2" }, "feat: c2\n\nSpry-Commit-Id: c2c2c2c2");
+  await repo.commitFiles({ "c3.txt": "C3" }, "feat: c3\n\nSpry-Commit-Id: c3c3c3c3");
+
+  const res = await applyDoc(repo, {
+    stack: [
+      {
+        type: "group",
+        id: null,
+        title: "Ship it",
+        commits: [
+          { type: "commit", id: "c1c1c1c1" },
+          {
+            type: "merge",
+            id: null,
+            commits: [
+              { type: "commit", id: "c2c2c2c2" },
+              { type: "commit", id: "c3c3c3c3" },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+
+  expect(res.code).toBeUndefined();
+  expect(await mergeCount(repo)).toBe(1);
+  // Both a PR group record and a merge-group record exist.
+  const grecords = await loadGroupRecords(repo.git, { cwd: repo.path });
+  expect(Object.keys(grecords)).toHaveLength(1);
+  const mrecords = await loadMergeGroupRecords(repo.git, { cwd: repo.path });
+  const mids = Object.keys(mrecords);
+  expect(mids).toHaveLength(1);
+  expect(mrecords[mids[0]!]).toEqual({ members: ["c2c2c2c2", "c3c3c3c3"] });
+});

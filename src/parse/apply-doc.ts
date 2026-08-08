@@ -23,8 +23,23 @@ export interface ParsedGroup {
   members: ParsedCommit[];
 }
 export type ParsedNode = ParsedCommit | ParsedGroup;
+
+// A merge group extracted from the doc: a contiguous run of member commit ids
+// (in order) that materialize as one merge commit, plus its identity directives.
+// Merge groups are a SEPARATE axis from PR grouping; they are lowered out of the
+// stack here so `reconcile` (which owns PR grouping) sees only the flattened
+// commit/group structure, exactly as before. `containerGroupId` is the id of the
+// PR group the merge is nested in (for the containment invariant), or null when
+// the merge sits at the top level.
+export interface ParsedMergeGroup {
+  id: string | null; // real merge-group id to keep, or null to mint
+  reissueId: boolean;
+  memberIds: string[]; // >= 1, contiguous, in stack order
+  containerGroupId: string | null;
+}
 export interface ParsedDoc {
   stack: ParsedNode[];
+  mergeGroups: ParsedMergeGroup[];
 }
 export type ParseResult = { ok: true; doc: ParsedDoc } | { ok: false; error: string };
 
@@ -71,7 +86,11 @@ function parseCommit(raw: unknown, where: string): ParsedCommit | string {
   };
 }
 
-function parseGroup(raw: Record<string, unknown>, where: string): ParsedGroup | string {
+function parseGroup(
+  raw: Record<string, unknown>,
+  where: string,
+  mergeGroupsOut: ParsedMergeGroup[],
+): ParsedGroup | string {
   // Unknown fields are generally ignored on input; the notable ones are the
   // output-only fields from `sp view --json` — "sha", "subject", and "pr" (the
   // output PR-state object) — which are silently ignored here.
@@ -102,9 +121,21 @@ function parseGroup(raw: Record<string, unknown>, where: string): ParsedGroup | 
   if (!("commits" in raw)) return `${where}: group missing required "commits"`;
   if (!Array.isArray(raw.commits)) return `${where}: "commits" must be an array`;
   if (raw.commits.length === 0) return `${where}: group has no members (empty group)`;
+  // A group's `commits` may interleave plain commit nodes and merge nodes. Plain
+  // commits join `members` directly; a merge node's members are flattened into
+  // `members` (contiguously, in place) and the merge is emitted separately via
+  // `mergeGroupsOut`, tagged with this group's id as its container.
   const members: ParsedCommit[] = [];
   for (let i = 0; i < raw.commits.length; i++) {
-    const m = parseCommit(raw.commits[i], `${where}.commits[${i}]`);
+    const child = raw.commits[i];
+    if (isObj(child) && child.type === "merge") {
+      const mg = parseMerge(child, `${where}.commits[${i}]`, id);
+      if (typeof mg === "string") return mg;
+      members.push(...mg.parsedMembers);
+      mergeGroupsOut.push(mg.mergeGroup);
+      continue;
+    }
+    const m = parseCommit(child, `${where}.commits[${i}]`);
     if (typeof m === "string") return m;
     members.push(m);
   }
@@ -120,6 +151,51 @@ function parseGroup(raw: Record<string, unknown>, where: string): ParsedGroup | 
   };
 }
 
+// Parse a merge node ({ type: "merge", id, commits: [...] }). Returns its flattened
+// member commits (to splice into the containing list) and a ParsedMergeGroup for
+// the doc's mergeGroups. `containerGroupId` is the enclosing PR group's id, or null
+// at the top level.
+interface ParsedMergeNode {
+  parsedMembers: ParsedCommit[];
+  mergeGroup: ParsedMergeGroup;
+}
+function parseMerge(
+  raw: Record<string, unknown>,
+  where: string,
+  containerGroupId: string | null,
+): ParsedMergeNode | string {
+  if (!("id" in raw)) return `${where}: merge missing required "id" (use null to mint a new one)`;
+  const id = raw.id;
+  if (id !== null && typeof id !== "string") return `${where}: merge "id" must be a string or null`;
+  if ("reissueId" in raw && typeof raw.reissueId !== "boolean")
+    return `${where}: "reissueId" must be a boolean`;
+  const reissueId = "reissueId" in raw ? raw.reissueId === true : false;
+  if (reissueId && id === null)
+    return `${where}: reissueId:true cannot combine with id:null (contradiction)`;
+  if (!("commits" in raw)) return `${where}: merge missing required "commits"`;
+  if (!Array.isArray(raw.commits)) return `${where}: merge "commits" must be an array`;
+  if (raw.commits.length === 0) return `${where}: merge has no members (empty merge)`;
+  // A merge cannot nest another merge (no nesting — see design non-goals).
+  const parsedMembers: ParsedCommit[] = [];
+  for (let i = 0; i < raw.commits.length; i++) {
+    const child = raw.commits[i];
+    if (isObj(child) && child.type === "merge")
+      return `${where}.commits[${i}]: a merge may not nest another merge`;
+    const m = parseCommit(child, `${where}.commits[${i}]`);
+    if (typeof m === "string") return m;
+    parsedMembers.push(m);
+  }
+  return {
+    parsedMembers,
+    mergeGroup: {
+      id,
+      reissueId,
+      memberIds: parsedMembers.map((m) => m.id),
+      containerGroupId,
+    },
+  };
+}
+
 export function parseApplyDoc(json: string): ParseResult {
   let root: unknown;
   try {
@@ -131,18 +207,35 @@ export function parseApplyDoc(json: string): ParseResult {
     return { ok: false, error: `Document must be an object with a "stack" array` };
 
   const stack: ParsedNode[] = [];
+  const mergeGroups: ParsedMergeGroup[] = [];
   const seenIds = new Set<string>();
   const seenGroupIds = new Set<string>();
+  const seenMergeGroupIds = new Set<string>();
   for (let i = 0; i < root.stack.length; i++) {
     const raw = root.stack[i];
     if (!isObj(raw)) return { ok: false, error: `stack[${i}]: expected an object` };
+
+    // A top-level merge node lowers to its flattened member commits (spliced into
+    // the stack in place) plus a mergeGroup with no container.
+    if (raw.type === "merge") {
+      const mg = parseMerge(raw, `stack[${i}]`, null);
+      if (typeof mg === "string") return { ok: false, error: mg };
+      for (const m of mg.parsedMembers) {
+        if (seenIds.has(m.id)) return { ok: false, error: `Duplicate commit id: ${m.id}` };
+        seenIds.add(m.id);
+        stack.push(m);
+      }
+      mergeGroups.push(mg.mergeGroup);
+      continue;
+    }
+
     let node: ParsedNode | string;
     if (raw.type === "commit") node = parseCommit(raw, `stack[${i}]`);
-    else if (raw.type === "group") node = parseGroup(raw, `stack[${i}]`);
+    else if (raw.type === "group") node = parseGroup(raw, `stack[${i}]`, mergeGroups);
     else
       return {
         ok: false,
-        error: `stack[${i}]: missing or unknown "type" (expected "commit" or "group")`,
+        error: `stack[${i}]: missing or unknown "type" (expected "commit", "group", or "merge")`,
       };
     if (typeof node === "string") return { ok: false, error: node };
 
@@ -161,7 +254,18 @@ export function parseApplyDoc(json: string): ParseResult {
     }
     stack.push(node);
   }
-  return { ok: true, doc: { stack } };
+
+  // Duplicate merge-group-id detection (a merge id equal to one of its own member
+  // commit ids is legal — the adoption/identity case; two merges sharing an id is
+  // the error).
+  for (const mg of mergeGroups) {
+    if (mg.id === null) continue;
+    if (seenMergeGroupIds.has(mg.id))
+      return { ok: false, error: `Duplicate merge-group id: ${mg.id}` };
+    seenMergeGroupIds.add(mg.id);
+  }
+
+  return { ok: true, doc: { stack, mergeGroups } };
 }
 
 export interface ReconcilePlan {

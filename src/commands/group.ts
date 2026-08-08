@@ -20,7 +20,11 @@ import {
   registerBranch,
   getCommitMessage,
   rewriteCommitChain,
+  buildMaterializePlan,
+  materialize,
+  saveAllMergeGroupRecords,
 } from "../git/index.ts";
+import type { MergeGroupSpec } from "../git/index.ts";
 import { parseCommitTrailers, parseStack } from "../parse/index.ts";
 import { findPRsForBranches, classifyGhInfraError } from "../gh/index.ts";
 import type { PRInfo } from "../gh/index.ts";
@@ -332,6 +336,64 @@ async function applyGroupDoc(
 
   // Save group records (full replace).
   await saveAllGroupRecords(ctx.git, plan.records, { cwd });
+
+  // Materialize merge groups (if any). This is a history rewrite like reorder, so
+  // it is not combined with reissue/reorder in a single apply (matching the
+  // existing one-rewrite-per-apply rule). Runs against the CURRENT stack order.
+  const mergeGroupDefs = parsed.doc.mergeGroups;
+  if (mergeGroupDefs.length > 0) {
+    if (plan.reissueIds.length > 0 || plan.newOrder) {
+      console.error(
+        "✗ Cannot combine merge-group materialization with reorder or id reissue in one apply.",
+      );
+      process.exit(1);
+    }
+    const status = await getWorkingTreeStatus(ctx.git, { cwd });
+    if (status.isDirty) {
+      console.error(
+        "✗ Cannot materialize merge groups with a dirty working tree. Commit or stash first.",
+      );
+      process.exit(1);
+    }
+    // Subject-by-id, for synthesizing each merge commit's placeholder message.
+    const subjectById: Record<string, string> = {};
+    for (const c of withTrailers) {
+      const id = c.trailers["Spry-Commit-Id"];
+      if (id) subjectById[id] = c.subject;
+    }
+    // PR-group-by-id (from the reconciled records), for the containment check.
+    const prGroupById: Record<string, string> = {};
+    for (const [groupId, record] of Object.entries(plan.records)) {
+      for (const memberId of record.members) prGroupById[memberId] = groupId;
+    }
+    const specs: MergeGroupSpec[] = mergeGroupDefs.map((mg) => {
+      const firstSubject = subjectById[mg.memberIds[0] ?? ""] ?? "changes";
+      // Synthesized placeholder subject; the user/agent amends with git later.
+      return { memberIds: mg.memberIds, message: `Merge: ${firstSubject}` };
+    });
+    const built = buildMaterializePlan(liveIds, liveHashById, specs, prGroupById);
+    if (!built.ok) {
+      console.error(`✗ ${built.error}`);
+      process.exit(1);
+    }
+    const result = await materialize(ctx.git, mergeBase, built.plan, { cwd });
+    if (!result.ok) {
+      console.error(
+        `✗ Cannot materialize merge: commit ${result.conflictSha.slice(0, 8)} conflicts.\n${result.conflictInfo}`,
+      );
+      process.exit(1);
+    }
+    await finalizeRewrite(ctx.git, branch, oldTip, result.newTip, { cwd });
+
+    // Persist merge-group records: id (minted when null) -> members.
+    const mergeRecords: Record<string, { members: string[] }> = {};
+    for (const mg of mergeGroupDefs) {
+      const id = mg.id ?? generateCommitId();
+      mergeRecords[id] = { members: mg.memberIds };
+    }
+    await saveAllMergeGroupRecords(ctx.git, mergeRecords, { cwd });
+    console.log(`✓ Materialized ${mergeGroupDefs.length} merge group(s)`);
+  }
 
   // Record PR-close intent locally by marking the cached entry CLOSED. NOTE:
   // no command consumes this as a GitHub close yet — for now it only removes

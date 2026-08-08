@@ -1,5 +1,10 @@
 import { describe, test, expect, afterAll } from "bun:test";
-import { materialize, type PlanNode } from "../../src/git/materialize.ts";
+import {
+  materialize,
+  buildMaterializePlan,
+  type PlanNode,
+  type MergeGroupSpec,
+} from "../../src/git/materialize.ts";
 import { getTree } from "../../src/git/plumbing.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
 import type { TestRepo } from "../lib/index.ts";
@@ -208,5 +213,69 @@ describe("materialize", () => {
     expect(result.mergeShas).toHaveLength(1);
     expect(await parentCount(repo.path, result.mergeShas[0]!)).toBe(2);
     expect(await filesAt(repo.path, result.newTip)).toEqual(["c1.txt"]);
+  });
+});
+
+describe("buildMaterializePlan", () => {
+  const hashById = { p1: "h1", m1: "h2", m2: "h3", p4: "h4" };
+  const ordered = ["p1", "m1", "m2", "p4"];
+
+  test("builds a plain+merge+plain plan for a contiguous merge group", () => {
+    const specs: MergeGroupSpec[] = [{ memberIds: ["m1", "m2"], message: "Merge" }];
+    const r = buildMaterializePlan(ordered, hashById, specs);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.plan).toEqual([
+      { type: "commit", sha: "h1" },
+      { type: "merge", members: ["h2", "h3"], message: "Merge" },
+      { type: "commit", sha: "h4" },
+    ]);
+  });
+
+  test("rejects a non-contiguous merge group", () => {
+    const specs: MergeGroupSpec[] = [{ memberIds: ["p1", "m2"], message: "Merge" }];
+    const r = buildMaterializePlan(ordered, hashById, specs);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/contiguous/i);
+  });
+
+  test("rejects a member that is not in the stack", () => {
+    const specs: MergeGroupSpec[] = [{ memberIds: ["m1", "nope"], message: "Merge" }];
+    const r = buildMaterializePlan(ordered, hashById, specs);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/not in the stack/i);
+  });
+
+  test("rejects a merge group spanning two PR groups (containment)", () => {
+    const specs: MergeGroupSpec[] = [{ memberIds: ["m1", "m2"], message: "Merge" }];
+    const prGroupById = { m1: "gA", m2: "gB" };
+    const r = buildMaterializePlan(ordered, hashById, specs, prGroupById);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/more than one PR group|spans/i);
+  });
+
+  test("allows a merge group fully within one PR group", () => {
+    const specs: MergeGroupSpec[] = [{ memberIds: ["m1", "m2"], message: "Merge" }];
+    const prGroupById = { m1: "gA", m2: "gA" };
+    const r = buildMaterializePlan(ordered, hashById, specs, prGroupById);
+    expect(r.ok).toBe(true);
+  });
+
+  test("single-commit merge group is allowed", () => {
+    const specs: MergeGroupSpec[] = [{ memberIds: ["m1"], message: "Solo" }];
+    const r = buildMaterializePlan(ordered, hashById, specs);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.plan).toContainEqual({ type: "merge", members: ["h2"], message: "Solo" });
+  });
+
+  test("rejects a commit in two merge groups", () => {
+    const specs: MergeGroupSpec[] = [
+      { memberIds: ["m1", "m2"], message: "A" },
+      { memberIds: ["m2"], message: "B" },
+    ];
+    const r = buildMaterializePlan(ordered, hashById, specs);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/more than one merge group/i);
   });
 });

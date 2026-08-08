@@ -78,6 +78,23 @@ export {
 export type { GroupRecord } from "../parse/types.ts";
 
 export {
+  loadMergeGroupRecords,
+  saveMergeGroupRecord,
+  saveAllMergeGroupRecords,
+  fetchMergeGroupRecords,
+  pushMergeGroupRecords,
+  buildCommitMergeGroupMap,
+} from "./merge-groups.ts";
+
+export { materialize, buildMaterializePlan } from "./materialize.ts";
+export type {
+  PlanNode,
+  MergeGroupSpec,
+  MaterializeResult,
+  BuildPlanResult,
+} from "./materialize.ts";
+
+export {
   loadTrackedBranches,
   saveTrackedBranches,
   registerBranch,

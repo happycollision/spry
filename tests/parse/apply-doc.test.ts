@@ -844,3 +844,187 @@ test("reconcile: member-level prAction:ADOPT is rejected (ADOPT only valid on gr
     ),
   ).toMatch(/adopt/i);
 });
+
+// --- merge nodes (step 4) ---
+
+test("top-level merge node lowers to flattened commits + a mergeGroup", () => {
+  const doc = ok(
+    JSON.stringify({
+      stack: [
+        { type: "commit", id: "p1p1p1p1" },
+        {
+          type: "merge",
+          id: "mg111111",
+          commits: [
+            { type: "commit", id: "m1m1m1m1" },
+            { type: "commit", id: "m2m2m2m2" },
+          ],
+        },
+        { type: "commit", id: "p4p4p4p4" },
+      ],
+    }),
+  );
+  // Stack is flattened: the merge's members appear inline as plain commits.
+  expect(doc.stack.map((n) => (n.kind === "commit" ? n.id : "group"))).toEqual([
+    "p1p1p1p1",
+    "m1m1m1m1",
+    "m2m2m2m2",
+    "p4p4p4p4",
+  ]);
+  // The merge group is captured separately, top-level (no container).
+  expect(doc.mergeGroups).toHaveLength(1);
+  expect(doc.mergeGroups[0]).toEqual({
+    id: "mg111111",
+    reissueId: false,
+    memberIds: ["m1m1m1m1", "m2m2m2m2"],
+    containerGroupId: null,
+  });
+});
+
+test("merge nested inside a group is tagged with the container group id", () => {
+  const doc = ok(
+    JSON.stringify({
+      stack: [
+        {
+          type: "group",
+          id: "grpaaaaa",
+          title: "Ship auth",
+          commits: [
+            { type: "commit", id: "c1c1c1c1" },
+            {
+              type: "merge",
+              id: "mg222222",
+              commits: [
+                { type: "commit", id: "c2c2c2c2" },
+                { type: "commit", id: "c3c3c3c3" },
+              ],
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  const g = doc.stack[0];
+  expect(g?.kind).toBe("group");
+  if (g?.kind !== "group") throw new Error("expected group");
+  // Group members are flattened: the merge's members are spliced in.
+  expect(g.members.map((m) => m.id)).toEqual(["c1c1c1c1", "c2c2c2c2", "c3c3c3c3"]);
+  expect(doc.mergeGroups).toHaveLength(1);
+  expect(doc.mergeGroups[0]).toMatchObject({
+    id: "mg222222",
+    memberIds: ["c2c2c2c2", "c3c3c3c3"],
+    containerGroupId: "grpaaaaa",
+  });
+});
+
+test("single-commit merge group is allowed", () => {
+  const doc = ok(
+    JSON.stringify({
+      stack: [{ type: "merge", id: "mg333333", commits: [{ type: "commit", id: "s1s1s1s1" }] }],
+    }),
+  );
+  expect(doc.mergeGroups[0]?.memberIds).toEqual(["s1s1s1s1"]);
+});
+
+test("merge with id:null mints a new merge group", () => {
+  const doc = ok(
+    JSON.stringify({
+      stack: [{ type: "merge", id: null, commits: [{ type: "commit", id: "s1s1s1s1" }] }],
+    }),
+  );
+  expect(doc.mergeGroups[0]?.id).toBeNull();
+});
+
+test("empty merge errors", () => {
+  expect(err(JSON.stringify({ stack: [{ type: "merge", id: "mgxxxxxx", commits: [] }] }))).toMatch(
+    /empty merge|no members/i,
+  );
+});
+
+test("a merge may not nest another merge", () => {
+  expect(
+    err(
+      JSON.stringify({
+        stack: [
+          {
+            type: "merge",
+            id: "mgxxxxxx",
+            commits: [
+              { type: "merge", id: "mgyyyyyy", commits: [{ type: "commit", id: "aaaaaaaa" }] },
+            ],
+          },
+        ],
+      }),
+    ),
+  ).toMatch(/nest another merge/i);
+});
+
+test("merge reissueId:true with id:null is a contradiction", () => {
+  expect(
+    err(
+      JSON.stringify({
+        stack: [
+          {
+            type: "merge",
+            id: null,
+            reissueId: true,
+            commits: [{ type: "commit", id: "aaaaaaaa" }],
+          },
+        ],
+      }),
+    ),
+  ).toMatch(/reissueId.*id:null|contradiction/i);
+});
+
+test("duplicate merge-group id errors", () => {
+  expect(
+    err(
+      JSON.stringify({
+        stack: [
+          { type: "merge", id: "dupmerge", commits: [{ type: "commit", id: "aaaaaaaa" }] },
+          { type: "merge", id: "dupmerge", commits: [{ type: "commit", id: "bbbbbbbb" }] },
+        ],
+      }),
+    ),
+  ).toMatch(/duplicate merge-group id/i);
+});
+
+test("a merge member id colliding with another commit id errors (duplicate commit id)", () => {
+  expect(
+    err(
+      JSON.stringify({
+        stack: [
+          { type: "commit", id: "aaaaaaaa" },
+          { type: "merge", id: "mgxxxxxx", commits: [{ type: "commit", id: "aaaaaaaa" }] },
+        ],
+      }),
+    ),
+  ).toMatch(/duplicate commit id/i);
+});
+
+test("a merged stack still reconciles for PR grouping (members flattened)", () => {
+  // The merge's members carry no PR group; they reconcile as top-level singles.
+  const doc = ok(
+    JSON.stringify({
+      stack: [
+        { type: "commit", id: "p1p1p1p1" },
+        {
+          type: "merge",
+          id: "mg111111",
+          commits: [
+            { type: "commit", id: "m1m1m1m1" },
+            { type: "commit", id: "m2m2m2m2" },
+          ],
+        },
+      ],
+    }),
+  );
+  const live = {
+    liveIds: ["p1p1p1p1", "m1m1m1m1", "m2m2m2m2"],
+    liveHashById: { p1p1p1p1: "h1", m1m1m1m1: "h2", m2m2m2m2: "h3" },
+    liveGroups: {} as GroupRecords,
+    openPrIds: new Set<string>(),
+  };
+  const r = reconcile(doc, live);
+  expect(r.ok).toBe(true);
+});
