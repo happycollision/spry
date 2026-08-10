@@ -442,6 +442,18 @@ You should edit the changelog after each change that affects runtime, BEFORE YOU
 
 ## Releasing
 
+**Release from `main`, in the primary worktree.** The release script refuses to
+run from any other branch, because the tag it pushes is what triggers the
+release workflow — a tag pointing at a commit that never reached `main` would
+publish a release built from code nobody can find. To release a different branch
+deliberately, set `RELEASE_BRANCH=<branch>` (`--force` does _not_ bypass this
+guard; it only allows a version older than the latest tag).
+
+```bash
+git checkout main && git pull
+./scripts/release.sh <version>
+```
+
 Use the release script to cut a new version. Do not manually edit any files - the script handles everything:
 
 ```bash
@@ -454,12 +466,24 @@ Use the release script to cut a new version. Do not manually edit any files - th
 This will:
 
 1. Validate the version format (semver with optional prerelease)
-2. Update the changelog
+2. Check that you are on the release branch (`main`)
 3. Check that there are no uncommitted changes
 4. Verify the version is newer than the latest tag (use `--force` to bypass)
-5. Update `package.json` version
-6. Commit the version bump
-7. Create and push the git tag
+5. Verify `bun` actually executes (it is a mise shim; see below)
+6. Update the changelog
+7. Update `package.json` version
+8. Commit the version bump
+9. Create the tag, push the branch, **then** push the tag
+
+Steps 6–8 are wrapped in a rollback trap: if anything fails partway, the script
+restores `CHANGELOG.md` and `package.json` instead of leaving a half-bumped
+tree. The tag is pushed last and only after the branch push succeeds, so a
+failed release never publishes.
+
+**`bun` is a mise shim.** `mise` refuses to run in an untrusted directory, so
+`bun` can be on `PATH` and still fail — most likely in a fresh clone or git
+worktree. Fix it once per directory with `mise trust`. The release script
+preflights this before mutating anything.
 
 The GitHub workflow automatically builds binaries for all platforms and creates a release with notes extracted from `CHANGELOG.md`.
 

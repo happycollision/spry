@@ -29,6 +29,27 @@ fi
 
 TAG="v$VERSION"
 
+# The release commit must land on the release branch. A bare `git push` is not
+# safe here: with push.default=current (or no upstream) it pushes whatever
+# branch happens to be checked out -- e.g. a worktree branch -- which would
+# publish the tag pointing at a commit that never reached the release branch.
+# So we always push explicitly to RELEASE_BRANCH, and refuse to run from a
+# branch that isn't it unless the caller opts in.
+RELEASE_BRANCH="${RELEASE_BRANCH:-main}"
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+if [ "$CURRENT_BRANCH" != "$RELEASE_BRANCH" ]; then
+  echo "Error: you are on branch '$CURRENT_BRANCH', not the release branch '$RELEASE_BRANCH'"
+  echo ""
+  echo "Release from '$RELEASE_BRANCH':"
+  echo "  git checkout $RELEASE_BRANCH && git pull"
+  echo "  $0 $VERSION"
+  echo ""
+  echo "To release this branch deliberately (it becomes origin/$CURRENT_BRANCH):"
+  echo "  RELEASE_BRANCH=$CURRENT_BRANCH $0 $VERSION"
+  exit 1
+fi
+
 # Validate version format (basic semver with optional prerelease)
 if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
   echo "Error: Invalid version format '$VERSION'"
@@ -87,10 +108,38 @@ if [ -n "$LATEST_TAG" ]; then
   fi
 fi
 
+# Verify `bun` actually runs BEFORE we mutate anything. `bun` is commonly a
+# mise shim, and mise refuses to run in an untrusted directory (e.g. a fresh
+# worktree), so `bun` can be on PATH and still fail. Discovering that halfway
+# through the release used to leave the changelog rewritten but package.json
+# un-bumped.
+if ! bun -e '' >/dev/null 2>&1; then
+  echo "Error: 'bun' is on PATH but failed to execute."
+  echo ""
+  bun -e '' 2>&1 | sed 's/^/  /' || true
+  echo ""
+  echo "If this is a mise trust error, run:  mise trust"
+  exit 1
+fi
+
 echo "Releasing version $VERSION (tag: $TAG)"
+
+# From here on we mutate the working tree. On any failure, roll the mutations
+# back so a partial release never survives -- the tree is verified clean above,
+# so restoring these two files is safe.
+release_files_dirty=false
+rollback() {
+  if [ "$release_files_dirty" = true ]; then
+    echo ""
+    echo "Release failed -- rolling back changes to package.json and CHANGELOG.md"
+    git checkout -- package.json "$CHANGELOG_FILE" 2>/dev/null || true
+  fi
+}
+trap rollback ERR INT TERM
 
 # Bump changelog: move Unreleased content to new version section
 echo "Updating changelog..."
+release_files_dirty=true
 DATE=$(date +%Y-%m-%d)
 awk -v ver="$VERSION" -v date="$DATE" '
   /^## \[Unreleased\]/ {
@@ -111,13 +160,30 @@ echo "Committing version bump..."
 git add package.json CHANGELOG.md
 git commit -m "chore: bump version to $VERSION"
 
+# The commit exists now, so file-level rollback is no longer the right undo.
+release_files_dirty=false
+trap - ERR INT TERM
+
 # Create the tag
 echo "Creating tag $TAG..."
 git tag "$TAG"
 
-# Push the commit and tag
-echo "Pushing to remote..."
-git push
+# Push the BRANCH first, then the tag. The tag push is what triggers the release
+# workflow, so it must go last: if the branch push fails (e.g. the remote moved
+# ahead), we abort with the tag still local-only and nothing published.
+echo "Pushing $CURRENT_BRANCH to origin/$RELEASE_BRANCH..."
+if ! git push origin "HEAD:refs/heads/$RELEASE_BRANCH"; then
+  echo ""
+  echo "Error: failed to push the release commit to origin/$RELEASE_BRANCH."
+  echo "The tag $TAG was created locally but NOT pushed, so no release was published."
+  echo ""
+  echo "To undo the local release commit and tag:"
+  echo "  git tag -d $TAG"
+  echo "  git reset --hard HEAD~1"
+  exit 1
+fi
+
+echo "Pushing tag $TAG (this triggers the release workflow)..."
 git push origin "$TAG"
 
 echo ""
