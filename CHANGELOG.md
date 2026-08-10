@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-beta.6] - 2026-08-10
+
 ### Fixed
 
 - **Release machinery hardened.** `scripts/release.sh` had four defects that went unnoticed while no release was cut during the rewrite. (1) It pushed the release commit with a bare `git push`; with `push.default=current` and no upstream — the state in any git worktree — that publishes the _current_ branch rather than `main`, and the script then pushed the tag anyway, so the release workflow would have built a release from a tag whose commit never reached `main`. It now pushes explicitly to `HEAD:refs/heads/$RELEASE_BRANCH` and refuses to run off the release branch (set `RELEASE_BRANCH=<branch>` to release a different branch deliberately; `--force` retains its single original meaning of allowing a version older than the latest tag). (2) The tag was pushed even if the branch push failed; branch and tag pushes are now ordered, with the tag last and skipped entirely on branch-push failure, since the tag push is what triggers the release. (3) `set -euo pipefail` with no cleanup trap meant a mid-run failure left `CHANGELOG.md` rewritten but `package.json` un-bumped — the changelog/package bump is now wrapped in a rollback trap. (4) `bun` is a mise shim and mise refuses to run in an untrusted directory, so the script died _after_ rewriting the changelog; it now preflights `bun` before mutating anything and points at `mise trust`.
