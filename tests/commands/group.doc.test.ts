@@ -160,7 +160,9 @@ describe("sp group docs", () => {
       const snapshot = term.capture();
       doc.screen(snapshot);
       expect(snapshot.text).toContain("Reordering disabled");
-      expect(snapshot.text).toContain("Space disabled");
+      // The key hints collapse to a single "reorder disabled" when the tree is
+      // dirty — both ⇧↑↓ (move commit) and Space (grab) are unavailable.
+      expect(snapshot.text).toContain("reorder disabled");
 
       term.type("q");
       expect(await term.waitForExit({ timeout: 5000 })).toBe(0);

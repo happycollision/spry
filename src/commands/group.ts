@@ -23,12 +23,17 @@ import {
   buildMaterializePlan,
   materialize,
   saveAllMergeGroupRecords,
+  loadMergeGroupRecords,
+  buildCommitMergeGroupMap,
+  getExpandedStackCommits,
+  getMergeMembers,
 } from "../git/index.ts";
 import type { MergeGroupSpec } from "../git/index.ts";
+import type { MergeGroupRecords } from "../parse/types.ts";
 import { parseCommitTrailers, parseStack } from "../parse/index.ts";
 import { findPRsForBranches, classifyGhInfraError } from "../gh/index.ts";
 import type { PRInfo } from "../gh/index.ts";
-import { runGroupEditor } from "../tui/group-editor.ts";
+import { runGroupEditor, collectMergeMessages } from "../tui/group-editor.ts";
 import { selectUnits } from "../tui/index.ts";
 import type { PRUnit } from "../parse/types.ts";
 import type { GroupRecords } from "../parse/types.ts";
@@ -67,7 +72,10 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
 
   await registerBranch(ctx.git, branch, { cwd });
 
-  const commits = await getStackCommits(ctx.git, ref, { cwd });
+  // Expanded: a materialized merge commit is replaced by its side-branch members,
+  // so the editor shows (and can edit) the real commits rather than an opaque
+  // merge row. The merge axis is reconstructed from refs/spry/merge-groups below.
+  const commits = await getExpandedStackCommits(ctx.git, ref, { cwd });
   if (commits.length === 0) {
     console.log("No commits in stack.");
     return;
@@ -83,6 +91,12 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
   const groupRecords = await loadGroupRecords(ctx.git, { cwd });
   const groupTitles = extractGroupTitles(groupRecords);
   const commitGroups = buildCommitGroupMap(groupRecords);
+
+  // The merge axis: which commits are already materialized under a merge commit,
+  // and each merge's current message (so re-saving preserves it verbatim).
+  const mergeRecords = await loadMergeGroupRecords(ctx.git, { cwd });
+  const mergeGroupMap = buildCommitMergeGroupMap(mergeRecords);
+  const mergeMessages = await readMergeMessages(ctx, ref, mergeRecords, cwd);
 
   // Build units for PR adoption detection (proceed even if stack has errors)
   const stackResult = parseStack(withTrailers, groupTitles, commitGroups);
@@ -114,11 +128,30 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
     trunkRef: ref,
     cwd,
     canReorder: !workingTreeStatus.isDirty,
+    mergeGroups: mergeGroupMap,
+    mergeMessages,
   });
 
   if (result.cancelled) {
     console.log("Cancelled.");
     return;
+  }
+
+  // Collect merge commit messages now — after the TUI (so experimenting with
+  // placement is never interrupted by an editor) but BEFORE anything is written,
+  // so aborting a message really does leave the repo untouched.
+  let mergeGroupsToApply = result.mergeGroups;
+  if (result.mergeChanged && result.mergeGroups.some((mg) => mg.needsMessage)) {
+    const collected = await collectMergeMessages(result.mergeGroups);
+    mergeGroupsToApply = collected.mergeGroups;
+    if (collected.placeheld > 0) {
+      const n = collected.placeheld;
+      console.log(
+        kleur.dim(
+          `↻ ${n} merge commit${n === 1 ? "" : "s"} got a placeholder message — reword with \`git rebase -i\`.`,
+        ),
+      );
+    }
   }
 
   // Resolve PR adoption for newly-created groups
@@ -149,6 +182,72 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
   // Write all group records atomically
   await saveAllGroupRecords(ctx.git, resolvedRecords, { cwd });
 
+  // Materialize the merge axis (create/grow/shrink/dissolve merge commits). Only
+  // runs when the user actually touched it, since it rewrites history. Re-reads
+  // the stack because a reorder above may have changed every hash.
+  if (result.mergeChanged) {
+    if (workingTreeStatus.isDirty) {
+      console.error(
+        "✗ Cannot materialize merge groups with a dirty working tree. Commit or stash first.",
+      );
+      process.exit(1);
+    }
+    const current = await getExpandedStackCommits(ctx.git, ref, { cwd });
+    const currentWithTrailers = parseCommitTrailers(current, ctx.git, { cwd });
+    const orderedIds: string[] = [];
+    const hashById: Record<string, string> = {};
+    for (const c of currentWithTrailers) {
+      const id = c.trailers["Spry-Commit-Id"];
+      if (!id) continue;
+      orderedIds.push(id);
+      hashById[id] = c.hash;
+    }
+
+    // Containment is checked against the PR groups we just saved.
+    const prGroupById: Record<string, string> = {};
+    for (const [groupId, record] of Object.entries(resolvedRecords)) {
+      for (const memberId of record.members) prGroupById[memberId] = groupId;
+    }
+
+    const specs: MergeGroupSpec[] = mergeGroupsToApply.map((mg) => ({
+      memberIds: mg.memberIds,
+      message: mg.message,
+    }));
+    const built = buildMaterializePlan(orderedIds, hashById, specs, prGroupById);
+    if (!built.ok) {
+      console.error(`✗ ${built.error}`);
+      process.exit(1);
+    }
+
+    // The branch tip is the LAST first-parent commit (a merge commit itself when
+    // the stack already ends in one) — not the last expanded member.
+    const firstParentNow = await getStackCommits(ctx.git, ref, { cwd });
+    const oldTip = firstParentNow.at(-1)?.hash;
+    if (!oldTip) throw new Error("groupCommand: empty stack at materialize");
+    const mergeBase = await getMergeBase(ctx.git, ref, { cwd });
+    const materialized = await materialize(ctx.git, mergeBase, built.plan, { cwd });
+    if (!materialized.ok) {
+      console.error(
+        `✗ Cannot materialize merge: commit ${materialized.conflictSha.slice(0, 8)} conflicts.\n${materialized.conflictInfo}`,
+      );
+      process.exit(1);
+    }
+    await finalizeRewrite(ctx.git, branch, oldTip, materialized.newTip, { cwd });
+
+    const mergeRecordsOut: MergeGroupRecords = {};
+    for (const mg of mergeGroupsToApply) {
+      mergeRecordsOut[mg.id] = { members: mg.memberIds };
+    }
+    await saveAllMergeGroupRecords(ctx.git, mergeRecordsOut, { cwd });
+
+    const n = mergeGroupsToApply.length;
+    console.log(
+      n === 0
+        ? "✓ Removed all merge groups"
+        : `✓ Materialized ${n} merge group${n === 1 ? "" : "s"}`,
+    );
+  }
+
   // Push refs/spry/groups best-effort
   const pushResult = await pushGroupRecords(ctx.git, config.remote, { cwd });
   if (!pushResult.ok) {
@@ -157,6 +256,40 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
 
   const groupCount = Object.keys(resolvedRecords).length;
   console.log(`✓ Groups updated (${groupCount} group${groupCount === 1 ? "" : "s"})`);
+}
+
+// Read the current message of each already-materialized merge commit, keyed by
+// its merge-group id, so an untouched group re-materializes with the message the
+// user already wrote (the commit — not any spry ref — owns the message).
+async function readMergeMessages(
+  ctx: SpryContext,
+  ref: string,
+  mergeRecords: MergeGroupRecords,
+  cwd: string | undefined,
+): Promise<Record<string, string>> {
+  const messages: Record<string, string> = {};
+  if (Object.keys(mergeRecords).length === 0) return messages;
+
+  // Map each member id to its merge-group id, then find the merge commit whose
+  // side-branch members carry that id.
+  const groupIdByMember = buildCommitMergeGroupMap(mergeRecords);
+  const firstParent = await getStackCommits(ctx.git, ref, { cwd });
+
+  for (const commit of firstParent) {
+    if ((commit.parents?.length ?? 0) < 2) continue;
+    const members = await getMergeMembers(ctx.git, commit.hash, { cwd });
+    const withIds = parseCommitTrailers(members, ctx.git, { cwd });
+    let groupId: string | undefined;
+    for (const m of withIds) {
+      const id = m.trailers["Spry-Commit-Id"];
+      if (id && groupIdByMember[id]) {
+        groupId = groupIdByMember[id];
+        break;
+      }
+    }
+    if (groupId) messages[groupId] = await getCommitMessage(ctx.git, commit.hash, { cwd });
+  }
+  return messages;
 }
 
 async function adoptPRs(
