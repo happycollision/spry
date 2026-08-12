@@ -1,9 +1,10 @@
 // End-to-end: `sp view --json` emits nested merge nodes after a merge group is
 // materialized via `sp group --apply`, and the emitted JSON is valid `--apply`
 // input (parses without stripping). Uses --apply as the oracle (offline; gh
-// throws). NOTE: re-materializing an already-materialized stack (a true history
-// no-op) is deferred — see spry follow-up; this test covers the read/emit path
-// and that the emitted tree is parseable apply input.
+// throws). Re-materializing an already-materialized stack is a true history
+// no-op — covered by tests/commands/group.apply-merge-idempotent.test.ts; this
+// test covers the read/emit path and that the emitted tree is parseable apply
+// input.
 import { test, expect, afterAll } from "bun:test";
 import { groupCommand } from "../../src/commands/group.ts";
 import { viewCommand } from "../../src/commands/view.ts";
@@ -111,7 +112,7 @@ test("view --json emits a merge node after materialization, and round-trips thro
   // The emitted tree is valid --apply input verbatim (output-only fields like
   // sha/subject/pr are ignored on input; the merge node parses back to the same
   // merge group). This is the data round-trip that lets `view --json` build apply
-  // docs; the history no-op on re-materialization is a separate deferred concern.
+  // docs.
   const reparsed = parseApplyDoc(JSON.stringify(tree));
   expect(reparsed.ok).toBe(true);
   if (!reparsed.ok) return;

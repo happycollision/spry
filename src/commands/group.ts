@@ -17,6 +17,7 @@ import {
   finalizeRewrite,
   branchForUnit,
   getMergeBase,
+  getFullSha,
   registerBranch,
   getCommitMessage,
   rewriteCommitChain,
@@ -292,6 +293,38 @@ async function readMergeMessages(
   return messages;
 }
 
+// Read every already-materialized merge on the live first-parent stack, keyed by
+// its ordered member-id run (joined with \x00), with the merge commit's current
+// message. Independent of refs/spry/merge-groups (which may be stale): a merge is
+// identified by its actual side-branch members, so re-applying a doc whose merge
+// group matches an existing merge reuses that merge's real message.
+async function readMaterializedMerges(
+  ctx: SpryContext,
+  ref: string,
+  cwd: string | undefined,
+): Promise<Map<string, string>> {
+  const byMemberRun = new Map<string, string>();
+  const firstParent = await getStackCommits(ctx.git, ref, { cwd });
+  for (const commit of firstParent) {
+    if ((commit.parents?.length ?? 0) < 2) continue;
+    const members = await getMergeMembers(ctx.git, commit.hash, { cwd });
+    const withIds = parseCommitTrailers(members, ctx.git, { cwd });
+    const memberIds: string[] = [];
+    let allIded = true;
+    for (const m of withIds) {
+      const id = m.trailers["Spry-Commit-Id"];
+      if (!id) {
+        allIded = false;
+        break;
+      }
+      memberIds.push(id);
+    }
+    if (!allIded || memberIds.length === 0) continue;
+    byMemberRun.set(memberIds.join("\x00"), await getCommitMessage(ctx.git, commit.hash, { cwd }));
+  }
+  return byMemberRun;
+}
+
 async function adoptPRs(
   updatedRecords: GroupRecords,
   originalRecords: GroupRecords,
@@ -385,8 +418,11 @@ async function applyGroupDoc(
   }
   await registerBranch(ctx.git, branch, { cwd });
 
-  // Snapshot live state.
-  const commits = await getStackCommits(ctx.git, ref, { cwd });
+  // Snapshot live state. Use the EXPANDED stack so a materialized merge commit is
+  // replaced by its side-branch members (which carry Spry-Commit-Ids); the
+  // id-less merge commit is never in this list, so re-applying over an already-
+  // materialized stack does not abort. Mirrors viewCommand and the TUI path.
+  const commits = await getExpandedStackCommits(ctx.git, ref, { cwd });
   const withTrailers = parseCommitTrailers(commits, ctx.git, { cwd });
   const liveIds: string[] = [];
   const liveHashById: Record<string, string> = {};
@@ -399,6 +435,11 @@ async function applyGroupDoc(
     liveIds.push(id);
     liveHashById[id] = c.hash;
   }
+
+  // The ACTUAL branch tip (the ref's old value for any rewrite). With expansion,
+  // withTrailers.at(-1) is the top MEMBER, not the merge commit or the true tip,
+  // so derive the real tip from HEAD instead of the expanded list.
+  const realTip = await getFullSha(ctx.git, "HEAD", { cwd });
 
   const liveGroups = await loadGroupRecords(ctx.git, { cwd });
 
@@ -420,8 +461,7 @@ async function applyGroupDoc(
   // most one of the two rewrite branches below runs per apply. Group-identity
   // reissue is rejected by `reconcile` too, so every id in plan.reissueIds is
   // a top-level commit id — safe to treat as a trailer rewrite target here.
-  const oldTip = withTrailers.at(-1)?.hash;
-  if (!oldTip) throw new Error("applyGroupDoc: empty stack");
+  const oldTip = realTip;
   const mergeBase = await getMergeBase(ctx.git, ref, { cwd });
 
   if (plan.reissueIds.length > 0) {
@@ -488,18 +528,25 @@ async function applyGroupDoc(
       );
       process.exit(1);
     }
-    // Subject-by-id, for synthesizing each merge commit's placeholder message.
+    // Subject-by-id, for synthesizing a NEW merge commit's placeholder message.
     const subjectById: Record<string, string> = {};
     for (const c of withTrailers) {
       const id = c.trailers["Spry-Commit-Id"];
       if (id) subjectById[id] = c.subject;
     }
+    // Already-materialized merges on the live stack, keyed by their member run,
+    // with each one's current (possibly hand-edited) message. Re-materializing an
+    // unchanged group reuses this message verbatim instead of clobbering it with
+    // the "Merge: <subject>" placeholder — the commit, not any ref, owns the text.
+    const existingMerges = await readMaterializedMerges(ctx, ref, cwd);
     // PR-group-by-id (from the reconciled records), for the containment check.
     const prGroupById: Record<string, string> = {};
     for (const [groupId, record] of Object.entries(plan.records)) {
       for (const memberId of record.members) prGroupById[memberId] = groupId;
     }
     const specs: MergeGroupSpec[] = mergeGroupDefs.map((mg) => {
+      const existingMsg = existingMerges.get(mg.memberIds.join("\x00"));
+      if (existingMsg !== undefined) return { memberIds: mg.memberIds, message: existingMsg };
       const firstSubject = subjectById[mg.memberIds[0] ?? ""] ?? "changes";
       // Synthesized placeholder subject; the user/agent amends with git later.
       return { memberIds: mg.memberIds, message: `Merge: ${firstSubject}` };
@@ -516,7 +563,14 @@ async function applyGroupDoc(
       );
       process.exit(1);
     }
-    await finalizeRewrite(ctx.git, branch, oldTip, result.newTip, { cwd });
+
+    // The pinned merge env (fixed epoch) makes an unchanged group rebuild to an
+    // identical SHA, so when the plan reproduces the current tip this apply is a
+    // true no-op: leave the ref (and working tree) untouched — no finalizeRewrite.
+    const changed = result.newTip !== oldTip;
+    if (changed) {
+      await finalizeRewrite(ctx.git, branch, oldTip, result.newTip, { cwd });
+    }
 
     // Persist merge-group records: id (minted when null) -> members.
     const mergeRecords: Record<string, { members: string[] }> = {};
@@ -525,7 +579,11 @@ async function applyGroupDoc(
       mergeRecords[id] = { members: mg.memberIds };
     }
     await saveAllMergeGroupRecords(ctx.git, mergeRecords, { cwd });
-    console.log(`✓ Materialized ${mergeGroupDefs.length} merge group(s)`);
+    console.log(
+      changed
+        ? `✓ Materialized ${mergeGroupDefs.length} merge group(s)`
+        : `✓ Merge group(s) already materialized (no changes)`,
+    );
   }
 
   // Record PR-close intent locally by marking the cached entry CLOSED. NOTE:
