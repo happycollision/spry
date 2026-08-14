@@ -86,7 +86,11 @@ export async function analyzeStack(
     const remoteTip = await originSha(ctx.git, branch, cwd);
     const unpushed = !localTip || remoteTip === null || remoteTip !== localTip;
 
-    const missingId = unit.commits.some((sha) => missing.has(sha));
+    // A merge unit's single commit is the merge commit, which carries no
+    // Spry-Commit-Id by design (its identity is its members). Exclude that
+    // merge SHA from the missing-id check; only real (non-merge) commits count.
+    const mergeSha = unit.mergeMembers ? unit.commits.at(-1) : undefined;
+    const missingId = unit.commits.some((sha) => sha !== mergeSha && missing.has(sha));
 
     const cached = prCache[unit.id];
     const currentBase = cached?.baseRefName;

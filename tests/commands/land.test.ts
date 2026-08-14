@@ -1,5 +1,6 @@
 import { describe, test, expect, afterAll } from "bun:test";
 import { landCommand, evaluateMergeGate, mergeCommitsInRange } from "../../src/commands/land.ts";
+import { analyzeStack } from "../../src/commands/stack-analysis.ts";
 import { createRealGitRunner, createRepo } from "../lib/index.ts";
 import { captureLogs, trapExit } from "../lib/capture.ts";
 import type {
@@ -1171,5 +1172,35 @@ describe("sp land --merges gate", () => {
     await git.run(["commit", "--allow-empty", "-m", "plain"], { cwd: repo.path });
     const linTip = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
     expect(await mergeCommitsInRange(ctx, base, linTip, { cwd: repo.path })).toEqual([]);
+  });
+
+  test("analyzeStack: a merge unit is NOT flagged missingId for the merge commit's own missing trailer", async () => {
+    const repo = await makeConfiguredRepo();
+    const mergeUnit = {
+      type: "single" as const,
+      id: "mgmgmgmg",
+      title: "Merge: x",
+      commitIds: ["m1m1m1m1", "m2m2m2m2"],
+      commits: ["deadbeef"],
+      subjects: ["Merge: x"],
+      mergeMembers: [
+        { hash: "aaaa", subject: "m1", body: "", trailers: { "Spry-Commit-Id": "m1m1m1m1" } },
+        { hash: "bbbb", subject: "m2", body: "", trailers: { "Spry-Commit-Id": "m2m2m2m2" } },
+      ],
+    };
+    const { gh } = stubGh(ghPrStub({}));
+    const ctx = makeCtx(repo, gh);
+    const analysis = await analyzeStack(
+      ctx,
+      {
+        units: [mergeUnit],
+        // The merge commit "deadbeef" has no id in the commit list => it's in `missing`.
+        commits: [{ hash: "deadbeef", subject: "Merge: x", body: "", trailers: {} }],
+        prCache: {},
+        config: { trunk: "main", remote: "origin", branchPrefix: "spry/test" } as any,
+      },
+      { cwd: repo.path },
+    );
+    expect(analysis.units[0]?.missingId).toBe(false);
   });
 });
