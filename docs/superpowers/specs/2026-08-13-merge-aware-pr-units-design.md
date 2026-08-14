@@ -57,25 +57,45 @@ reads. (Decision: keep `single` + `mergeMembers` rather than a new
 `type: "merge"` — no functional gain from a new variant, and a new variant would
 force every `unit.type` switch across the codebase to grow a case.)
 
+**Why the id must come from state, not topology.** The unit id drives the branch
+name (`<prefix>/<unit.id>`) and the PR-cache key. The merge-group id
+(`refs/spry/merge-groups`) is **stable across syncs**; a topology-derived id
+(`mergeSha.slice(0,8)`) is not — the merge SHA changes every time the group is
+re-materialized (any rebase or member edit rebuilds the merge). So a
+topology-derived id is not merely "less stable," it is **actively wrong**: it
+gives the merge PR a different branch name on every sync and orphans its PR. This
+is why reading the merge-group state is essential, not polish — see §2.
+
 **Unrecorded merge fallback:** when a merge commit exists in history but no
 `MergeGroupRecord` matches its members (hand-made merge, or records not yet
-written), `id = mergeSha.slice(0,8)` (today's degenerate value) **but now with
-member `commitIds`**, so it is still landable/publishable. It self-heals to the
-stable merge-group id on the next `sp group`. Never blocks land/sync.
+written), there is no stored id to read, so `id = mergeSha.slice(0,8)` (today's
+degenerate value) **but now with member `commitIds`**, so it is still
+landable/publishable. It self-heals to the stable merge-group id on the next
+`sp group` (which writes the record). Never blocks land/sync.
 
 ### 2. Thread merge context into unit detection
 
-`detectPRUnits` is pure and operates on its input commit list + maps. Two inputs
-must reach it:
+Today `land` and `sync` read the stack **only from git topology**
+(`getStackCommits`) and never open `refs/spry/merge-groups` — unlike `sp view`
+and `sp group`, which already load it (`loadMergeGroupRecords` →
+`buildCommitMergeGroupMap`). That omission is the whole bug: topology gives the
+merge SHA and parent count but not the group's identity or that its members form
+a group. The fix is to make `checkSync` read that state, the same way view/group
+already do.
 
-- **Member commits.** `getStackCommits` populates `parents` but **not**
-  `mergeMembers`. So `checkSync` (and the `--all` / branch variants) enrich each
-  merge commit by calling `getMergeMembers` after `getStackCommits`, populating
-  `mergeMembers` on the `CommitWithTrailers` before `parseStack`.
-- **Merge-group map.** `checkSync` currently loads only group (PR) records. It
-  additionally loads merge-group records (`loadMergeGroupRecords` →
-  `buildCommitMergeGroupMap`) and passes the resulting `CommitMergeGroupMap` into
-  `parseStack` → `detectPRUnits` so the merge-group id can be resolved from the
+`detectPRUnits` is pure and operates on its input commit list + maps. Two inputs
+must reach it — one from topology, one from state:
+
+- **Member commits (from topology).** `getStackCommits` populates `parents` but
+  **not** `mergeMembers`. So `checkSync` (and the `--all` / branch variants)
+  enrich each merge commit by calling `getMergeMembers` after `getStackCommits`,
+  populating `mergeMembers` on the `CommitWithTrailers` before `parseStack`. This
+  supplies the members (and thus `commitIds`).
+- **Merge-group map (from state).** `checkSync` currently loads only group (PR)
+  records. It additionally loads merge-group records (`loadMergeGroupRecords` →
+  `buildCommitMergeGroupMap`, the same calls `sp view`/`sp group` already make)
+  and passes the resulting `CommitMergeGroupMap` into `parseStack` →
+  `detectPRUnits` so the stable merge-group **id** can be resolved from the
   members. `parseStack` gains an optional `mergeGroups` parameter (default `{}`),
   keeping every existing caller unchanged.
 
