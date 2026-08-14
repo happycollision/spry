@@ -23,6 +23,12 @@ export interface PRUnit {
   commitIds: string[];
   commits: string[];
   subjects: string[];
+  // Present ONLY for a materialized merge group: the merge's side-branch member
+  // commits (oldest-first). Its presence is the signal that this single unit is a
+  // merge — its one `commits` entry is the merge commit itself, its `commitIds`
+  // are the members' ids, and `sp sync` renders a merge-note from these members.
+  // Absent on every ordinary single/group unit (behavior byte-unchanged).
+  mergeMembers?: CommitInfo[];
 }
 
 export interface GroupInfo {
