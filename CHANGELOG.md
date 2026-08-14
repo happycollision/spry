@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- Generated docs now cover the human-facing merge-group surfaces: materializing a merge group non-interactively with a `merge` node in a `sp group --apply` document (`docs/generated/commands/group.*`), and how `sp view` renders a materialized merge — the merge on its own row with its member commits indented beneath a `⑃` marker (`docs/generated/commands/view.*`). Backed by new doc-producing tests in `tests/commands/group.doc.test.ts` and `tests/commands/view.doc.test.ts`. (The `sp land --merges` gate and the PR-body merge-note region are intentionally not documented yet — they are not reachable end-to-end from a command; see spry-phl7 and spry-w6qk.)
+
 ## [1.0.0-beta.6] - 2026-08-10
 
 ### Fixed

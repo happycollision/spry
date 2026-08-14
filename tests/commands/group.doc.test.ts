@@ -4,12 +4,16 @@ import { writeFileSync } from "node:fs";
 import {
   docTest,
   createRepo,
+  createRunner,
+  createRealGitRunner,
   createTerminalDriver,
   isRecording,
   setupDocRepo,
   withGitHubFixture,
 } from "../lib/index.ts";
 
+const cliPath = join(import.meta.dir, "../../src/cli/index.ts");
+const runSp = createRunner(cliPath);
 const harnessPath = join(import.meta.dir, "../fixtures/group-tui-harness.ts");
 const adoptHarnessPath = join(import.meta.dir, "../fixtures/group-adopt-harness.ts");
 
@@ -363,6 +367,76 @@ describe("sp group docs", () => {
         expect(snap.text).toContain("adopted PR");
         expect(snap.text).toContain("Groups updated");
       });
+    },
+  );
+
+  docTest(
+    "Materializing a merge group (non-interactive)",
+    { section: "commands/group", order: 40 },
+    async (doc) => {
+      const repo = await createRepo();
+      repos.push(repo);
+      doc.scrub(repo);
+      const git = createRealGitRunner();
+
+      await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
+      await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+      await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
+
+      await repo.branch("feature");
+      await git.run(
+        ["commit", "--allow-empty", "-m", "feat: base change\n\nSpry-Commit-Id: p1p1p1p1"],
+        {
+          cwd: repo.path,
+        },
+      );
+      await git.run(
+        ["commit", "--allow-empty", "-m", "feat: add model\n\nSpry-Commit-Id: m1m1m1m1"],
+        {
+          cwd: repo.path,
+        },
+      );
+      await git.run(
+        ["commit", "--allow-empty", "-m", "feat: add handler\n\nSpry-Commit-Id: m2m2m2m2"],
+        {
+          cwd: repo.path,
+        },
+      );
+
+      doc.prose(
+        "A `merge` node in a `sp group --apply` document turns a contiguous run of commits into a real merge commit in your branch history — a *merge group*. Unlike a PR group (which just ships several commits as one PR), a merge group materializes an actual merge commit, so those commits land together as a single unit in trunk. The document below folds the two `feat: add …` commits into one merge group, leaving the base change on its own:",
+      );
+
+      const applyDoc = JSON.stringify({
+        stack: [
+          { type: "commit", id: "p1p1p1p1" },
+          {
+            type: "merge",
+            id: "mgmgmgmg",
+            commits: [
+              { type: "commit", id: "m1m1m1m1" },
+              { type: "commit", id: "m2m2m2m2" },
+            ],
+          },
+        ],
+      });
+
+      const { command, result } = await runSp(repo.path, "group", ["--apply", applyDoc]);
+      doc.command(command);
+      doc.output(result.stdout);
+
+      const { expect } = await import("bun:test");
+      expect(result.exitCode).toBe(0);
+
+      doc.prose(
+        "The merge commit now exists in your branch history. Its subject is a `Merge: <first-member-subject>` placeholder you can amend with plain `git` afterward; re-running the same document is a no-op (the merge is rebuilt to the identical commit):",
+      );
+
+      const graph = await git.run(["log", "--graph", "--format=%s", "-6", "HEAD"], {
+        cwd: repo.path,
+      });
+      doc.output(graph.stdout);
+      expect(graph.stdout).toContain("Merge: feat: add model");
     },
   );
 });

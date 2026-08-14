@@ -238,6 +238,72 @@ describe("sp view docs", () => {
       );
     },
   );
+
+  docTest(
+    "Viewing a materialized merge group",
+    { section: "commands/view", order: 50 },
+    async (doc) => {
+      const repo = await createRepo();
+      repos.push(repo);
+      doc.scrub(repo);
+      const git = createRealGitRunner();
+
+      await git.run(["config", "spry.trunk", "main"], { cwd: repo.path });
+      await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
+      await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
+
+      await repo.branch("feature");
+      await git.run(
+        ["commit", "--allow-empty", "-m", "feat: base change\n\nSpry-Commit-Id: p1p1p1p1"],
+        {
+          cwd: repo.path,
+        },
+      );
+      await git.run(
+        ["commit", "--allow-empty", "-m", "feat: add model\n\nSpry-Commit-Id: m1m1m1m1"],
+        {
+          cwd: repo.path,
+        },
+      );
+      await git.run(
+        ["commit", "--allow-empty", "-m", "feat: add handler\n\nSpry-Commit-Id: m2m2m2m2"],
+        {
+          cwd: repo.path,
+        },
+      );
+
+      // Materialize a merge group over the two feat commits (see the sp group
+      // docs for the --apply merge-node form); sp view then renders it.
+      const applyDoc = JSON.stringify({
+        stack: [
+          { type: "commit", id: "p1p1p1p1" },
+          {
+            type: "merge",
+            id: "mgmgmgmg",
+            commits: [
+              { type: "commit", id: "m1m1m1m1" },
+              { type: "commit", id: "m2m2m2m2" },
+            ],
+          },
+        ],
+      });
+      await runSp(repo.path, "group", ["--apply", applyDoc]);
+
+      doc.prose(
+        "When a stack contains a materialized merge group, `sp view` shows the merge on its own row and indents its member commits beneath it with a ⑃ marker — the merge axis reads as depth:",
+      );
+
+      const { command, result } = await runSp(repo.path, "view");
+      doc.command(command);
+      doc.output(result.stdout);
+
+      const { expect } = await import("bun:test");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("⑃");
+      expect(result.stdout).toContain("feat: add model");
+      expect(result.stdout).toContain("feat: add handler");
+    },
+  );
 });
 
 describe("sp view drift (json)", () => {

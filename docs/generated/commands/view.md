@@ -98,3 +98,24 @@ approval: ✓ approved  ✗ changes  ? required  — none
 ```
 
 The ↓ marker means the remote moved since your push (as of your last fetch), and ✎↓ together means both. Units with no recorded sync show no marker at all.
+
+When a stack contains a materialized merge group, `sp view` shows the merge on its own row and indents its member commits beneath it with a ⑃ marker — the merge axis reads as depth:
+
+```
+sp view
+```
+
+```
+Stack: feature (3 commits)
+○ no PR  ◐ open  ✓ merged  ✗ closed
+
+  → origin/main
+────────────────────────────────────────────────────────────────────────
+  ○ feat: base change (p1p1p1p1)
+────────────────────────────────────────────────────────────────────────
+  ○   ⑃ feat: add model (m1m1m1m1)
+────────────────────────────────────────────────────────────────────────
+  ○   ⑃ feat: add handler (m2m2m2m2)
+────────────────────────────────────────────────────────────────────────
+
+```

@@ -91,5 +91,21 @@
       The ↓ marker means the remote moved since your push (as of your last fetch), and ✎↓ together
       means both. Units with no recorded sync show no marker at all.
     </p>
+    <p>
+      When a stack contains a materialized merge group, `sp view` shows the merge on its own row and
+      indents its member commits beneath it with a ⑃ marker — the merge axis reads as depth:
+    </p>
+    <pre class="command">sp view</pre>
+    <pre class="output">Stack: feature (3 commits)
+<span class="ansi-dim">○ no PR  ◐ open  ✓ merged  ✗ closed</span>
+
+  → origin/main
+────────────────────────────────────────────────────────────────────────
+  <span class="ansi-dim">○</span> feat: base change <span class="ansi-dim">(p1p1p1p1)</span>
+────────────────────────────────────────────────────────────────────────
+  <span class="ansi-dim">○</span>   ⑃ feat: add model <span class="ansi-dim">(m1m1m1m1)</span>
+────────────────────────────────────────────────────────────────────────
+  <span class="ansi-dim">○</span>   ⑃ feat: add handler <span class="ansi-dim">(m2m2m2m2)</span>
+────────────────────────────────────────────────────────────────────────</pre>
   </body>
 </html>

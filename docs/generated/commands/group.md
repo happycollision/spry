@@ -72,3 +72,28 @@ MOVE MODE — ↑↓ reorder  Space/Enter drop  Esc cancel
 ⚠ Moving this commit may cause a conflict
 
 ```
+
+A `merge` node in a `sp group --apply` document turns a contiguous run of commits into a real merge commit in your branch history — a _merge group_. Unlike a PR group (which just ships several commits as one PR), a merge group materializes an actual merge commit, so those commits land together as a single unit in trunk. The document below folds the two `feat: add …` commits into one merge group, leaving the base change on its own:
+
+```
+sp group --apply {"stack":[{"type":"commit","id":"p1p1p1p1"},{"type":"merge","id":"mgmgmgmg","commits":[{"type":"commit","id":"m1m1m1m1"},{"type":"commit","id":"m2m2m2m2"}]}]}
+```
+
+```
+✓ Materialized 1 merge group(s)
+✓ Applied (0 groups)
+
+```
+
+The merge commit now exists in your branch history. Its subject is a `Merge: <first-member-subject>` placeholder you can amend with plain `git` afterward; re-running the same document is a no-op (the merge is rebuilt to the identical commit):
+
+```
+*   Merge: feat: add model
+|\
+| * feat: add handler
+| * feat: add model
+|/
+* feat: base change
+* Initial commit
+
+```
