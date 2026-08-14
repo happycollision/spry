@@ -251,6 +251,11 @@ describe("buildStackModel", () => {
   });
 });
 
+// Not delegating to makeCommit: this helper takes a single optional id string
+// (vs. a trailers record), defaults body to "" (vs. body: subject), and accepts
+// a free-form `extra` passthrough for merge fields (parents/mergeMembers) that
+// makeCommit's signature has no room for — delegating would need a wrapper as
+// long as the implementation itself.
 function c(
   hash: string,
   subject: string,
@@ -305,6 +310,51 @@ describe("detectPRUnits: merge units", () => {
     expect(withMap).toEqual(withoutMap);
     expect(withMap[0]?.mergeMembers).toBeUndefined();
     expect(withMap[1]?.mergeMembers).toBeUndefined();
+  });
+
+  test("a 2-parent commit with no expanded members is not treated as a populated merge unit", () => {
+    const merge = c("mmmm2222", "Merge: bare", undefined, { parents: ["p1", "p2"] }); // no mergeMembers
+    const units = detectPRUnits([merge], {}, {}, {});
+    expect(units).toHaveLength(1);
+    expect(units[0]?.commits).toEqual(["mmmm2222"]);
+    expect(units[0]?.commitIds).toEqual([]);
+    expect(units[0]?.mergeMembers).toBeUndefined(); // present-but-empty avoided
+  });
+
+  test("partial member recording (some ids recorded, all agree) still resolves the merge-group id", () => {
+    const m1 = c("aaaa", "m1", "m1m1m1m1"); // recorded
+    const m2 = c("bbbb", "m2", "m2m2m2m2"); // NOT in the merge map
+    const merge = c("cccc", "Merge", undefined, { parents: ["p", "bbbb"], mergeMembers: [m1, m2] });
+    const units = detectPRUnits([merge], {}, {}, { m1m1m1m1: "mgmgmgmg" }); // only m1 recorded
+    expect(units[0]?.id).toBe("mgmgmgmg");
+  });
+
+  test("members recorded under DIFFERENT merge-group ids fall back to the SHA prefix", () => {
+    const m1 = c("aaaa", "m1", "m1m1m1m1");
+    const m2 = c("bbbb", "m2", "m2m2m2m2");
+    const merge = c("ccccdddd", "Merge", undefined, {
+      parents: ["p", "bbbb"],
+      mergeMembers: [m1, m2],
+    });
+    const units = detectPRUnits([merge], {}, {}, { m1m1m1m1: "grpA", m2m2m2m2: "grpB" }); // disagree
+    expect(units[0]?.id).toBe("ccccdddd");
+  });
+
+  test("KNOWN LIMITATION (spry-1574.8) — a merge inside a PR group is mis-split (duplicate group ids)", () => {
+    const a = c("h1", "A", "aaa11111");
+    const merge = c("hM", "Merge: x", undefined, {
+      parents: ["h1", "side"],
+      mergeMembers: [c("s1", "m1", "m1m1m1m1")],
+    });
+    const b = c("h2", "B", "bbb22222");
+    const commitGroups = { aaa11111: "g1", bbb22222: "g1" };
+    const units = detectPRUnits([a, merge, b], {}, commitGroups, {});
+    // Documents the CURRENT broken shape (to be fixed in spry-1574.8 / Task 4):
+    expect(units.map((u) => ({ type: u.type, id: u.id }))).toEqual([
+      { type: "group", id: "g1" },
+      { type: "single", id: "hM" },
+      { type: "group", id: "g1" }, // duplicate g1 — the bug this test pins
+    ]);
   });
 });
 
