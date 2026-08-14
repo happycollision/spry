@@ -251,6 +251,63 @@ describe("buildStackModel", () => {
   });
 });
 
+function c(
+  hash: string,
+  subject: string,
+  id?: string,
+  extra: Partial<CommitWithTrailers> = {},
+): CommitWithTrailers {
+  return { hash, subject, body: "", trailers: id ? { "Spry-Commit-Id": id } : {}, ...extra };
+}
+
+describe("detectPRUnits: merge units", () => {
+  test("a merge commit becomes a single unit keyed by its merge-group id, with member ids", () => {
+    const m1 = c("aaaa", "feat: add model", "m1m1m1m1");
+    const m2 = c("bbbb", "feat: add handler", "m2m2m2m2");
+    const merge = c("cccc", "Merge: feat: add model", undefined, {
+      parents: ["pppp", "bbbb"],
+      mergeMembers: [m1, m2],
+    });
+    const p1 = c("pppp", "feat: base", "p1p1p1p1");
+    const units = detectPRUnits(
+      [p1, merge],
+      {},
+      {},
+      { m1m1m1m1: "mgmgmgmg", m2m2m2m2: "mgmgmgmg" },
+    );
+    expect(units).toHaveLength(2);
+    const mergeUnit = units[1];
+    expect(mergeUnit?.type).toBe("single");
+    expect(mergeUnit?.id).toBe("mgmgmgmg");
+    expect(mergeUnit?.commits).toEqual(["cccc"]);
+    expect(mergeUnit?.commitIds).toEqual(["m1m1m1m1", "m2m2m2m2"]);
+    expect(mergeUnit?.subjects).toEqual(["Merge: feat: add model"]);
+    expect(mergeUnit?.mergeMembers?.map((m) => m.hash)).toEqual(["aaaa", "bbbb"]);
+  });
+
+  test("an unrecorded merge falls back to the merge SHA prefix but keeps member ids", () => {
+    const m1 = c("aaaaaaaa1111", "feat: a", "m1m1m1m1");
+    const merge = c("ccccdddd9999", "Merge: feat: a", undefined, {
+      parents: ["pppp", "aaaaaaaa1111"],
+      mergeMembers: [m1],
+    });
+    const units = detectPRUnits([merge], {}, {}, {});
+    expect(units[0]?.id).toBe("ccccdddd");
+    expect(units[0]?.commitIds).toEqual(["m1m1m1m1"]);
+    expect(units[0]?.mergeMembers).toHaveLength(1);
+  });
+
+  test("a merge-free stack is byte-identical to before (new branch inert)", () => {
+    const a = c("h1", "A", "aaa11111");
+    const b = c("h2", "B", "bbb22222");
+    const withMap = detectPRUnits([a, b], {}, {}, { aaa11111: "ignored" });
+    const withoutMap = detectPRUnits([a, b], {}, {});
+    expect(withMap).toEqual(withoutMap);
+    expect(withMap[0]?.mergeMembers).toBeUndefined();
+    expect(withMap[1]?.mergeMembers).toBeUndefined();
+  });
+});
+
 describe("flattenStackModel", () => {
   test("splices merge members back in place, preserving order", () => {
     const m1 = makeCommit("m1h", "m1", { "Spry-Commit-Id": "m1" });

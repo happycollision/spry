@@ -105,11 +105,48 @@ export function detectPRUnits(
   commits: CommitWithTrailers[],
   titles: GroupTitles = {},
   commitGroups: CommitGroupMap = {},
+  mergeGroups: CommitMergeGroupMap = {},
 ): PRUnit[] {
   const units: PRUnit[] = [];
   let currentGroup: PRUnit | null = null;
 
+  const flushGroup = () => {
+    if (currentGroup) {
+      units.push(currentGroup);
+      currentGroup = null;
+    }
+  };
+
   for (const commit of commits) {
+    // A materialized merge commit (2+ parents / members set) is its own PR unit:
+    // it carries no Spry-Commit-Id and is identified by its members. Handle it
+    // before the id/group logic so it never falls into the degenerate else path.
+    const isMerge = (commit.parents?.length ?? 0) >= 2 || (commit.mergeMembers?.length ?? 0) > 0;
+    if (isMerge) {
+      flushGroup();
+      const members = commit.mergeMembers ?? [];
+      const memberIds = members
+        .map((m) => m.trailers["Spry-Commit-Id"])
+        .filter((id): id is string => !!id);
+      // Resolve the stable merge-group id: the id every recorded member agrees on.
+      const seen = new Set<string>();
+      for (const id of memberIds) {
+        const gid = mergeGroups[id];
+        if (gid) seen.add(gid);
+      }
+      const mergeGroupId = seen.size === 1 ? [...seen][0] : undefined;
+      units.push({
+        type: "single",
+        id: mergeGroupId ?? commit.hash.slice(0, 8),
+        title: commit.subject,
+        commitIds: memberIds,
+        commits: [commit.hash],
+        subjects: [commit.subject],
+        mergeMembers: members,
+      });
+      continue;
+    }
+
     const commitId = commit.trailers["Spry-Commit-Id"];
     const groupId = commitId ? commitGroups[commitId] : undefined;
 
@@ -119,7 +156,7 @@ export function detectPRUnits(
         currentGroup.commits.push(commit.hash);
         currentGroup.subjects.push(commit.subject);
       } else {
-        if (currentGroup) units.push(currentGroup);
+        flushGroup();
         currentGroup = {
           type: "group",
           id: groupId,
@@ -130,10 +167,7 @@ export function detectPRUnits(
         };
       }
     } else {
-      if (currentGroup) {
-        units.push(currentGroup);
-        currentGroup = null;
-      }
+      flushGroup();
       units.push({
         type: "single",
         id: commitId || commit.hash.slice(0, 8),
@@ -145,7 +179,7 @@ export function detectPRUnits(
     }
   }
 
-  if (currentGroup) units.push(currentGroup);
+  flushGroup();
   return units;
 }
 
@@ -153,6 +187,7 @@ export function parseStack(
   commits: CommitWithTrailers[],
   titles: GroupTitles = {},
   commitGroups: CommitGroupMap = {},
+  mergeGroups: CommitMergeGroupMap = {},
 ): StackParseResult {
   const groupPositions = new Map<string, number[]>();
   const groupCommits = new Map<string, string[]>();
@@ -202,5 +237,5 @@ export function parseStack(
     }
   }
 
-  return { ok: true, units: detectPRUnits(commits, titles, commitGroups) };
+  return { ok: true, units: detectPRUnits(commits, titles, commitGroups, mergeGroups) };
 }
