@@ -327,6 +327,7 @@ test.skipIf(SKIP)(
     // Poll rather than a single read: the commits endpoint lags the reset PATCH.
     expect(await waitForMainCommitCount(owner, repo, 1)).toBe(1);
   }),
-  // Real gh round-trips (advance + reset + verify) exceed the 5s default.
-  60000,
+  // In the full concurrent record suite, GitHub API contention can push the
+  // advance + reset + eventual-consistency verification past one minute.
+  120000,
 );

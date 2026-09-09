@@ -124,11 +124,16 @@ export async function createRepo(options?: CreateRepoOptions): Promise<TestRepo>
     originPath = `/tmp/spry-test-origin-${pathSuffix}`;
     // Create bare origin
     await $`git init --bare ${originPath} --initial-branch=${defaultBranch}`.quiet();
+    await $`git -C ${originPath} config core.hooksPath hooks`.quiet();
     // Create working clone
     await $`git clone ${originPath} ${workPath}`.quiet();
   }
   await $`git -C ${workPath} config user.email "test@example.com"`.quiet();
   await $`git -C ${workPath} config user.name "Test User"`.quiet();
+  // Synthetic repos must not inherit host signing or hook policy. Amp orbs
+  // configure both globally for real commits, but test commits are isolated.
+  await $`git -C ${workPath} config commit.gpgSign false`.quiet();
+  await $`git -C ${workPath} config core.hooksPath .git/hooks`.quiet();
 
   // A "github" clone already has the real repo's history (its default branch),
   // so we must NOT fabricate an initial commit or push to the remote's main —
