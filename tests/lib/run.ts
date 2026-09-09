@@ -25,12 +25,16 @@ export function createRunner(cliPath: string): SpryRunner {
   return async (cwd, command, args = [], options) => {
     let proc = $`bun run ${cliPath} ${command} ${args}`.nothrow().quiet();
     // .env() replaces the whole environment, so spread process.env to keep
-    // PATH etc., then force the non-interactive flags doc tests depend on,
-    // and finally layer any caller-supplied env on top.
+    // PATH etc. NO_COLOR and TERM=dumb must not override the deterministic
+    // color capture used by doc tests (Amp orbs set both), so normalize them.
+    // Finally, layer any caller-supplied env on top.
+    const inheritedEnv = { ...process.env };
+    delete inheritedEnv.NO_COLOR;
     proc = proc.env({
-      ...process.env,
+      ...inheritedEnv,
       SPRY_NO_TTY: "1",
       FORCE_COLOR: "1",
+      TERM: "xterm-256color",
       ...options?.env,
     });
     proc = proc.cwd(cwd);

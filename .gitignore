@@ -45,3 +45,6 @@ docker/.env
 
 # Git worktrees
 .worktrees/
+
+# Amp orb runtime state
+.amp/portals/

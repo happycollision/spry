@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+local_bin="${HOME}/.local/bin"
+mkdir -p "${local_bin}"
+export PATH="${local_bin}:${PATH}"
+
+run_step() {
+  local label="$1"
+  shift
+  local started=$SECONDS
+  printf '==> %s\n' "${label}"
+  "$@"
+  printf '<== %s (%ss)\n' "${label}" "$((SECONDS - started))"
+}
+
+install_mise() {
+  curl -fsSL https://mise.run | MISE_VERSION=2026.9.3 sh
+}
+
+if ! command -v mise >/dev/null 2>&1; then
+  run_step "Install mise" install_mise
+fi
+mise_bin="$(command -v mise)"
+
+profile_marker="# spry mise environment"
+if ! grep -Fqx "${profile_marker}" "${HOME}/.bash_profile" 2>/dev/null; then
+  cat >> "${HOME}/.bash_profile" <<EOF
+
+${profile_marker}
+if [[ "\${PWD:-}" == "${repo_root}" || "\${PWD:-}" == "${repo_root}/"* ]]; then
+  eval "\$("${mise_bin}" activate bash)"
+fi
+EOF
+fi
+
+run_step "Install configured development tools" mise install --locked
+run_step "Install JavaScript dependencies" mise exec -- bun install --frozen-lockfile
+
+if ! mise exec -- git nook -n beads run status >/dev/null 2>&1; then
+  run_step "Connect the beads issue nook" mise exec -- git nook clone beads origin --dir .beads
+  run_step "Import shared beads issues" mise exec -- br sync --import-only
+fi
+
+printf 'Orb setup complete.\n'
