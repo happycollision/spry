@@ -44,10 +44,19 @@ export async function createTerminalDriver(
   const cols = options?.cols ?? 80;
   const rows = options?.rows ?? 24;
   const screen = createScreenBuffer(cols, rows);
+  const inheritedEnv = { ...process.env };
+  // Keep PTY snapshots deterministic on hosts such as Amp orbs, which set
+  // NO_COLOR and TERM=dumb globally. Callers can still override either value.
+  delete inheritedEnv.NO_COLOR;
 
   const proc = Bun.spawn([command, ...args], {
     cwd: options?.cwd,
-    env: options?.env ? { ...process.env, ...options.env } : undefined,
+    env: {
+      ...inheritedEnv,
+      FORCE_COLOR: "1",
+      TERM: "xterm-256color",
+      ...options?.env,
+    },
     terminal: {
       cols,
       rows,

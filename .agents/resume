@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Repair a missing beads worktree after an orb resumes without doing network or
+# dependency installation work on this latency-sensitive path.
+if command -v mise >/dev/null 2>&1 && [[ ! -e .beads ]]; then
+  mise exec -- git nook materialize
+fi
