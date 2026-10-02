@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { htCommand } from "../commands/ht.ts";
 import { Command } from "commander";
 import { syncCommand } from "../commands/sync.ts";
 import { viewCommand } from "../commands/view.ts";
@@ -91,6 +92,14 @@ program
   .description("Delete remote spry branches whose commits have landed on trunk")
   .option("--dry-run", "List what would be deleted without deleting anything")
   .action((opts: { dryRun?: boolean }) => cleanCommand(ctx, { dryRun: opts.dryRun }));
+
+program
+  .command("ht")
+  .description("Happy Trees worktree gardening")
+  .helpOption(false)
+  .allowUnknownOption()
+  .argument("[args...]")
+  .action((args: string[]) => htCommand(ctx.git, args));
 
 try {
   await program.parseAsync();

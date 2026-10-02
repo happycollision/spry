@@ -78,8 +78,7 @@ export PATH="$PATH:$(pwd)/dist"
 
 ## Configuration
 
-Spry reads its settings from git config. Three keys are **required** — `sp`
-will refuse to run until they are set:
+Spry reads its settings from git config. Three keys are **required** for stacked PR commands:
 
 ```bash
 # The trunk branch your stack is based on (e.g. main, master)
@@ -105,6 +104,27 @@ git config spry.repo owner/repo
 # GitHub's "automatically delete head branches" setting enabled.
 git config spry.autoDeleteOnLand true
 ```
+
+## Happy Trees worktrees
+
+`sp ht` provides Happy Trees worktree gardening independently of stacked PR
+configuration. It works in regular and bare repositories, with or without an
+origin remote. Existing `happy-trees.*` Git settings apply.
+
+```bash
+sp ht setup --init                # Create a setup script template
+sp ht co feature/login            # Create a worktree and branch from the default
+sp ht co feature/login -e "code ." # Run a command inside an existing worktree
+sp ht ls                          # List linked worktrees and identity warnings
+sp ht remove feature/login        # Remove; keep local work unless origin matches
+sp ht destroy feature/login       # Remove and delete local/origin branches
+sp ht help                        # Flags, path tokens, and configuration
+```
+
+Omit the branch to select it with `fzf`. Setup scripts receive the main repository
+root and worktree root as positional arguments. Destroy protects the default
+branch and refuses dirty or path-mismatched worktrees unless `--force` is given.
+See the [generated command guide](docs/generated/commands/ht.md) for examples.
 
 ## Quick Start
 
