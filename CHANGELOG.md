@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `sp ht` ports Happy Trees worktree gardening: list, checkout, remove, destroy, and setup, including fzf selection, setup/exec hooks, bare repositories, path tokens, and existing `happy-trees.*` configuration.
+
 ## [1.0.0-beta.6] - 2026-08-10
 
 ### Fixed
