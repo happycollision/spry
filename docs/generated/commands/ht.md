@@ -37,6 +37,8 @@ Setup runs automatically on creation; -s skips it. -e overrides configured exec;
 Remove compares local and origin SHAs without fetching. --force permits dirty
 removal. Destroy always protects the default branch, even with --force.
 Removing your current worktree leaves your shell in a stale directory.
+For separate Git admin directories without core.worktree, run checkout from the
+primary worktree once before using externally created linked worktrees.
 
 
 ```
@@ -175,5 +177,37 @@ sp ht setup
 
 ```
 ✗ Setup location not configured. Run 'sp ht setup --init'
+
+```
+
+Separate Git admin directories without core.worktree need one checkout invocation from the primary worktree to register its location. Worktrees created by sp ht already have that context.
+
+```
+sp ht ls
+```
+
+```
+✗ Cannot determine primary working directory. Run sp ht checkout from the primary worktree first.
+
+```
+
+```
+sp ht co topic -E
+```
+
+```
+Worktree already exists: /tmp/repo/trees/topic
+
+Next steps:
+  cd /tmp/repo/trees/topic
+
+```
+
+```
+sp ht ls
+```
+
+```
+topic	/tmp/repo/trees/topic
 
 ```

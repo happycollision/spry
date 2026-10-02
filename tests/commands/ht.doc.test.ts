@@ -69,3 +69,40 @@ docTest("Actionable errors", { section: "commands/ht", order: 30 }, async (doc) 
     await repo.cleanup();
   }
 });
+
+docTest("Separate Git admin directories", { section: "commands/ht", order: 40 }, async (doc) => {
+  const repo = await createRepo();
+  doc.scrub(await realpath(repo.path), "/tmp/repo");
+  doc.scrub(repo);
+  try {
+    expect(
+      (
+        await repo.git.run(["init", `--separate-git-dir=${join(repo.path, "admin")}`], {
+          cwd: repo.path,
+        })
+      ).exitCode,
+    ).toBe(0);
+    const topic = join(repo.path, "trees/topic");
+    expect(
+      (await repo.git.run(["worktree", "add", "-b", "topic", topic], { cwd: repo.path })).exitCode,
+    ).toBe(0);
+    doc.prose(
+      "Separate Git admin directories without core.worktree need one checkout invocation from the primary worktree to register its location. Worktrees created by sp ht already have that context.",
+    );
+    const missing = await runSp(topic, "ht", ["ls"]);
+    expect(missing.result.exitCode).toBe(1);
+    doc.command(missing.command);
+    doc.output(missing.result.stderr);
+    for (const [cwd, args] of [
+      [repo.path, ["co", "topic", "-E"]],
+      [topic, ["ls"]],
+    ] as const) {
+      const result = await runSp(cwd, "ht", [...args]);
+      expect(result.result.exitCode).toBe(0);
+      doc.command(result.command);
+      doc.output(result.result.stdout);
+    }
+  } finally {
+    await repo.cleanup();
+  }
+});

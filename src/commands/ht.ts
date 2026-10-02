@@ -41,6 +41,8 @@ Setup runs automatically on creation; -s skips it. -e overrides configured exec;
 Remove compares local and origin SHAs without fetching. --force permits dirty
 removal. Destroy always protects the default branch, even with --force.
 Removing your current worktree leaves your shell in a stale directory.
+For separate Git admin directories without core.worktree, run checkout from the
+primary worktree once before using externally created linked worktrees.
 `;
 
 export async function htCommand(git: GitRunner, args: string[]): Promise<void> {
@@ -86,7 +88,59 @@ export async function htCommand(git: GitRunner, args: string[]): Promise<void> {
   const config = async (key: string, fallback = "") =>
     (await read(["config", `happy-trees.${key}`])).stdout.trim() || fallback;
   const common = await run(["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  const root = basename(common) === ".git" ? dirname(common) : common;
+  const trees: Worktree[] = (await run(["worktree", "list", "--porcelain", "-z"]))
+    .split("\0\0")
+    .filter(Boolean)
+    .map((block) => {
+      const lines = block.split("\0");
+      return {
+        path: lines.find((l) => l.startsWith("worktree "))?.slice(9) ?? "",
+        branch: lines.find((l) => l.startsWith("branch refs/heads/"))?.slice(18),
+        detached: lines.includes("detached"),
+      };
+    });
+  const admin = await run(["rev-parse", "--path-format=absolute", "--git-dir"]);
+  const rootCache = resolve(common, "spry-ht-primary-root");
+  let root: string;
+  if ((await run(["rev-parse", "--is-bare-repository"])) === "true") root = common;
+  else if (admin === common) root = await run(["rev-parse", "--show-toplevel"]);
+  else {
+    const configured = (await read(["config", "--get", "core.worktree"])).stdout.trim();
+    if (configured) root = resolve(common, configured);
+    else if ((await read(["config", "--bool", "core.bare"])).stdout.trim() === "true")
+      root = common;
+    else {
+      // Separate admin directories contain no backlink to the primary working directory.
+      const cached: unknown = await Bun.file(rootCache)
+        .json()
+        .catch(() => undefined);
+      if (typeof cached !== "string" && basename(common) === ".git") {
+        const candidate = await read(
+          ["rev-parse", "--path-format=absolute", "--git-dir", "--show-toplevel"],
+          dirname(common),
+        );
+        const [candidateAdmin, candidateRoot] = candidate.stdout.trim().split("\n");
+        if (!candidate.exitCode && candidateAdmin === common && candidateRoot) root = candidateRoot;
+        else
+          throw new Error(
+            "Cannot determine primary working directory. Run sp ht checkout from the primary worktree first.",
+          );
+      } else if (typeof cached !== "string")
+        throw new Error(
+          "Cannot determine primary working directory. Run sp ht checkout from the primary worktree first.",
+        );
+      else {
+        const check = await read(["rev-parse", "--path-format=absolute", "--git-dir"], cached);
+        if (check.exitCode || check.stdout.trim() !== common)
+          throw new Error(
+            "Primary worktree path is unavailable. Run sp ht checkout from the primary worktree first.",
+          );
+        root = cached;
+      }
+    }
+  }
+  const primary = trees[0];
+  if (primary) primary.path = root;
   const expand = (p: string, wt = "") =>
     p
       .replaceAll("<repo_root>", root)
@@ -102,10 +156,16 @@ export async function htCommand(git: GitRunner, args: string[]): Promise<void> {
   };
   const hasLocal = async (b: string) =>
     (await read(["show-ref", "--verify", "--quiet", `refs/heads/${b}`])).exitCode === 0;
-  const remoteSha = async (b: string) =>
-    (await read(["ls-remote", "--heads", "origin", `refs/heads/${b}`])).stdout
-      .trim()
-      .split(/\s/)[0] ?? "";
+  const remoteSha = async (branch: string) => {
+    const ref = `refs/heads/${branch}`;
+    const result = await read(["ls-remote", "--heads", "origin", ref]);
+    if (result.exitCode !== 0) return "";
+    for (const line of result.stdout.trim().split("\n")) {
+      const [sha, returnedRef] = line.split(/\s+/);
+      if (returnedRef === ref && sha && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(sha)) return sha;
+    }
+    return "";
+  };
   const defaultBranch = async () => {
     const override = await config("defaultBranch");
     if (override) return override;
@@ -122,17 +182,6 @@ export async function htCommand(git: GitRunner, args: string[]): Promise<void> {
     }
     throw new Error("Could not determine default branch");
   };
-  const trees: Worktree[] = (await run(["worktree", "list", "--porcelain", "-z"]))
-    .split("\0\0")
-    .filter(Boolean)
-    .map((block) => {
-      const lines = block.split("\0");
-      return {
-        path: lines.find((l) => l.startsWith("worktree "))?.slice(9) ?? "",
-        branch: lines.find((l) => l.startsWith("branch refs/heads/"))?.slice(18),
-        detached: lines.includes("detached"),
-      };
-    });
   const linked = trees.filter((t) => t.path !== root && (t.branch || t.detached));
   const subprocess = async (cmd: string[], cwd?: string) => {
     const child = Bun.spawn(cmd, {
@@ -212,7 +261,6 @@ export async function htCommand(git: GitRunner, args: string[]): Promise<void> {
     } else {
       if (!(await config("setupLocation")))
         throw new Error("Setup location not configured. Run 'sp ht setup --init'");
-      const admin = await run(["rev-parse", "--path-format=absolute", "--git-dir"]);
       if (admin === common)
         throw new Error("Not in a linked worktree. Run this command from inside a worktree.");
       await setupScript(await run(["rev-parse", "--show-toplevel"]), true);
@@ -274,6 +322,13 @@ export async function htCommand(git: GitRunner, args: string[]): Promise<void> {
   }
   const tree = trees.find((t) => t.branch === branch);
   if (command === "checkout") {
+    if (
+      admin === common &&
+      root !== common &&
+      (basename(common) !== ".git" || root !== dirname(common))
+    ) {
+      await Bun.write(rootCache, JSON.stringify(root));
+    }
     const base = positional[1];
     if (tree) {
       if (base)
@@ -332,11 +387,7 @@ export async function htCommand(git: GitRunner, args: string[]): Promise<void> {
   const remote = await remoteSha(branch);
   if (await hasLocal(branch)) {
     const local = await run(["rev-parse", `refs/heads/${branch}`], root);
-    const tracked = await read(["rev-parse", "--verify", `refs/remotes/origin/${branch}`], root);
-    if (
-      command === "destroy" ||
-      (remote && local === (tracked.exitCode ? remote : tracked.stdout.trim()))
-    ) {
+    if (command === "destroy" || (remote && local === remote)) {
       await run(["branch", "-D", branch], root);
       console.log(
         command === "destroy"
