@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Happy Trees retains the local branch when live origin differs from it, even if the cached tracking ref still matches.
+- Happy Trees resolves the primary working directory correctly for separate Git admin directories and submodules.
+
 ### Added
 
 - `sp ht` ports Happy Trees worktree gardening: list, checkout, remove, destroy, and setup, including fzf selection, setup/exec hooks, bare repositories, path tokens, and existing `happy-trees.*` configuration.
