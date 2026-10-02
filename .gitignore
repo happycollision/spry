@@ -2,7 +2,10 @@
 *.db
 *.db-journal
 *.db-shm
-*.db-wal
+*.db-wal*
+*-fsqlite-ns-gate
+*-fsqlite-ns-use
+*.fsqlite-migration-state
 
 # Lock files
 *.lock
@@ -17,7 +20,7 @@ last-touched
 # DB-family recovery artifacts (truncated WAL/SHM, quarantined sidecars)
 # — same lifecycle as .br_history/, written by recovery paths and
 # `br doctor --repair`. Filename suffix `.truncated-wal` slips past the
-# generic `*.db-wal` glob above, so it needs an explicit entry (#271).
+# generic `*.db-wal*` glob above, so it needs an explicit entry (#271).
 .br_recovery/
 
 # Sync state (local-only, per-machine)
