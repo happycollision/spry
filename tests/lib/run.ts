@@ -52,3 +52,17 @@ export function createRunner(cliPath: string): SpryRunner {
     };
   };
 }
+
+/**
+ * Wrap a runner so the CLI ignores the developer's global and system git
+ * config. Happy Trees reads `happy-trees.*` from every config scope, and a
+ * global `happy-trees.exec` (such as `code`) would otherwise run on each
+ * worktree a test creates. Callers set any config a test needs locally.
+ */
+export function withIsolatedGitConfig(runner: SpryRunner): SpryRunner {
+  return (cwd, command, args, options) =>
+    runner(cwd, command, args, {
+      ...options,
+      env: { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", ...options?.env },
+    });
+}

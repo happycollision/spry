@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Development and CI use Bun 1.3.14 consistently, avoiding the Happy Trees shell-suite timeout on Bun 1.3.5.
+- Happy Trees retains the local branch when live origin differs from it, even if the cached tracking ref still matches.
+- Happy Trees resolves the primary working directory correctly for separate Git admin directories and submodules.
+
+### Added
+
+- `sp ht` ports Happy Trees worktree gardening: list, checkout, remove, destroy, and setup, including fzf selection, setup/exec hooks, bare repositories, path tokens, and existing `happy-trees.*` configuration.
+
 ## [1.0.0-beta.6] - 2026-08-10
 
 ### Fixed

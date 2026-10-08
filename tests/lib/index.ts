@@ -11,7 +11,7 @@ export { createScreenBuffer } from "./ansi-parser.ts";
 export { createTerminalDriver } from "./terminal-driver.ts";
 export { docTest, fragmentPath, createDocScrubber } from "./doc.ts";
 export { setupDocRepo } from "./doc-repo.ts";
-export { createRunner } from "./run.ts";
+export { createRunner, withIsolatedGitConfig } from "./run.ts";
 export { cassettePath, cassetteEnv, isRecording } from "./cassette-harness.ts";
 export { withGitHubFixture } from "./github-fixture.ts";
 export type { GitHubFixture, WithGitHubFixtureOptions } from "./github-fixture.ts";
