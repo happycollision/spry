@@ -36,9 +36,9 @@ test("Happy Trees unchanged shell behavior suite", async () => {
 }, 120000);
 
 test("fzf drives checkout/remove/destroy and cancellation leaves worktrees intact", async () => {
-  const { createRepo, createRunner } = await import("../lib/index.ts");
+  const { createRepo, createRunner, withIsolatedGitConfig } = await import("../lib/index.ts");
   const repo = await createRepo();
-  const run = createRunner(join(import.meta.dir, "../../src/cli/index.ts"));
+  const run = withIsolatedGitConfig(createRunner(join(import.meta.dir, "../../src/cli/index.ts")));
   const bin = join(repo.path, "bin");
   const trees = join(repo.path, "trees");
   await mkdir(bin);
@@ -79,9 +79,11 @@ test("fzf drives checkout/remove/destroy and cancellation leaves worktrees intac
 
 for (const layout of ["separate admin", "separate .git", "submodule"] as const) {
   test(`Happy Trees uses working directories with ${layout}`, async () => {
-    const { createRepo, createRunner } = await import("../lib/index.ts");
+    const { createRepo, createRunner, withIsolatedGitConfig } = await import("../lib/index.ts");
     const repo = await createRepo();
-    const run = createRunner(join(import.meta.dir, "../../src/cli/index.ts"));
+    const run = withIsolatedGitConfig(
+      createRunner(join(import.meta.dir, "../../src/cli/index.ts")),
+    );
     let root = repo.path;
     try {
       if (layout !== "submodule") {
@@ -139,9 +141,9 @@ for (const layout of ["separate admin", "separate .git", "submodule"] as const) 
 }
 
 test("remove retains unique local commits when origin tracking is stale", async () => {
-  const { createRepo, createRunner } = await import("../lib/index.ts");
+  const { createRepo, createRunner, withIsolatedGitConfig } = await import("../lib/index.ts");
   const repo = await createRepo();
-  const run = createRunner(join(import.meta.dir, "../../src/cli/index.ts"));
+  const run = withIsolatedGitConfig(createRunner(join(import.meta.dir, "../../src/cli/index.ts")));
   await repo.git.run(["config", "happy-trees.worktreesDir", join(repo.path, "trees")], {
     cwd: repo.path,
   });
@@ -180,9 +182,11 @@ for (const [caseName, code, ref] of [
   ["successful query for a different ref", 0, "refs/heads/other"],
 ] as const) {
   test(`remove retains branch after ${caseName}`, async () => {
-    const { createRepo, createRunner } = await import("../lib/index.ts");
+    const { createRepo, createRunner, withIsolatedGitConfig } = await import("../lib/index.ts");
     const repo = await createRepo();
-    const run = createRunner(join(import.meta.dir, "../../src/cli/index.ts"));
+    const run = withIsolatedGitConfig(
+      createRunner(join(import.meta.dir, "../../src/cli/index.ts")),
+    );
     const bin = join(repo.path, "bin");
     const realGit = Bun.which("git");
     expect(realGit).not.toBeNull();

@@ -1,9 +1,9 @@
 import { expect } from "bun:test";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { docTest, createRepo, createRunner } from "../lib/index.ts";
+import { docTest, createRepo, createRunner, withIsolatedGitConfig } from "../lib/index.ts";
 
-const runSp = createRunner(join(import.meta.dir, "../../src/cli/index.ts"));
+const runSp = withIsolatedGitConfig(createRunner(join(import.meta.dir, "../../src/cli/index.ts")));
 
 docTest(
   "Happy Trees commands and configuration",
