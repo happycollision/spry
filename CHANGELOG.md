@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-beta.7] - 2026-10-08
+
 ### Fixed
 
 - Development and CI use Bun 1.3.14 consistently, avoiding the Happy Trees shell-suite timeout on Bun 1.3.5.
