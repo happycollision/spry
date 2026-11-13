@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-beta.8] - 2026-11-13
+
 ### Agent-first CLI
 
 - **Breaking:** stack operations now live under `sp stack` (`view`, `sync`, `group`, `rebase`, `land`, `clean`). Old root commands fail with a migration hint; bare `sp` and `sp stack` show help. Happy Trees remains `sp ht`.
