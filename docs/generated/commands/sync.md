@@ -1,9 +1,9 @@
 # sync
 
-Run `sp sync` to push your stack's commits to their already-published remote branches. Spry derives each branch as `<spry.branchPrefix>/<unit-id>` and only pushes branches that already exist on the remote — it never creates new ones. Use `sp sync --open` to publish for the first time.
+Run `sp stack sync` to push your stack's commits to their already-published remote branches. Spry derives each branch as `<spry.branchPrefix>/<unit-id>` and only pushes branches that already exist on the remote — it never creates new ones. Use `sp stack sync --open` to publish for the first time.
 
 ```
-sp sync
+sp stack sync
 ```
 
 ```
@@ -13,10 +13,10 @@ PR retargeting unavailable: <hint>
 
 ```
 
-Spry skips any branch whose remote tip already matches its local commit, so running `sp sync` again with nothing new does no redundant push — the branch simply isn't listed:
+Spry skips any branch whose remote tip already matches its local commit, so running `sp stack sync` again with nothing new does no redundant push — the branch simply isn't listed:
 
 ```
-sp sync
+sp stack sync
 ```
 
 ```
@@ -25,10 +25,10 @@ PR retargeting unavailable: <hint>
 
 ```
 
-Use `sp sync --open <id>` to publish a commit for the first time — Spry pushes the branch and opens a PR on GitHub targeting trunk (or the previous unit's branch for a stacked PR):
+Use `sp stack sync --open <id>` to publish a commit for the first time — Spry pushes the branch and opens a PR on GitHub targeting trunk (or the previous unit's branch for a stacked PR):
 
 ```
-sp sync --open aaaa1111
+sp stack sync --open aaaa1111
 ```
 
 ```
@@ -41,10 +41,10 @@ sp sync --open aaaa1111
 
 ```
 
-When you group commits with `sp group`, `sp sync --open <group-id>` publishes the whole group as a single PR. The PR title is the group's title and its body lists the grouped commits' subjects inside spry's managed body region:
+When you group commits with `sp stack group`, `sp stack sync --open <group-id>` publishes the whole group as a single PR. The PR title is the group's title and its body lists the grouped commits' subjects inside spry's managed body region:
 
 ```
-sp sync --open grp00001
+sp stack sync --open grp00001
 ```
 
 ```
@@ -57,10 +57,10 @@ sp sync --open grp00001
 
 ```
 
-Run `sp sync --open` (no arguments) to choose which unpublished branches to open as PRs. Spry shows an interactive menu — use Space to toggle, Enter to confirm:
+Run `sp -i stack sync --open` (no IDs) to choose which unpublished branches to open as PRs. Spry shows an interactive menu — use Space to toggle, Enter to confirm. Without `-i`, pass comma-separated IDs to `--open` instead:
 
 ```
-sp sync --open
+sp -i stack sync --open
 ```
 
 ```
@@ -78,10 +78,10 @@ Select units to open (space toggle, a all, enter confirm, esc cancel):
 
 ```
 
-`sp sync --open` seeds every new PR's body with spry-owned marker regions — an info line, a `spry:body` section holding the commit's prose, and a `spry:footer` section:
+`sp stack sync --open` seeds every new PR's body with spry-owned marker regions — an info line, a `spry:body` section holding the commit's prose, and a `spry:footer` section:
 
 ```
-sp sync --open aaaa1111
+sp stack sync --open aaaa1111
 ```
 
 ```
@@ -94,10 +94,10 @@ sp sync --open aaaa1111
 
 ```
 
-Spry owns only the bytes between its markers. Editing the commit and re-running `sp sync` rewrites the `spry:body` region in place — anything written outside the markers (like a hand-added note) is preserved byte-for-byte:
+Spry owns only the bytes between its markers. Editing the commit and re-running `sp stack sync` rewrites the `spry:body` region in place — anything written outside the markers (like a hand-added note) is preserved byte-for-byte:
 
 ```
-sp sync
+sp stack sync
 ```
 
 ```
@@ -108,10 +108,10 @@ sp sync
 
 ```
 
-On a branch with no commits ahead of trunk, `sp sync` no-ops:
+On a branch with no commits ahead of trunk, `sp stack sync` no-ops:
 
 ```
-sp sync
+sp stack sync
 ```
 
 ```
@@ -119,10 +119,10 @@ sp sync
 
 ```
 
-If a commit lacks a `Spry-Commit-Id` trailer, `sp sync` rewrites it with one before doing anything else. This happens automatically on first use:
+If a commit lacks a `Spry-Commit-Id` trailer, `sp stack sync` rewrites it with one before doing anything else. This happens automatically on first use:
 
 ```
-sp sync
+sp stack sync
 ```
 
 ```
@@ -132,10 +132,10 @@ PR retargeting unavailable: network error (branches still updated)
 
 ```
 
-When you keep several independent stacks in flight, `sp sync --all` pushes every tracked stack's already-published branches in one run — no need to check each one out. It is push-only: it never rebases and never opens new PRs (use `sp rebase --all` to restack, and `sp sync --open` to publish).
+When you keep several independent stacks in flight, `sp stack sync --all` pushes every tracked stack's already-published branches in one run — no need to check each one out. It is push-only: it never rebases and never opens new PRs (use `sp stack rebase --all` to restack, and `sp stack sync --open` to publish).
 
 ```
-sp sync --all
+sp stack sync --all
 ```
 
 ```
@@ -148,10 +148,10 @@ feature/search:
 
 ```
 
-Reordering commits in a stack and re-syncing must never mark an open PR as merged. `sp sync` parks every affected PR onto trunk before force-pushing the reordered branches, then re-stacks them — so a reorder is safe:
+Reordering commits in a stack and re-syncing must never mark an open PR as merged. `sp stack sync` parks every affected PR onto trunk before force-pushing the reordered branches, then re-stacks them — so a reorder is safe:
 
 ```
-sp sync
+sp stack sync
 ```
 
 ```

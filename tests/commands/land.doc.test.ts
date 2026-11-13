@@ -82,7 +82,7 @@ const SLOW_CI_SECONDS = 20;
 // against real CI turnaround (see the order-30 body comment): it marks its
 // stack commits [SLOW_CI_<n>] and explicitly waits, for EACH of the two branches
 // SEQUENTIALLY, until that branch's rollup is registered-and-pending, before
-// invoking `sp land` once. Budget for two full waitForRegisteredPending calls
+// invoking `sp stack land` once. Budget for two full waitForRegisteredPending calls
 // at their worst case (2 * WAIT_FOR_CHECKS_TIMEOUT_MS = 480000ms) plus
 // generous headroom for PR creation, the land invocation itself, and gh
 // latency. (The [SLOW_CI] window itself is only SLOW_CI_SECONDS; the large
@@ -165,7 +165,12 @@ async function setupLandStack(
       `${fullSubject}\n\nSpry-Commit-Id: ${id}`,
     ]);
     const head = (await repo.git.run(["rev-parse", "HEAD"])).stdout.trim();
-    await repo.git.run(["push", "origin", `${head}:refs/heads/${branchPrefix}/${id}`]);
+    const pushed = await repo.git.run([
+      "push",
+      "origin",
+      `${head}:refs/heads/${branchPrefix}/${id}`,
+    ]);
+    if (pushed.exitCode !== 0) throw new Error(`Land fixture push failed: ${pushed.stderr}`);
   }
 
   if (recording) {
@@ -191,7 +196,7 @@ async function setupLandStack(
  * registers any check* (zero checks reads as success), so a naive wait can
  * return during the window between opening the PR and CI starting — leaving
  * land to observe a `pending` rollup moments later. Instead poll the same
- * `statusCheckRollup` signal `sp land` reads, and require a NON-EMPTY, fully
+ * `statusCheckRollup` signal `sp stack land` reads, and require a NON-EMPTY, fully
  * green rollup before returning.
  */
 async function waitForChecks(
@@ -229,7 +234,7 @@ async function waitForChecks(
  * (non-empty) that is still PENDING — at least one check not yet COMPLETED,
  * and none failed. This is the mirror image of `waitForChecks`: instead of
  * waiting for CI to finish, we need to catch it registered and still running,
- * so that invoking `sp land` immediately afterward reliably observes land's
+ * so that invoking `sp stack land` immediately afterward reliably observes land's
  * readiness gate seeing `pending` (not "none") and prints the nudge.
  *
  * The gap this closes: right after `gh pr create`, GitHub has not yet
@@ -239,7 +244,7 @@ async function waitForChecks(
  * stack instead of nudging. Combined with `slowCI` stack commits (which make
  * the deployed workflow sleep SLOW_CI_SECONDS before completing), waiting here
  * for a non-empty-but-incomplete rollup gives a reliable window in which to
- * invoke `sp land` and deterministically observe the nudge.
+ * invoke `sp stack land` and deterministically observe the nudge.
  */
 async function waitForRegisteredPending(
   cwd: string,
@@ -275,7 +280,7 @@ async function waitForRegisteredPending(
   );
 }
 
-describe("sp land docs", () => {
+describe("sp stack land docs", () => {
   docTest(
     "Landing through a commit",
     {
@@ -287,7 +292,7 @@ describe("sp land docs", () => {
       // THE CANONICAL LAND TEST. It lands on the repo's REAL default branch
       // (trunk: "default-branch") and, in record mode, runs exclusively (record
       // lock + main restored to baseline afterward). It is the one standing
-      // validation that `sp land`'s bare ff-push — no merge API, no retarget —
+      // validation that `sp stack land`'s bare ff-push — no merge API, no retarget —
       // really flips the trunk-based PR to MERGED on the true default branch,
       // exactly as in a real repo (the property the land redesign rests on;
       // see docs/rebuild-roadmap.md, refined by beads spry-tm2l). Every other
@@ -315,12 +320,17 @@ describe("sp land docs", () => {
         const tip = (await repo.git.run(["rev-parse", "HEAD"])).stdout.trim();
 
         doc.prose(
-          "`sp land --through <id>` lands the stack from the bottom **through** the unit identified by `<id>` (a group ID, unit-ID prefix, or commit-hash prefix). Spry fast-forwards trunk to that unit's tip — it never uses the GitHub merge API and never retargets PR bases. GitHub marks each PR `MERGED` because its commits become reachable from the default branch; leaving each PR on its stacked base keeps that PR's diff scoped to just its own unit. `sp land` never deletes branches (that is `sp clean`'s job):",
+          "`sp stack land --through <id>` lands the stack from the bottom **through** the unit identified by `<id>` (a group ID, unit-ID prefix, or commit-hash prefix). Spry fast-forwards trunk to that unit's tip — it never uses the GitHub merge API and never retargets PR bases. GitHub marks each PR `MERGED` because its commits become reachable from the default branch; leaving each PR on its stacked base keeps that PR's diff scoped to just its own unit. `sp stack land` never deletes branches (that is `sp stack clean`'s job):",
         );
 
-        const { command, result } = await runSp(repo.path, "land", ["--through", "bbb22222"], {
-          env,
-        });
+        const { command, result } = await runSp(
+          repo.path,
+          ["stack", "land"],
+          ["--through", "bbb22222"],
+          {
+            env,
+          },
+        );
         doc.command(command);
         doc.output(result.stdout);
 
@@ -400,9 +410,9 @@ describe("sp land docs", () => {
         await setupLandStack(repo, { recording, trunkName, branchPrefix });
 
         doc.prose(
-          "Run `sp land` with no arguments to choose the land point interactively. Spry shows a single-select menu of the stack's units (bottom→top) — use ↑/↓ to move, Enter to select. The chosen unit becomes the `--through` target:",
+          "Run `sp -i stack land` to choose the land point interactively. Spry shows a single-select menu of the stack's units (bottom→top) — use ↑/↓ to move, Enter to select. The chosen unit becomes the `--through` target. Without `-i`, supply `--through <id>` instead:",
         );
-        doc.command("sp land");
+        doc.command("sp -i stack land");
 
         // Spawn the harness in a real PTY. The gh seam (cassette env) records/replays
         // the land traffic; the TUI picker runs for real.
@@ -457,7 +467,7 @@ describe("sp land docs", () => {
       // completing — so CI stays registered-and-pending for a reliable window instead
       // of racing real CI turnaround. We explicitly wait (waitForGreen: false,
       // then waitForRegisteredPending for each branch) until both PRs' rollups
-      // are registered-and-pending before invoking `sp land` once, so land's
+      // are registered-and-pending before invoking `sp stack land` once, so land's
       // readiness gate reliably observes `pending` (not the pre-registration
       // "none") and prints the nudge. Land's scope is `--through bbb22222`,
       // which covers BOTH units, and readiness gates on ALL in-scope PRs — so
@@ -487,12 +497,17 @@ describe("sp land docs", () => {
         }
 
         doc.prose(
-          "If CI is still running, a non-interactive `sp land` (no TTY — e.g. in a script or CI job) can't prompt to wait, so it prints a ready-to-copy re-invoke command and exits non-zero instead of blocking:",
+          "If CI is still running, `sp stack land --through <id>` prints a ready-to-copy re-invoke command and exits non-zero instead of prompting. An explicit scope stays prompt-free even with `-i`:",
         );
 
-        const { command, result } = await runSp(repo.path, "land", ["--through", "bbb22222"], {
-          env,
-        });
+        const { command, result } = await runSp(
+          repo.path,
+          ["stack", "land"],
+          ["--through", "bbb22222"],
+          {
+            env,
+          },
+        );
         doc.command(command);
         doc.output(result.stdout + result.stderr);
 
@@ -503,14 +518,14 @@ describe("sp land docs", () => {
         // pass, so a different failure mode doesn't masquerade as the nudge.
         expect(result.exitCode).toBe(1);
         const combined = result.stdout + result.stderr;
-        expect(combined).toContain("sp land --through");
+        expect(combined).toContain("sp stack land --through");
         expect(combined).toContain("--poll");
       });
     },
   );
 
   docTest(
-    "sp land --poll waits for CI, then lands",
+    "sp stack land --poll waits for CI, then lands",
     {
       section: "commands/land",
       order: 40,
@@ -560,9 +575,9 @@ describe("sp land docs", () => {
         });
 
         doc.prose(
-          "Pass `--poll` to wait for CI instead of nudging: `sp land` re-checks on a cadence (30s by default; `--interval <seconds>` to change it) and lands automatically the moment every in-scope PR is green:",
+          "Pass `--poll` to wait for CI instead of nudging: `sp stack land` re-checks on a cadence (30s by default; `--interval <seconds>` to change it) and lands automatically the moment every in-scope PR is green:",
         );
-        doc.command("sp land --through bbb22222 --poll");
+        doc.command("sp stack land --through bbb22222 --poll");
 
         const pollEnv = {
           ...env,

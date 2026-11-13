@@ -6,12 +6,15 @@ import { createInitialState, applyEvent, extractResult } from "./group-state.ts"
 import type { GroupEditorResult, GroupEditorState, EditorEvent } from "./group-state.ts";
 import { renderGroupEditor } from "./group-render.ts";
 import { ENTER_TUI, EXIT_TUI } from "./screen.ts";
+import { requireInteractive } from "../lib/interaction.ts";
+import { readTerminalInput } from "./input.ts";
 
 export interface GroupEditorOptions {
   branch: string;
   trunkRef: string;
   cwd?: string;
   canReorder?: boolean;
+  interactive?: boolean;
 }
 
 export async function runGroupEditor(
@@ -23,9 +26,10 @@ export async function runGroupEditor(
   const stdin = process.stdin;
   const stdout = process.stdout;
 
-  if (!stdin.isTTY) {
-    throw new Error("sp group requires an interactive terminal (stdin is not a TTY)");
-  }
+  requireInteractive(
+    opts.interactive,
+    "  Use: sp stack group --apply <json>\n  Find IDs: sp stack view --json",
+  );
 
   const mergeBase = await getMergeBase(git, opts.trunkRef, { cwd: opts.cwd });
   const originalHashes = commits.map((c) => c.hash);
@@ -46,6 +50,7 @@ export async function runGroupEditor(
         mergeBase,
         { cwd: opts.cwd },
       );
+      if (cleanedUp) return;
       const conflictIndices = new Set<number>();
       for (const key of conflictMap.keys()) {
         const [hashA, hashB] = key.split(":");
@@ -83,42 +88,36 @@ export async function runGroupEditor(
   stdout.write(ENTER_TUI);
   render();
 
-  return new Promise<GroupEditorResult>((resolve) => {
-    function onData(chunk: Buffer): void {
-      const keys = parseKeys(chunk.toString());
+  return readTerminalInput<GroupEditorResult>((chunk, resolve) => {
+    const keys = parseKeys(chunk.toString());
 
-      for (const key of keys) {
-        if (state.mode === "normal") {
-          if (key === "\r" || key === "\n") {
-            stdin.off("data", onData);
-            cleanup();
-            resolve(extractResult(state));
-            return;
-          }
-          if (key === "q" || key === "\x03" || key === "\x1b") {
-            stdin.off("data", onData);
-            cleanup();
-            resolve({ newOrder: null, updatedRecords: {}, cancelled: true });
-            return;
-          }
+    for (const key of keys) {
+      if (state.mode === "normal") {
+        if (key === "\r" || key === "\n") {
+          cleanup();
+          resolve(extractResult(state));
+          return;
         }
-
-        const event = keyToEvent(key);
-        if (!event) continue;
-
-        const prevOrder = state.rows.map((r) => r.hash).join();
-        state = applyEvent(state, event);
-
-        // Trigger conflict prediction after each reorder step in move mode
-        if (state.mode === "move" && state.rows.map((r) => r.hash).join() !== prevOrder) {
-          updateConflicts(state).catch(() => {});
+        if (key === "q" || key === "\x03" || key === "\x1b") {
+          cleanup();
+          resolve({ newOrder: null, updatedRecords: {}, cancelled: true });
+          return;
         }
       }
 
-      render();
+      const event = keyToEvent(key);
+      if (!event) continue;
+
+      const prevOrder = state.rows.map((r) => r.hash).join();
+      state = applyEvent(state, event);
+
+      // Trigger conflict prediction after each reorder step in move mode
+      if (state.mode === "move" && state.rows.map((r) => r.hash).join() !== prevOrder) {
+        updateConflicts(state).catch(() => {});
+      }
     }
 
-    stdin.on("data", onData);
+    render();
   }).finally(cleanup);
 }
 

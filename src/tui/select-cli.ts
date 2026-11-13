@@ -3,5 +3,5 @@ import { selectUnits } from "./select.ts";
 
 const arg = process.argv[2] ?? "[]";
 const options = JSON.parse(arg);
-const result = await selectUnits(options);
+const result = await selectUnits(options, { interactive: true });
 process.stdout.write(JSON.stringify(result));

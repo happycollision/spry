@@ -19,7 +19,7 @@ test("command errors are printed without a Bun source-frame stack", async () => 
     await repo.git.run(["config", "spry.branchPrefix", "spry/test"]);
     await Bun.write(join(repo.path, "README.md"), "# Test repo\n\ndirty\n");
 
-    const { result } = await runSp(repo.path, "rebase");
+    const { result } = await runSp(repo.path, ["stack", "rebase"]);
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(
@@ -39,13 +39,11 @@ test("command errors are printed without a Bun source-frame stack", async () => 
 // hot-loop the GitHub API).
 for (const bad of ["abc", "0", "-5"]) {
   test(`land --interval ${bad} is rejected before doing any work`, async () => {
-    const { result } = await runSp(process.cwd(), "land", [
-      "--through",
-      "x",
-      "--poll",
-      "--interval",
-      bad,
-    ]);
+    const { result } = await runSp(
+      process.cwd(),
+      ["stack", "land"],
+      ["--through", "x", "--poll", "--interval", bad],
+    );
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("--interval must be a positive number of seconds");
     expect(result.stderr).toContain(`(got "${bad}")`);
@@ -55,6 +53,10 @@ for (const bad of ["abc", "0", "-5"]) {
 test("land --interval 15 is accepted (positive value parses)", async () => {
   // Not a poll run — no --poll, no configured repo — so it exits for another
   // reason; the point is only that the interval parse does NOT reject 15.
-  const { result } = await runSp(process.cwd(), "land", ["--through", "x", "--interval", "15"]);
+  const { result } = await runSp(
+    process.cwd(),
+    ["stack", "land"],
+    ["--through", "x", "--interval", "15"],
+  );
   expect(result.stderr).not.toContain("--interval must be");
 });

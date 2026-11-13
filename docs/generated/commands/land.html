@@ -25,42 +25,42 @@
   <body>
     <h1>sp land</h1>
     <p>
-      `sp land --through &lt;id&gt;` lands the stack from the bottom **through** the unit identified
-      by `&lt;id&gt;` (a group ID, unit-ID prefix, or commit-hash prefix). Spry fast-forwards trunk
-      to that unit's tip — it never uses the GitHub merge API and never retargets PR bases. GitHub
-      marks each PR `MERGED` because its commits become reachable from the default branch; leaving
-      each PR on its stacked base keeps that PR's diff scoped to just its own unit. `sp land` never
-      deletes branches (that is `sp clean`'s job):
+      `sp stack land --through &lt;id&gt;` lands the stack from the bottom **through** the unit
+      identified by `&lt;id&gt;` (a group ID, unit-ID prefix, or commit-hash prefix). Spry
+      fast-forwards trunk to that unit's tip — it never uses the GitHub merge API and never
+      retargets PR bases. GitHub marks each PR `MERGED` because its commits become reachable from
+      the default branch; leaving each PR on its stacked base keeps that PR's diff scoped to just
+      its own unit. `sp stack land` never deletes branches (that is `sp stack clean`'s job):
     </p>
-    <pre class="command">sp land --through aaaa1111</pre>
+    <pre class="command">sp stack land --through aaaa1111</pre>
     <pre class="output">✓ Updated PR cache (2 PRs)
 ✓ Landed 2 PRs to main
-<span class="ansi-dim">  Run `sp clean` to delete the landed branches from the remote.</span></pre>
+<span class="ansi-dim">  Run `sp stack clean` to delete the landed branches from the remote.</span></pre>
     <p>
-      Run `sp land` with no arguments to choose the land point interactively. Spry shows a
-      single-select menu of the stack's units (bottom→top) — use ↑/↓ to move, Enter to select. The
-      chosen unit becomes the `--through` target:
+      Run `sp -i stack land` to choose the land point interactively. Spry shows a single-select menu
+      of the stack's units (bottom→top) — use ↑/↓ to move, Enter to select. The chosen unit becomes
+      the `--through` target. Without `-i`, supply `--through &lt;id&gt;` instead:
     </p>
-    <pre class="command">sp land</pre>
+    <pre class="command">sp -i stack land</pre>
     <pre class="screen">Select the unit to land through (↑/↓ move, enter select, esc cancel):
 <span class="ansi-cyan-fg">&gt;</span> <span class="ansi-cyan-fg">bbbb2222  Add login</span>
   aaaa1111  Add logout</pre>
     <p>
-      If CI is still running, a non-interactive `sp land` (no TTY — e.g. in a script or CI job)
-      can't prompt to wait, so it prints a ready-to-copy re-invoke command and exits non-zero
-      instead of blocking:
+      If CI is still running, `sp stack land --through &lt;id&gt;` prints a ready-to-copy re-invoke
+      command and exits non-zero instead of prompting. An explicit scope stays prompt-free even with
+      `-i`:
     </p>
-    <pre class="command">sp land --through aaaa1111</pre>
+    <pre class="command">sp stack land --through aaaa1111</pre>
     <pre class="output">✓ Updated PR cache (2 PRs)
-<span class="ansi-red-fg">Run `sp land --through aaaa1111 --poll` to wait for CI and land automatically.</span></pre>
+<span class="ansi-red-fg">Run `sp stack land --through aaaa1111 --poll` to wait for CI and land automatically.</span></pre>
     <p>
-      Pass `--poll` to wait for CI instead of nudging: `sp land` re-checks on a cadence (30s by
-      default; `--interval &lt;seconds&gt;` to change it) and lands automatically the moment every
-      in-scope PR is green:
+      Pass `--poll` to wait for CI instead of nudging: `sp stack land` re-checks on a cadence (30s
+      by default; `--interval &lt;seconds&gt;` to change it) and lands automatically the moment
+      every in-scope PR is green:
     </p>
-    <pre class="command">sp land --through aaaa1111 --poll</pre>
+    <pre class="command">sp stack land --through aaaa1111 --poll</pre>
     <pre class="output">
-⧗ CI pending on #1001, #1005; polling every 8s (Ctrl-C to stop)…
+⧗ CI pending on #42, #42; polling every 8s (Ctrl-C to stop)…
   …
 ✓ Landed 2 PRs to main</pre
     >

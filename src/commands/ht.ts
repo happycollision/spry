@@ -2,6 +2,7 @@ import { access, chmod, mkdir, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import type { GitRunner } from "../lib/context.ts";
+import { requireInteractive, hasInteractiveTerminal } from "../lib/interaction.ts";
 
 interface Worktree {
   path: string;
@@ -23,8 +24,10 @@ Commands:
                         Remove a worktree and its local and origin branches
   setup [--init [path]]  Run setup in a linked worktree or create a setup template
 
-Omitting a branch opens an fzf selector. Checkout lists worktrees first, then
-local and origin branches by commit recency. Destroy excludes the default branch.
+Omitting a branch requires -i: sp -i ht co (or remove/destroy) opens an fzf
+selector in a terminal. SPRY_NON_INTERACTIVE=1 disables interactive input even
+with -i. Checkout lists worktrees first, then local and origin branches by
+commit recency. Destroy excludes the default branch.
 Destroy refuses dirty or path-mismatched worktrees unless --force is given.
 
 Git configuration (local or --global):
@@ -38,6 +41,9 @@ Path tokens: <repo_root>, <repo_name>, and (for setup) <worktree_root>.
 Existing worktrees are found by branch regardless of worktreesDir.
 Setup runs automatically on creation; -s skips it. -e overrides configured exec;
 -E skips exec. Setup and exec failures leave newly created worktrees in place.
+Setup and exec receive closed stdin unless -i is set with a usable terminal.
+Scripts and Git hooks are external code and can still open /dev/tty themselves;
+to skip setup and exec, use: sp ht co <branch> -s -E.
 Remove compares local and origin SHAs without fetching. --force permits dirty
 removal. Destroy always protects the default branch, even with --force.
 Removing your current worktree leaves your shell in a stale directory.
@@ -45,7 +51,11 @@ For separate Git admin directories without core.worktree, run checkout from the
 primary worktree once before using externally created linked worktrees.
 `;
 
-export async function htCommand(git: GitRunner, args: string[]): Promise<void> {
+export async function htCommand(
+  git: GitRunner,
+  args: string[],
+  interactive = false,
+): Promise<void> {
   const [raw = "help", ...rest] = args;
   if (["help", "--help", "-h"].includes(raw)) {
     console.log(htHelp);
@@ -78,6 +88,13 @@ export async function htCommand(git: GitRunner, args: string[]): Promise<void> {
   }
   if (positional.length > (command === "checkout" ? 2 : command === "setup" ? 0 : 1))
     throw new Error("Too many arguments");
+  // Internal enumeration only: never launches a selector or executes an operation.
+  const dumpEntries =
+    (command === "checkout" && process.env.GIT_HT_DUMP === "checkout-entries") ||
+    (command === "remove" && process.env.GIT_HT_DUMP === "worktree-entries");
+  const selectorGuidance = `Provide a branch explicitly: sp ht ${raw} <branch>${command === "checkout" ? " -s -E" : ""}`;
+  if (["checkout", "remove", "destroy"].includes(command) && !positional[0] && !dumpEntries)
+    requireInteractive(interactive, selectorGuidance);
   let repositoryCwd = process.cwd();
   const read = async (a: string[], cwd = repositoryCwd) => git.run(a, { cwd });
   const run = async (a: string[], cwd?: string) => {
@@ -184,9 +201,12 @@ export async function htCommand(git: GitRunner, args: string[]): Promise<void> {
   };
   const linked = trees.filter((t) => t.path !== root && (t.branch || t.detached));
   const subprocess = async (cmd: string[], cwd?: string) => {
+    // External scripts keep running by default, but must not consume caller input.
+    const inheritStdin =
+      interactive && process.env.SPRY_NON_INTERACTIVE !== "1" && hasInteractiveTerminal();
     const child = Bun.spawn(cmd, {
       cwd,
-      stdin: "inherit",
+      stdin: inheritStdin ? "inherit" : "ignore",
       stdout: "inherit",
       stderr: "inherit",
     });
@@ -292,15 +312,13 @@ export async function htCommand(git: GitRunner, args: string[]): Promise<void> {
     const name = (await defaultBranch()).replace(/^origin\//, "");
     entries = entries.filter((e) => e.split("\t")[0] !== name);
   }
-  if (
-    (command === "checkout" && process.env.GIT_HT_DUMP === "checkout-entries") ||
-    (command === "remove" && process.env.GIT_HT_DUMP === "worktree-entries")
-  ) {
+  if (dumpEntries) {
     if (entries.length) console.log(entries.join("\n"));
     return;
   }
   let branch = positional[0];
   if (!branch) {
+    requireInteractive(interactive, selectorGuidance);
     if (!Bun.which("fzf"))
       throw new Error(
         "fzf is required for interactive selection. Install fzf or provide the branch name as an argument",

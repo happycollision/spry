@@ -13,6 +13,7 @@ const { gh, flush } = await createSeamedGhClient();
 
 const runner = createRealGitRunner();
 const ctx: SpryContext = {
+  interactive: true,
   git: {
     run: (args: string[], opts?: { cwd?: string }) =>
       runner.run(args, { ...opts, cwd: opts?.cwd ?? cwd }),

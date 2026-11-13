@@ -55,6 +55,7 @@ import type { PRCache, PRCacheEntry } from "../gh/pr-cache.ts";
 import type { PRInfo } from "../gh/pr.ts";
 import type { SpryConfig } from "../git/config.ts";
 import { selectUnits } from "../tui/index.ts";
+import { requireInteractive } from "../lib/interaction.ts";
 
 export interface SyncOptions {
   /** undefined = bare; null = boolean --open (TUI); string = comma-separated IDs */
@@ -153,7 +154,7 @@ export async function checkSync(
   //
   // Why concurrent rather than one combined multi-refspec fetch: `git fetch`
   // aborts the WHOLE command if any named refspec's source is missing, and the
-  // group-records ref is absent for any stack that never used `sp group` — so a
+  // group-records ref is absent for any stack that never used `sp stack group` — so a
   // combined fetch would fail (and fetch nothing) on the common no-groups case.
   // The two bookkeeping fetches already tolerate a missing ref individually.
   const [, groupFetch, prCacheFetch] = await Promise.all([
@@ -220,9 +221,17 @@ export async function checkSync(
 
 export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Promise<void> {
   if (opts.all && opts.open !== undefined) {
-    console.error("✗ `sp sync --all` is push-only and cannot be combined with `--open`.");
-    console.error("  Open PRs per stack with `sp sync --open`, then run `sp sync --all` to push.");
+    console.error("✗ `sp stack sync --all` is push-only and cannot be combined with `--open`.");
+    console.error(
+      "  Open PRs per stack with `sp stack sync --open <ids>`, then run `sp stack sync --all` to push.",
+    );
     process.exit(1);
+  }
+  if (opts.open === null) {
+    requireInteractive(
+      ctx.interactive,
+      "  Use: sp stack sync --open <id1,id2>\n  Find IDs: sp stack view --json\n  Picker: sp -i stack sync --open",
+    );
   }
 
   const cwd = opts.cwd;
@@ -329,7 +338,7 @@ export async function syncCommand(ctx: SpryContext, opts: SyncOptions = {}): Pro
     let opened: OpenPRsResult | undefined;
     if (opts.open === null) {
       const candidates = buildOpenCandidates(units, existing, config);
-      const result = await selectUnits(candidates);
+      const result = await selectUnits(candidates, { interactive: ctx.interactive });
       if (result.cancelled) {
         console.log("Cancelled.");
         // fall through — retarget still runs on push-phase output
@@ -527,7 +536,7 @@ function resolveOpenTargets(
         error:
           `✗ Unit ${unit.id} already has a published branch (${branch}).\n` +
           `  --open is for first-time publish only.\n` +
-          `  Run \`sp sync\` to update the branch (PR title/body updates land in a future step).`,
+          `  Run \`sp stack sync\` to update the branch (PR title/body updates land in a future step).`,
       };
     }
   }
@@ -982,7 +991,7 @@ async function writePRCache(
     // Only an OPEN PR is the unit's live PR. A MERGED/CLOSED record on the same
     // head branch is stale residue (GitHub never deletes PRs, so a reused branch
     // keeps old records) — caching it would print a phantom "Updated PR cache"
-    // and let sp view render a stale state. Merged-state display comes from the
+    // and let sp stack view render a stale state. Merged-state display comes from the
     // cache write made while the PR was still open; land/clean own its removal.
     if (pr && pr.state === "OPEN") {
       const syncedHeadSha = unit.commits[unit.commits.length - 1];
@@ -1122,7 +1131,7 @@ async function syncAllCommand(
   }
 
   // Park + push each stack. Park (if reordered) precedes that stack's push.
-  // `sp sync --all` does not run checkSync's fetch, so there is no pre-fetch
+  // `sp stack sync --all` does not run checkSync's fetch, so there is no pre-fetch
   // snapshot to pin against — pass an empty map for the lease baseline, which
   // falls back to the bare `--force-with-lease` (today's behavior).
   for (const stack of stacks) {

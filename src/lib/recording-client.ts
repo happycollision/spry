@@ -47,6 +47,31 @@ const PR_NUMBER_PATTERN = /(pull\/|"number":|\d+\\\. #)(\d+)/g;
  *   clean-status check.
  */
 export function normalizePRNumbers(entries: CassetteEntry[]): CassetteEntry[] {
+  // Branch names recur across recording sessions, but GitHub retains their PR
+  // history forever. Persist only the node Spry's PR reader actually selects:
+  // the OPEN node, or the newest outcome when no PR is open. Live results are
+  // returned untouched; this removes irrelevant history from cassette numbering.
+  entries = entries.map((entry) => {
+    if (
+      entry.result.exitCode !== 0 ||
+      entry.args[0] !== "api" ||
+      entry.args[1] !== "graphql" ||
+      !entry.args.some((arg) => arg.includes("pullRequests(headRefName:"))
+    ) {
+      return entry;
+    }
+    const parsed = JSON.parse(entry.result.stdout) as {
+      data?: { repository?: Record<string, { nodes?: Array<{ state?: string }> } | null> };
+    };
+    for (const [alias, connection] of Object.entries(parsed.data?.repository ?? {})) {
+      if (alias !== "pullRequests" && !/^b\d+$/.test(alias)) continue;
+      if (!connection?.nodes) continue;
+      const selected =
+        connection.nodes.find((node) => node.state === "OPEN") ?? connection.nodes[0];
+      connection.nodes = selected ? [selected] : [];
+    }
+    return { ...entry, result: { ...entry.result, stdout: JSON.stringify(parsed) } };
+  });
   const normalized = new Map<string, string>();
   let next = 1001;
   for (const entry of entries) {

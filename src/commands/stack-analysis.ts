@@ -112,7 +112,7 @@ export interface LandBlockersResult {
 /**
  * Combine structural flags (missingId/unpushed/misTargeted) with PR readiness
  * (evaluateReadiness) for a scope of units. Every reason ends actionable; the
- * caller prints them and points at `sp sync`. `prByUnit` maps unit id → PR (or
+ * caller prints them and points at `sp stack sync`. `prByUnit` maps unit id → PR (or
  * null when none) for exactly the units in `scope`. Typed as `PRInfo` (not the
  * cache-specific `PRCacheEntry`) because this function only ever reads the
  * fields `evaluateReadiness` needs (`state`, `checksStatus`, `reviewDecision`,

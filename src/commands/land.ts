@@ -17,18 +17,18 @@ import type { UnitAnalysis, UnitBlockers } from "./stack-analysis.ts";
 import type { PRInfo } from "../gh/pr.ts";
 import { findPRsForBranches } from "../gh/pr.ts";
 import { classifyScope, renderReinvokeHint } from "./land-poll.ts";
+import { requireInteractive } from "../lib/interaction.ts";
 
 export interface LandOptions {
   through?: string;
   poll?: boolean;
+  allowUnresolvedThreads?: boolean;
   /** Poll cadence in seconds; default 30. Only meaningful with --poll / an accepted nudge. */
   interval?: number;
   cwd?: string;
   /** Injected for testability; default to a real TUI. */
   confirm?: (message: string) => Promise<boolean>;
   pickThrough?: (units: PRUnit[]) => Promise<string | null>;
-  /** True when stdin is a terminal (nudge is interactive). Default: real TTY check. */
-  isInteractive?: () => boolean;
   /** Sleep `seconds` between polls. Default: real setTimeout. */
   sleep?: (seconds: number) => Promise<void>;
   /** Poll PR state by branch name. Default: findPRsForBranches against gh. */
@@ -47,6 +47,15 @@ interface LandPlan {
 const DEFAULT_INTERVAL_SECONDS = 30;
 
 export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Promise<void> {
+  if (opts.through === undefined && !opts.pickThrough) {
+    requireInteractive(
+      ctx.interactive,
+      "  Use: sp stack land --through <id>\n  Find IDs: sp stack view --json\n  Picker: sp -i stack land",
+    );
+  }
+  // An explicit scope is a complete, prompt-free invocation, even with -i.
+  const canPrompt = ctx.interactive === true && opts.through === undefined;
+  const confirm = opts.confirm ?? ((message: string) => defaultConfirm(message, ctx.interactive));
   const cwd = opts.cwd;
   const config = await loadConfig(ctx.git, { cwd });
 
@@ -62,7 +71,8 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
   // 2. Resolve the "through" scope (or pick via TUI).
   let throughId = opts.through;
   if (throughId === undefined) {
-    const picker = opts.pickThrough ?? defaultPickThrough;
+    const picker =
+      opts.pickThrough ?? ((choices: PRUnit[]) => defaultPickThrough(choices, ctx.interactive));
     const picked = await picker(units);
     if (picked === null) {
       console.log("Cancelled.");
@@ -103,7 +113,7 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
   const verdict = classifyScope(blockers, prByBranch);
 
   if (verdict.kind === "hard") {
-    printHardBlockers(verdict.perUnit, "Run `sp sync` and try again.");
+    printHardBlockers(verdict.perUnit, "Run `sp stack sync` and try again.");
     process.exit(1);
   }
 
@@ -120,10 +130,8 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
 
   if (verdict.kind === "ci-pending" && !willPoll) {
     // Bare land with CI as the sole blocker: surface --poll.
-    const isInteractive = opts.isInteractive ?? defaultIsInteractive;
-    if (isInteractive()) {
-      const confirmFn = opts.confirm ?? defaultConfirm;
-      const yes = await confirmFn("Would you like to poll until CI passes, then auto-land?");
+    if (canPrompt) {
+      const yes = await confirm("Would you like to poll until CI passes, then auto-land?");
       if (!yes) {
         console.log("Not landed; CI still running.");
         return;
@@ -141,10 +149,16 @@ export async function landCommand(ctx: SpryContext, opts: LandOptions = {}): Pro
     .map((u) => checked.prCache[u.id])
     .filter((pr): pr is NonNullable<typeof pr> => !!pr);
   const unresolved = scopePRs.filter((pr) => pr.reviewThreads.total > pr.reviewThreads.resolved);
-  if (unresolved.length > 0) {
-    const confirmFn = opts.confirm ?? defaultConfirm;
+  if (unresolved.length > 0 && !opts.allowUnresolvedThreads) {
     const prs = unresolved.map((pr) => `#${pr.number}`).join(", ");
-    const ok = await confirmFn(`PR(s) ${prs} have unresolved review threads. Land anyway?`);
+    if (!canPrompt) {
+      console.error(`✗ PR(s) ${prs} have unresolved review threads. Not landed.`);
+      console.error(
+        "  Add --allow-unresolved-threads to acknowledge only this advisory; other readiness gates still apply.",
+      );
+      process.exit(1);
+    }
+    const ok = await confirm(`PR(s) ${prs} have unresolved review threads. Land anyway?`);
     if (!ok) {
       console.log("Cancelled.");
       return;
@@ -176,7 +190,9 @@ async function performLand(
   });
   if (!result.ok) {
     if (result.reason === "stale-ref") {
-      console.error(`✗ ${plan.trunk} is ahead of your stack. Run \`sp rebase\` and try again.`);
+      console.error(
+        `✗ ${plan.trunk} is ahead of your stack. Run \`sp stack rebase\` and try again.`,
+      );
     } else {
       console.error(`✗ Could not land: ${result.stderr.trim()}`);
     }
@@ -198,10 +214,10 @@ async function performLand(
 
   // 6. Closing guidance reflects what cleanup actually did.
   if (totalUnits > plan.scopeUnits.length) {
-    console.log(kleur.dim("  Run `sp sync` to retarget the remaining PRs."));
+    console.log(kleur.dim("  Run `sp stack sync` to retarget the remaining PRs."));
   }
   if (!config.autoDeleteOnLand) {
-    console.log(kleur.dim("  Run `sp clean` to delete the landed branches from the remote."));
+    console.log(kleur.dim("  Run `sp stack clean` to delete the landed branches from the remote."));
   }
 }
 
@@ -217,7 +233,7 @@ function printHardBlockers(perUnit: UnitBlockers[], guidance: string): void {
 
 /**
  * Drop the landed units from the PR cache (`refs/spry/prs`). ALWAYS runs — it is
- * not gated by any setting. `sp sync`'s self-heal cannot clear a fully-landed
+ * not gated by any setting. `sp stack sync`'s self-heal cannot clear a fully-landed
  * stack (its `writePRCache` early-returns on an empty cache), so land removes
  * the stale entries deterministically. When the drop empties the cache,
  * `savePRCache` deletes the LOCAL ref; we then propagate that as a deletion of
@@ -266,7 +282,7 @@ async function dropLandedFromPRCache(
  * `loadPRCache`) rather than receiving a snapshot taken before the (possibly
  * long, `--poll`-driven) wait: `refs/spry/groups` is shared, so a snapshot
  * from before the wait could be stale by the time we scrub — e.g. the user
- * ran `sp group` on another stack while this land was polling — and writing
+ * ran `sp stack group` on another stack while this land was polling — and writing
  * that stale snapshot back via `saveAllGroupRecords` would silently clobber
  * the newer records, locally and on the remote.
  */
@@ -381,7 +397,7 @@ async function runPollLoop(
     if (verdict.kind === "hard") {
       printHardBlockers(
         verdict.perUnit,
-        "The scope is no longer land-ready; resolve the above and re-run sp land.",
+        "The scope is no longer land-ready; resolve the above and re-run sp stack land.",
       );
       process.exit(1);
     }
@@ -400,18 +416,17 @@ async function runPollLoop(
   }
 }
 
-function defaultIsInteractive(): boolean {
-  return process.stdin.isTTY === true;
-}
-
-// Bare `sp land`: single-select TUI over the stack units (bottom→top). The
+// Bare `sp stack land`: single-select TUI over the stack units (bottom→top). The
 // chosen unit's id becomes the `--through` target.
-async function defaultPickThrough(units: PRUnit[]): Promise<string | null> {
+async function defaultPickThrough(
+  units: PRUnit[],
+  interactive: boolean | undefined,
+): Promise<string | null> {
   const options = units.map((unit) => ({
     id: unit.id,
     label: `${unit.id}  ${resolveUnitTitle(unit)}`,
   }));
-  const result = await selectOne(options);
+  const result = await selectOne(options, { interactive });
   if (result.cancelled) return null;
   return result.selectedId;
 }

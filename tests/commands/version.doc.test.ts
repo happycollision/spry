@@ -22,8 +22,11 @@ describe("sp --version docs", () => {
     const repo = await createRepo();
     repos.push(repo);
     doc.scrub(repo);
+    doc.scrub(pkg.version, "<installed-version>");
 
-    doc.prose("Pass `--version` (or `-v`) to print the installed `sp` version and exit:");
+    doc.prose(
+      "Pass `--version` (or `-v`) to print the installed `sp` version and exit. The example below uses a placeholder so the guide stays valid across releases:",
+    );
 
     const { command, result } = await runSp(repo.path, "--version");
     doc.command(command);

@@ -501,7 +501,7 @@ describe("formatStackView drift markers", () => {
     const drift: Drift[] = [{ localAhead: true, remoteAhead: false }];
     const out = stripAnsi(formatStackView(enriched, "feature", 1, "main", drift));
     expect(out).toContain("✎ Edited");
-    expect(out).toContain("local edits, run sp sync");
+    expect(out).toContain("local edits, run sp stack sync");
   });
 
   test("diverged shows ✎↓", () => {

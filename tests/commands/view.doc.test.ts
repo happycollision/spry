@@ -1,4 +1,4 @@
-// Doc-producing tests for `sp view`. Each docTest must:
+// Doc-producing tests for `sp stack view`. Each docTest must:
 //   1. Call doc.scrub(repo) immediately after repos.push(repo) so the random
 //      unique-id suffix is stripped from captured fragments.
 //   2. Pass an explicit branch name to repo.branch(...) — never rely on the
@@ -24,7 +24,7 @@ afterAll(async () => {
   }
 });
 
-describe("sp view docs", () => {
+describe("sp stack view docs", () => {
   docTest(
     "Viewing a simple stack (offline)",
     { section: "commands/view", order: 10 },
@@ -50,7 +50,7 @@ describe("sp view docs", () => {
 
       doc.prose("View the current stack of commits on your feature branch:");
 
-      const { command, result } = await runSp(repo.path, "view");
+      const { command, result } = await runSp(repo.path, ["stack", "view"]);
       doc.command(command);
       doc.output(result.stdout);
 
@@ -75,7 +75,7 @@ describe("sp view docs", () => {
 
     doc.prose("When you're on a branch with no commits ahead of trunk:");
 
-    const { command, result } = await runSp(repo.path, "view");
+    const { command, result } = await runSp(repo.path, ["stack", "view"]);
     doc.command(command);
     doc.output(result.stdout);
 
@@ -99,7 +99,7 @@ describe("sp view docs", () => {
       cwd: repo.path,
     });
 
-    // Seed the local PR cache (normally written by sp sync)
+    // Seed the local PR cache (normally written by sp stack sync)
     const entry: PRCacheEntry = {
       branch: "spry/dondenton/aaa11111",
       number: 42,
@@ -115,13 +115,13 @@ describe("sp view docs", () => {
     await savePRCache(git, { aaa11111: entry }, { cwd: repo.path });
 
     doc.prose(
-      "sp view reads PR status from a local git ref written by sp sync — no network call needed:",
+      "sp stack view reads PR status from a local git ref written by sp stack sync — no network call needed:",
     );
 
     // Scrub the full PR URL to a stable placeholder for docs
     doc.scrub("https://github.com/owner/repo/pull/42", "https://github.com/<owner>/<repo>/pull/42");
 
-    const { command, result } = await runSp(repo.path, "view");
+    const { command, result } = await runSp(repo.path, ["stack", "view"]);
     doc.command(command);
     doc.output(result.stdout);
 
@@ -167,7 +167,7 @@ describe("sp view docs", () => {
       await $`git -C ${repo.path} push origin ${shaB}:refs/heads/spry/dondenton/bbb22222`.quiet();
       await $`git -C ${repo.path} fetch origin`.quiet();
 
-      // Seed the PR cache as sp sync would: syncedHeadSha = the pushed tips.
+      // Seed the PR cache as sp stack sync would: syncedHeadSha = the pushed tips.
       const base = {
         baseRefName: "main",
         checksStatus: "passing" as const,
@@ -198,13 +198,13 @@ describe("sp view docs", () => {
       await savePRCache(git, cache, { cwd: repo.path });
 
       doc.prose(
-        "`sp view` marks how each unit has drifted since your last sync, entirely offline. " +
+        "`sp stack view` marks how each unit has drifted since your last sync, entirely offline. " +
           "Right after a sync, nothing is marked:",
       );
       doc.scrub("https://github.com/owner/repo/pull/1", "https://github.com/<owner>/<repo>/pull/1");
       doc.scrub("https://github.com/owner/repo/pull/2", "https://github.com/<owner>/<repo>/pull/2");
 
-      let out = await runSp(repo.path, "view");
+      let out = await runSp(repo.path, ["stack", "view"]);
       doc.command(out.command);
       doc.output(out.result.stdout);
 
@@ -217,7 +217,7 @@ describe("sp view docs", () => {
       // from syncedHeadSha (✎).
       doc.prose(
         "Amend the second commit. Its local tip no longer matches what you pushed, " +
-          "so it is flagged with ✎ — a signal to run `sp sync`:",
+          "so it is flagged with ✎ — a signal to run `sp stack sync`:",
       );
       await Bun.write(join(repo.path, "signup.txt"), "signup form markup");
       await git.run(["add", "signup.txt"], { cwd: repo.path });
@@ -226,11 +226,11 @@ describe("sp view docs", () => {
         { cwd: repo.path },
       );
 
-      out = await runSp(repo.path, "view");
+      out = await runSp(repo.path, ["stack", "view"]);
       doc.command(out.command);
       doc.output(out.result.stdout);
       expect(out.result.stdout).toContain("✎");
-      expect(out.result.stdout).toContain("local edits, run sp sync");
+      expect(out.result.stdout).toContain("local edits, run sp stack sync");
 
       doc.prose(
         "The ↓ marker means the remote moved since your push (as of your last fetch), and " +
@@ -240,7 +240,7 @@ describe("sp view docs", () => {
   );
 });
 
-describe("sp view drift (json)", () => {
+describe("sp stack view drift (json)", () => {
   test("view --json exposes localAhead/remoteAhead", async () => {
     const repo = await createRepo();
     repos.push(repo);
@@ -282,7 +282,7 @@ describe("sp view drift (json)", () => {
     await git.run(["commit", "--amend", "-m", "C revised\n\nSpry-Commit-Id: aaa11111"], {
       cwd: repo.path,
     });
-    const { result } = await runSp(repo.path, "view", ["--json"]);
+    const { result } = await runSp(repo.path, ["stack", "view"], ["--json"]);
     const tree = JSON.parse(result.stdout);
     expect(tree.stack[0].localAhead).toBe(true);
     expect(tree.stack[0].remoteAhead).toBe(true);

@@ -1,4 +1,4 @@
-// Doc-producing tests for `sp rebase`. Each docTest must:
+// Doc-producing tests for `sp stack rebase`. Each docTest must:
 //   1. Call doc.scrub(repo) immediately after repos.push(repo) so the random
 //      unique-id suffix is stripped from captured fragments.
 //   2. Pass an explicit branch name to repo.branch(...) — never rely on the
@@ -21,7 +21,7 @@ afterAll(async () => {
   }
 });
 
-describe("sp rebase docs", () => {
+describe("sp stack rebase docs", () => {
   docTest("Already up to date", { section: "commands/rebase", order: 10 }, async (doc) => {
     const repo = await createRepo();
     repos.push(repo);
@@ -38,10 +38,10 @@ describe("sp rebase docs", () => {
     });
 
     doc.prose(
-      "When your stack is already based on the latest trunk, `sp rebase` fetches and exits cleanly:",
+      "When your stack is already based on the latest trunk, `sp stack rebase` fetches and exits cleanly:",
     );
 
-    const { command, result } = await runSp(repo.path, "rebase");
+    const { command, result } = await runSp(repo.path, ["stack", "rebase"]);
     doc.command(command);
     doc.output(result.stdout);
 
@@ -73,10 +73,10 @@ describe("sp rebase docs", () => {
     await repo.checkout(featureBranch);
 
     doc.prose(
-      "When trunk has new commits, `sp rebase` fetches, detects the gap, and replays your stack on top — no conflicts, no prompts:",
+      "When trunk has new commits, `sp stack rebase` fetches, detects the gap, and replays your stack on top — no conflicts, no prompts:",
     );
 
-    const { command, result } = await runSp(repo.path, "rebase");
+    const { command, result } = await runSp(repo.path, ["stack", "rebase"]);
     doc.command(command);
     doc.output(result.stdout);
 
@@ -112,10 +112,10 @@ describe("sp rebase docs", () => {
     await repo.checkout(featureBranch);
 
     doc.prose(
-      "If rebasing would produce a conflict, `sp rebase` reports the conflicting files and exits without touching your working tree. Nothing is rewritten:",
+      "If rebasing would produce a conflict, `sp stack rebase` reports the conflicting files and exits without touching your working tree. Nothing is rewritten:",
     );
 
-    const { command, result } = await runSp(repo.path, "rebase");
+    const { command, result } = await runSp(repo.path, ["stack", "rebase"]);
     doc.command(command);
     doc.output(result.stderr);
 
@@ -125,7 +125,7 @@ describe("sp rebase docs", () => {
   });
 });
 
-describe("sp rebase --all docs", () => {
+describe("sp stack rebase --all docs", () => {
   docTest(
     "All branches already up to date",
     { section: "commands/rebase", order: 40 },
@@ -140,19 +140,19 @@ describe("sp rebase --all docs", () => {
       await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
 
       await repo.fetch();
-      // Create a feature branch and register it by running sp rebase
+      // Create a feature branch and register it by running sp stack rebase
       await repo.branch("feature");
       await git.run(["commit", "--allow-empty", "-m", "Add feature\n\nSpry-Commit-Id: bbb22222"], {
         cwd: repo.path,
       });
-      // Run sp rebase once to register the branch in tracked-branches
-      await runSp(repo.path, "rebase");
+      // Run sp stack rebase once to register the branch in tracked-branches
+      await runSp(repo.path, ["stack", "rebase"]);
 
       doc.prose(
-        "When all tracked branches are already based on the latest trunk, `sp rebase --all` fetches and reports each as up to date:",
+        "When all tracked branches are already based on the latest trunk, `sp stack rebase --all` fetches and reports each as up to date:",
       );
 
-      const { command, result } = await runSp(repo.path, "rebase", ["--all"]);
+      const { command, result } = await runSp(repo.path, ["stack", "rebase"], ["--all"]);
       doc.command(command);
       doc.output(result.stdout);
 
@@ -177,13 +177,13 @@ describe("sp rebase --all docs", () => {
 
       await repo.fetch();
 
-      // Create feature-one and register via sp rebase
+      // Create feature-one and register via sp stack rebase
       const featureOneBranch = await repo.branch("feature-one");
       await git.run(
         ["commit", "--allow-empty", "-m", "Add feature one\n\nSpry-Commit-Id: ccc33333"],
         { cwd: repo.path },
       );
-      await runSp(repo.path, "rebase");
+      await runSp(repo.path, ["stack", "rebase"]);
 
       // Create feature-two on top and register it too
       const featureTwoBranch = await repo.branch("feature-two");
@@ -191,7 +191,7 @@ describe("sp rebase --all docs", () => {
         ["commit", "--allow-empty", "-m", "Add feature two\n\nSpry-Commit-Id: ddd44444"],
         { cwd: repo.path },
       );
-      await runSp(repo.path, "rebase");
+      await runSp(repo.path, ["stack", "rebase"]);
 
       // Advance main on remote (empty commit — no conflict possible)
       await repo.checkout(repo.defaultBranch);
@@ -200,10 +200,10 @@ describe("sp rebase --all docs", () => {
       await repo.checkout(featureTwoBranch);
 
       doc.prose(
-        "When multiple tracked branches are behind trunk, `sp rebase --all` rebases each one in turn without requiring a manual checkout:",
+        "When multiple tracked branches are behind trunk, `sp stack rebase --all` rebases each one in turn without requiring a manual checkout:",
       );
 
-      const { command, result } = await runSp(repo.path, "rebase", ["--all"]);
+      const { command, result } = await runSp(repo.path, ["stack", "rebase"], ["--all"]);
       doc.command(command);
       doc.output(result.stdout);
 

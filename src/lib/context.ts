@@ -21,12 +21,14 @@ export interface GhClient {
 export interface SpryContext {
   git: GitRunner;
   gh: GhClient;
+  /** Explicit permission for Spry-owned pickers and confirmations; default false. */
+  interactive?: boolean;
 }
 
 /**
  * Build the stdin bytes for a subprocess. Returns a buffer whenever stdin is
  * provided — including the empty string — and `undefined` only when no stdin was
- * given (the child then inherits the parent's stdin).
+ * given (the runner then supplies closed stdin).
  *
  * The empty-string case matters: it must still produce a buffer so the child is
  * handed an explicit, immediately-EOF stdin. Handing the parent's stdin to a
@@ -44,8 +46,8 @@ export function toStdinBuffer(stdin: string | undefined): Buffer | undefined {
  * `< ${buffer}` redirect is a no-op for an EMPTY buffer, which silently leaves
  * the child inheriting the parent's stdin. `Bun.spawn` with an explicit byte
  * stdin always feeds those bytes and closes the stream, so an empty stdin is a
- * real EOF rather than an inherited terminal. When no stdin is given we inherit,
- * matching the previous behavior for the (common) no-stdin commands.
+ * real EOF rather than an inherited terminal. No-input commands receive EOF too;
+ * Git/gh must never steal input from the caller or open an authentication prompt.
  */
 async function runSubprocess(
   bin: string,
@@ -53,10 +55,36 @@ async function runSubprocess(
   options?: CommandOptions,
 ): Promise<CommandResult> {
   const input = toStdinBuffer(options?.stdin);
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...options?.env,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ASKPASS: "false",
+    SSH_ASKPASS: "false",
+    SSH_ASKPASS_REQUIRE: "never",
+    GH_PROMPT_DISABLED: "1",
+    GIT_PAGER: "cat",
+    GH_PAGER: "cat",
+    GIT_EDITOR: "false",
+    GIT_SEQUENCE_EDITOR: "false",
+  };
+  // Use batch authentication for the default OpenSSH transport, without replacing
+  // a user's custom transport/command. Arbitrary helpers and hooks remain external
+  // code: closing stdin cannot stop them from opening /dev/tty themselves.
+  if (bin === "git" && ["fetch", "push", "ls-remote"].includes(args[0] ?? "")) {
+    if (!env.GIT_SSH_COMMAND && !env.GIT_SSH) {
+      const configured = await runSubprocess(
+        "git",
+        ["config", "--get", "core.sshCommand"],
+        options,
+      );
+      if (!configured.stdout.trim()) env.GIT_SSH_COMMAND = "ssh -oBatchMode=yes";
+    }
+  }
   const proc = Bun.spawn([bin, ...args], {
     cwd: options?.cwd,
-    env: options?.env ? { ...process.env, ...options.env } : process.env,
-    stdin: input ?? "inherit",
+    env,
+    stdin: input ?? "ignore",
     stdout: "pipe",
     stderr: "pipe",
   });

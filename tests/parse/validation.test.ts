@@ -89,7 +89,7 @@ describe("validatePRTitle", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toContain("cannot be empty");
-      expect(result.error).toContain("sp group");
+      expect(result.error).toContain("sp -i stack group");
     }
   });
 

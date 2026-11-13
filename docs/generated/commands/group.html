@@ -25,8 +25,9 @@
   <body>
     <h1>sp group</h1>
     <p>
-      Run `sp group` to open the interactive group editor. Use ↑↓ to move between commits and ←→ to
-      assign or remove group membership. Commits in the same group ship as a single PR.
+      Run `sp -i stack group` to open the interactive group editor. Without `-i`, supply a
+      declarative `--apply` document instead. Use ↑↓ to move between commits and ←→ to assign or
+      remove group membership. Commits in the same group ship as a single PR.
     </p>
     <pre class="screen">Stack: feature/auth (3 commits)
 
@@ -56,8 +57,8 @@
 
 <span class="ansi-cyan-fg">MOVE MODE</span><span class="ansi-dim"> — ↑↓ reorder  Space/Enter drop  Esc cancel</span></pre>
     <p>
-      If the working tree is dirty, `sp group` still allows metadata-only grouping and renaming, but
-      disables commit reordering until local changes are cleaned up.
+      If the working tree is dirty, `sp -i stack group` still allows metadata-only grouping and
+      renaming, but disables commit reordering until local changes are cleaned up.
     </p>
     <pre class="screen">Stack: feature/auth (2 commits)
 
@@ -67,9 +68,9 @@
 <span class="ansi-yellow-fg">Reordering disabled: working tree is dirty.</span>
 <span class="ansi-dim">↑↓ cursor  ←→ group  Space disabled  r rename  Enter save  q quit</span></pre>
     <p>
-      When you group commits and one of them already has an open PR, `sp group` adopts that PR for
-      the new group instead of stranding it. Spry looks up each commit's branch on GitHub before the
-      editor opens, then re-keys the new group's record to the PR's commit on save:
+      When you group commits and one of them already has an open PR, `sp -i stack group` adopts that
+      PR for the new group instead of stranding it. Spry looks up each commit's branch on GitHub
+      before the editor opens, then re-keys the new group's record to the PR's commit on save:
     </p>
     <pre class="output">
 ↻ adopted PR for group (unit bbbb2222)
@@ -86,5 +87,32 @@
 
 <span class="ansi-cyan-fg">MOVE MODE</span><span class="ansi-dim"> — ↑↓ reorder  Space/Enter drop  Esc cancel</span>
 <span class="ansi-red-fg">⚠ Moving this commit may cause a conflict</span></pre>
+    <p>
+      Start with `sp stack view --json`, edit its complete stack document, then supply JSON inline
+      or from a file/pipe. The producer must close stdin at EOF. For example, grouping two commits:
+    </p>
+    <pre class="output">
+{
+  "stack": [
+    {
+      "type": "group",
+      "id": null,
+      "title": "Feature",
+      "commits": [
+        {
+          "type": "commit",
+          "id": "aaa11111"
+        },
+        {
+          "type": "commit",
+          "id": "bbb22222"
+        }
+      ]
+    }
+  ]
+}</pre
+    >
+    <pre class="command">sp --non-interactive stack group --apply - &lt; grouping.json</pre>
+    <pre class="output">✓ Applied (1 group)</pre>
   </body>
 </html>

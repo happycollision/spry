@@ -1873,7 +1873,7 @@ Every spec requirement maps to a task:
 - Phase 1 reorder engine fix, standalone TDD, first → Tasks 1-3.
 - Roadmap + changelog → Task 3, Task 12.
 
-**Known follow-ups (out of scope, file as beads issues):**
+**Known follow-ups (out of scope):**
 
 - Dead `rebaseOntoTrunk` (`src/git/rebase.ts:155`).
 - Interactive TUI does not yet expose reissue / PR-close/adopt (spec Non-goals: `--apply` is intentionally more feature-complete than the TUI at first).

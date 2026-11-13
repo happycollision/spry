@@ -90,7 +90,7 @@ export async function rebaseCommand(ctx: SpryContext, opts: RebaseOptions = {}):
       }
     }
     console.error("");
-    console.error("  Resolve the upstream changes manually, then run `sp rebase` again.");
+    console.error("  Resolve the upstream changes manually, then run `sp stack rebase` again.");
     console.error("  Or use `git rebase` for interactive conflict resolution.");
     process.exit(1);
   }

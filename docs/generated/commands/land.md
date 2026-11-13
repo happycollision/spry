@@ -1,22 +1,22 @@
 # land
 
-`sp land --through <id>` lands the stack from the bottom **through** the unit identified by `<id>` (a group ID, unit-ID prefix, or commit-hash prefix). Spry fast-forwards trunk to that unit's tip — it never uses the GitHub merge API and never retargets PR bases. GitHub marks each PR `MERGED` because its commits become reachable from the default branch; leaving each PR on its stacked base keeps that PR's diff scoped to just its own unit. `sp land` never deletes branches (that is `sp clean`'s job):
+`sp stack land --through <id>` lands the stack from the bottom **through** the unit identified by `<id>` (a group ID, unit-ID prefix, or commit-hash prefix). Spry fast-forwards trunk to that unit's tip — it never uses the GitHub merge API and never retargets PR bases. GitHub marks each PR `MERGED` because its commits become reachable from the default branch; leaving each PR on its stacked base keeps that PR's diff scoped to just its own unit. `sp stack land` never deletes branches (that is `sp stack clean`'s job):
 
 ```
-sp land --through aaaa1111
+sp stack land --through aaaa1111
 ```
 
 ```
 ✓ Updated PR cache (2 PRs)
 ✓ Landed 2 PRs to main
-  Run `sp clean` to delete the landed branches from the remote.
+  Run `sp stack clean` to delete the landed branches from the remote.
 
 ```
 
-Run `sp land` with no arguments to choose the land point interactively. Spry shows a single-select menu of the stack's units (bottom→top) — use ↑/↓ to move, Enter to select. The chosen unit becomes the `--through` target:
+Run `sp -i stack land` to choose the land point interactively. Spry shows a single-select menu of the stack's units (bottom→top) — use ↑/↓ to move, Enter to select. The chosen unit becomes the `--through` target. Without `-i`, supply `--through <id>` instead:
 
 ```
-sp land
+sp -i stack land
 ```
 
 ```
@@ -26,26 +26,26 @@ Select the unit to land through (↑/↓ move, enter select, esc cancel):
 
 ```
 
-If CI is still running, a non-interactive `sp land` (no TTY — e.g. in a script or CI job) can't prompt to wait, so it prints a ready-to-copy re-invoke command and exits non-zero instead of blocking:
+If CI is still running, `sp stack land --through <id>` prints a ready-to-copy re-invoke command and exits non-zero instead of prompting. An explicit scope stays prompt-free even with `-i`:
 
 ```
-sp land --through aaaa1111
+sp stack land --through aaaa1111
 ```
 
 ```
 ✓ Updated PR cache (2 PRs)
-Run `sp land --through aaaa1111 --poll` to wait for CI and land automatically.
+Run `sp stack land --through aaaa1111 --poll` to wait for CI and land automatically.
 
 ```
 
-Pass `--poll` to wait for CI instead of nudging: `sp land` re-checks on a cadence (30s by default; `--interval <seconds>` to change it) and lands automatically the moment every in-scope PR is green:
+Pass `--poll` to wait for CI instead of nudging: `sp stack land` re-checks on a cadence (30s by default; `--interval <seconds>` to change it) and lands automatically the moment every in-scope PR is green:
 
 ```
-sp land --through aaaa1111 --poll
+sp stack land --through aaaa1111 --poll
 ```
 
 ```
-⧗ CI pending on #1001, #1005; polling every 8s (Ctrl-C to stop)…
+⧗ CI pending on #42, #42; polling every 8s (Ctrl-C to stop)…
   …
 ✓ Landed 2 PRs to main
 

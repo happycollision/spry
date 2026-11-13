@@ -34,6 +34,7 @@ import { loadPRCache, savePRCache } from "../gh/pr-cache.ts";
 import { replaceCommitId } from "../parse/trailers.ts";
 import { generateCommitId } from "../parse/id.ts";
 import { readStdin } from "../lib/read-stdin.ts";
+import { requireInteractive } from "../lib/interaction.ts";
 
 export interface GroupOptions {
   cwd?: string;
@@ -45,8 +46,17 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
   const cwd = opts.cwd;
 
   if (opts.apply !== undefined) {
+    if (opts.apply === "-" && process.stdin.isTTY) {
+      throw new Error(
+        "--apply - requires piped or redirected JSON, not terminal input.\n  Use: sp stack group --apply - < grouping.json",
+      );
+    }
     return applyGroupDoc(ctx, opts, cwd);
   }
+  requireInteractive(
+    ctx.interactive,
+    "  Use: sp stack group --apply <json>\n  Find IDs and input shape: sp stack view --json\n  Editor: sp -i stack group\n  Help: sp stack group --help",
+  );
 
   const config = await loadConfig(ctx.git, { cwd });
   const branch = await getCurrentBranch(ctx.git, { cwd });
@@ -110,6 +120,7 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
     trunkRef: ref,
     cwd,
     canReorder: !workingTreeStatus.isDirty,
+    interactive: ctx.interactive,
   });
 
   if (result.cancelled) {
@@ -124,6 +135,7 @@ export async function groupCommand(ctx: SpryContext, opts: GroupOptions = {}): P
     units,
     prsByBranch,
     config,
+    ctx.interactive,
   );
 
   // Reorder commits if the stack order changed (diff-replay; bail on conflict)
@@ -161,6 +173,7 @@ async function adoptPRs(
   units: PRUnit[],
   prsByBranch: Map<string, PRInfo | null>,
   config: SpryConfig,
+  interactive: boolean | undefined,
 ): Promise<GroupRecords> {
   const originalIds = new Set(Object.keys(originalRecords));
   const result: GroupRecords = {};
@@ -198,6 +211,7 @@ async function adoptPRs(
       }));
       const selection = await selectUnits(options, {
         title: "Multiple commits in this group have open PRs. Which PR should the group adopt?",
+        interactive,
       });
       if (!selection.cancelled && selection.selectedIds.length > 0) {
         const adoptedId = selection.selectedIds[0];
@@ -216,7 +230,7 @@ async function adoptPRs(
   return result;
 }
 
-// Non-interactive `sp group --apply`. Reads a grouping doc (JSON string, or
+// Non-interactive `sp stack group --apply`. Reads a grouping doc (JSON string, or
 // "-" for stdin), validates + reconciles it against live state, and applies
 // the resulting plan. Fully offline: open-PR ids come only from the local
 // `refs/spry/prs` cache, never from `gh` — the interactive path above is the

@@ -24,7 +24,7 @@ afterAll(async () => {
   }
 });
 
-describe("sp sync docs", () => {
+describe("sp stack sync docs", () => {
   docTest("Pushing existing branches", { section: "commands/sync", order: 10 }, async (doc) => {
     const repo = await createRepo();
     repos.push(repo);
@@ -41,7 +41,7 @@ describe("sp sync docs", () => {
     });
 
     // Pre-publish the branch at an older sha (main) so its remote tip is behind
-    // the local commit — this is the case where `sp sync` actually pushes. When
+    // the local commit — this is the case where `sp stack sync` actually pushes. When
     // the remote already matches the local tip, sync skips the redundant push.
     const mainSha = (await git.run(["rev-parse", "main"], { cwd: repo.path })).stdout.trim();
     await git.run(["push", "origin", `${mainSha}:refs/heads/spry/dondenton/aaa11111`], {
@@ -49,21 +49,21 @@ describe("sp sync docs", () => {
     });
 
     doc.prose(
-      "Run `sp sync` to push your stack's commits to their already-published remote branches. Spry derives each branch as `<spry.branchPrefix>/<unit-id>` and only pushes branches that already exist on the remote — it never creates new ones. Use `sp sync --open` to publish for the first time.",
+      "Run `sp stack sync` to push your stack's commits to their already-published remote branches. Spry derives each branch as `<spry.branchPrefix>/<unit-id>` and only pushes branches that already exist on the remote — it never creates new ones. Use `sp stack sync --open` to publish for the first time.",
     );
 
     // Canonicalize the gh-unavailable hint so fragments stay deterministic
     doc.scrub(/PR retargeting unavailable: [^\n]+/, "PR retargeting unavailable: <hint>");
 
-    const { command, result } = await runSp(repo.path, "sync");
+    const { command, result } = await runSp(repo.path, ["stack", "sync"]);
     doc.command(command);
     doc.output(result.stdout);
 
     doc.prose(
-      "Spry skips any branch whose remote tip already matches its local commit, so running `sp sync` again with nothing new does no redundant push — the branch simply isn't listed:",
+      "Spry skips any branch whose remote tip already matches its local commit, so running `sp stack sync` again with nothing new does no redundant push — the branch simply isn't listed:",
     );
 
-    const { command: command2, result: result2 } = await runSp(repo.path, "sync");
+    const { command: command2, result: result2 } = await runSp(repo.path, ["stack", "sync"]);
     doc.command(command2);
     doc.output(result2.stdout);
 
@@ -114,12 +114,17 @@ describe("sp sync docs", () => {
         ]);
 
         doc.prose(
-          "Use `sp sync --open <id>` to publish a commit for the first time — Spry pushes the branch and opens a PR on GitHub targeting trunk (or the previous unit's branch for a stacked PR):",
+          "Use `sp stack sync --open <id>` to publish a commit for the first time — Spry pushes the branch and opens a PR on GitHub targeting trunk (or the previous unit's branch for a stacked PR):",
         );
 
-        const { command, result } = await runSp(repo.path, "sync", ["--open", "aaa11111"], {
-          env,
-        });
+        const { command, result } = await runSp(
+          repo.path,
+          ["stack", "sync"],
+          ["--open", "aaa11111"],
+          {
+            env,
+          },
+        );
         doc.command(command);
         doc.output(result.stdout);
 
@@ -173,12 +178,17 @@ describe("sp sync docs", () => {
         });
 
         doc.prose(
-          "When you group commits with `sp group`, `sp sync --open <group-id>` publishes the whole group as a single PR. The PR title is the group's title and its body lists the grouped commits' subjects inside spry's managed body region:",
+          "When you group commits with `sp stack group`, `sp stack sync --open <group-id>` publishes the whole group as a single PR. The PR title is the group's title and its body lists the grouped commits' subjects inside spry's managed body region:",
         );
 
-        const { command, result } = await runSp(repo.path, "sync", ["--open", "grp00001"], {
-          env,
-        });
+        const { command, result } = await runSp(
+          repo.path,
+          ["stack", "sync"],
+          ["--open", "grp00001"],
+          {
+            env,
+          },
+        );
         doc.command(command);
         doc.output(result.stdout);
 
@@ -225,11 +235,11 @@ describe("sp sync docs", () => {
     await git.run(["commit", "--allow-empty", "-m", "Add login"], { cwd: repo.path });
 
     doc.prose(
-      "If a commit lacks a `Spry-Commit-Id` trailer, `sp sync` rewrites it with one before doing anything else. This happens automatically on first use:",
+      "If a commit lacks a `Spry-Commit-Id` trailer, `sp stack sync` rewrites it with one before doing anything else. This happens automatically on first use:",
     );
 
     // No remote branches exist, so no gh calls are made — use the CLI runner directly
-    const { command, result } = await runSp(repo.path, "sync");
+    const { command, result } = await runSp(repo.path, ["stack", "sync"]);
     doc.command(command);
     doc.output(result.stdout);
 
@@ -263,9 +273,9 @@ describe("sp sync docs", () => {
         ]);
 
         doc.prose(
-          "Run `sp sync --open` (no arguments) to choose which unpublished branches to open as PRs. Spry shows an interactive menu — use Space to toggle, Enter to confirm:",
+          "Run `sp -i stack sync --open` (no IDs) to choose which unpublished branches to open as PRs. Spry shows an interactive menu — use Space to toggle, Enter to confirm. Without `-i`, pass comma-separated IDs to `--open` instead:",
         );
-        doc.command("sp sync --open");
+        doc.command("sp -i stack sync --open");
 
         // Spawn the harness in a real PTY. The gh seam (cassette env) records/replays
         // gh pr create + the PR-status graphql query; the TUI runs for real.
@@ -367,12 +377,17 @@ describe("sp sync docs", () => {
         ]);
 
         doc.prose(
-          "`sp sync --open` seeds every new PR's body with spry-owned marker regions — an info line, a `spry:body` section holding the commit's prose, and a `spry:footer` section:",
+          "`sp stack sync --open` seeds every new PR's body with spry-owned marker regions — an info line, a `spry:body` section holding the commit's prose, and a `spry:footer` section:",
         );
 
-        const { command, result } = await runSp(repo.path, "sync", ["--open", "ccc33333"], {
-          env,
-        });
+        const { command, result } = await runSp(
+          repo.path,
+          ["stack", "sync"],
+          ["--open", "ccc33333"],
+          {
+            env,
+          },
+        );
         doc.command(command);
         doc.output(result.stdout);
 
@@ -423,12 +438,17 @@ describe("sp sync docs", () => {
         ]);
 
         doc.prose(
-          "Spry owns only the bytes between its markers. Editing the commit and re-running `sp sync` rewrites the `spry:body` region in place — anything written outside the markers (like a hand-added note) is preserved byte-for-byte:",
+          "Spry owns only the bytes between its markers. Editing the commit and re-running `sp stack sync` rewrites the `spry:body` region in place — anything written outside the markers (like a hand-added note) is preserved byte-for-byte:",
         );
 
-        const { command: command2, result: result2 } = await runSp(repo.path, "sync", [], {
-          env: env2,
-        });
+        const { command: command2, result: result2 } = await runSp(
+          repo.path,
+          ["stack", "sync"],
+          [],
+          {
+            env: env2,
+          },
+        );
         doc.command(command2);
         doc.output(result2.stdout);
 
@@ -455,9 +475,9 @@ describe("sp sync docs", () => {
     { section: "commands/sync", order: 60, timeout: 180000 },
     async (doc) => {
       // Record mode builds two independent stacks on spry-check, opens each
-      // stack's PR (via `sp sync --open`, so the PR has a real diff and stays
+      // stack's PR (via `sp stack sync --open`, so the PR has a real diff and stays
       // open), then adds one more commit per stack so each remote tip is
-      // genuinely behind its local tip. `sp sync --all` then performs a real
+      // genuinely behind its local tip. `sp stack sync --all` then performs a real
       // push for every stack; replay serves it offline.
       const recording = isRecording();
       await withGitHubFixture({ recording }, async (fixture) => {
@@ -477,7 +497,7 @@ describe("sp sync docs", () => {
         // AMEND the commit — keeping its `Spry-Commit-Id` (so the unit/branch
         // identity is unchanged and deterministic) but giving it a new SHA. That
         // leaves every remote tip legitimately behind its local tip — the case
-        // where `sp sync --all` actually pushes.
+        // where `sp stack sync --all` actually pushes.
         for (const [branch, id] of [
           ["feature/login", "aaa11111"],
           ["feature/search", "bbb22222"],
@@ -488,7 +508,15 @@ describe("sp sync docs", () => {
           await registerBranch(repo.git, branch);
           // Publish the PR for this stack (real diff vs main → PR opens and stays
           // open). In replay the gh traffic comes from the cassette.
-          await runSp(repo.path, "sync", ["--open", id], { env });
+          const opened = await runSp(repo.path, ["stack", "sync"], ["--open", id], { env });
+          if (
+            recording &&
+            (opened.result.exitCode !== 0 || !opened.result.stdout.includes("Created PR #"))
+          ) {
+            throw new Error(
+              `Fixture publish failed: ${opened.result.stdout}${opened.result.stderr}`,
+            );
+          }
           // Amend to advance the local SHA past the published remote tip (same
           // Spry-Commit-Id, so no re-injection and a stable branch id) — the
           // upcoming `--all` push is then a genuine, non-redundant push.
@@ -502,10 +530,10 @@ describe("sp sync docs", () => {
         }
 
         doc.prose(
-          "When you keep several independent stacks in flight, `sp sync --all` pushes every tracked stack's already-published branches in one run — no need to check each one out. It is push-only: it never rebases and never opens new PRs (use `sp rebase --all` to restack, and `sp sync --open` to publish).",
+          "When you keep several independent stacks in flight, `sp stack sync --all` pushes every tracked stack's already-published branches in one run — no need to check each one out. It is push-only: it never rebases and never opens new PRs (use `sp stack rebase --all` to restack, and `sp stack sync --open` to publish).",
         );
 
-        const { command, result } = await runSp(repo.path, "sync", ["--all"], { env });
+        const { command, result } = await runSp(repo.path, ["stack", "sync"], ["--all"], { env });
         doc.command(command);
         doc.output(result.stdout);
 
@@ -527,9 +555,9 @@ describe("sp sync docs", () => {
     await git.run(["config", "spry.remote", "origin"], { cwd: repo.path });
     await git.run(["config", "spry.branchPrefix", "spry/dondenton"], { cwd: repo.path });
 
-    doc.prose("On a branch with no commits ahead of trunk, `sp sync` no-ops:");
+    doc.prose("On a branch with no commits ahead of trunk, `sp stack sync` no-ops:");
 
-    const { command, result } = await runSp(repo.path, "sync");
+    const { command, result } = await runSp(repo.path, ["stack", "sync"]);
     doc.command(command);
     doc.output(result.stdout);
 
@@ -559,7 +587,7 @@ describe("sp sync docs", () => {
         await repo.git.run(["commit", "--allow-empty", "-m", "B\n\nSpry-Commit-Id: bbb22222"]);
 
         // Open both PRs first.
-        await runSp(repo.path, "sync", ["--open", "aaa11111,bbb22222"], { env });
+        await runSp(repo.path, ["stack", "sync"], ["--open", "aaa11111,bbb22222"], { env });
 
         // Reorder locally: swap so B is bottom, A is top (amend history).
         await repo.git.run(["reset", "--hard", "HEAD~2"]);
@@ -567,10 +595,10 @@ describe("sp sync docs", () => {
         await repo.git.run(["commit", "--allow-empty", "-m", "A\n\nSpry-Commit-Id: aaa11111"]);
 
         doc.prose(
-          "Reordering commits in a stack and re-syncing must never mark an open PR as merged. `sp sync` parks every affected PR onto trunk before force-pushing the reordered branches, then re-stacks them — so a reorder is safe:",
+          "Reordering commits in a stack and re-syncing must never mark an open PR as merged. `sp stack sync` parks every affected PR onto trunk before force-pushing the reordered branches, then re-stacks them — so a reorder is safe:",
         );
 
-        const { command, result } = await runSp(repo.path, "sync", [], { env });
+        const { command, result } = await runSp(repo.path, ["stack", "sync"], [], { env });
         doc.command(command);
         doc.output(result.stdout);
 

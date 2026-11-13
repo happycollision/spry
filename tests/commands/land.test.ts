@@ -291,7 +291,7 @@ describe("sp land --through", () => {
 
     const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
     expect(after).toBe(before); // did NOT land
-    expect(err.join("\n")).toMatch(/sp sync/);
+    expect(err.join("\n")).toMatch(/sp stack sync/);
     expect(err.join("\n")).toMatch(/base/i);
   });
 
@@ -394,7 +394,7 @@ describe("sp land --through", () => {
     }
 
     expect(trap.exitCode).toBe(1);
-    expect(logs.err.join("\n")).toMatch(/sp rebase/);
+    expect(logs.err.join("\n")).toMatch(/sp stack rebase/);
     const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
     expect(after).toBe(advanced);
   });
@@ -465,7 +465,7 @@ describe("sp land readiness", () => {
     // landBlockers reports "no open PR" and the unified guidance points at `sp sync`
     // (the read-write split moved publishing/retargeting entirely into sync).
     expect(logs.err.join("\n")).toMatch(/no open PR/);
-    expect(logs.err.join("\n")).toMatch(/sp sync/);
+    expect(logs.err.join("\n")).toMatch(/sp stack sync/);
     const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
     expect(after).toBe(before);
   });
@@ -539,7 +539,7 @@ describe("sp land unresolved review threads", () => {
     reviewThreads: { totalCount: 1, nodes: [{ isResolved: false }] },
   };
 
-  test("decline → nothing landed", async () => {
+  test("explicit scope with unresolved threads fails without prompting, even with permission", async () => {
     const repo = await makeConfiguredRepo();
     const git = createRealGitRunner();
     await publishedStack(repo, git, [{ id: "aaa11111", subject: "first" }]);
@@ -547,22 +547,30 @@ describe("sp land unresolved review threads", () => {
 
     const { gh } = stubGh(ghPrStub({ "spry/test/aaa11111": unresolved }));
     const ctx = makeCtx(repo, gh);
+    ctx.interactive = true;
     const logs = await captureLogs();
     const trap = trapExit();
     try {
-      await runLand(ctx, { cwd: repo.path, through: "aaa11111", confirm: async () => false });
+      await runLand(ctx, {
+        cwd: repo.path,
+        through: "aaa11111",
+        confirm: async () => {
+          throw new Error("Unexpected prompt");
+        },
+      });
     } finally {
       trap.restore();
       logs.restore();
     }
 
-    expect(trap.exitCode).toBeUndefined();
+    expect(trap.exitCode).toBe(1);
     const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
     expect(after).toBe(before);
-    expect(logs.out.join("\n")).toMatch(/cancelled/i);
+    expect(logs.err.join("\n")).toContain("#1");
+    expect(logs.err.join("\n")).toContain("--allow-unresolved-threads");
   });
 
-  test("accept → lands", async () => {
+  test("explicit acknowledgement lands without prompting", async () => {
     const repo = await makeConfiguredRepo();
     const git = createRealGitRunner();
     await publishedStack(repo, git, [{ id: "aaa11111", subject: "first" }]);
@@ -577,6 +585,7 @@ describe("sp land unresolved review threads", () => {
       await runLand(ctx, {
         cwd: repo.path,
         through: "aaa11111",
+        allowUnresolvedThreads: true,
         confirm: async () => {
           prompted = true;
           return true;
@@ -587,10 +596,37 @@ describe("sp land unresolved review threads", () => {
       logs.restore();
     }
 
-    expect(prompted).toBe(true);
+    expect(prompted).toBe(false);
     const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
     expect(after).toBe(tip);
     expect(logs.out.join("\n")).toContain("Landed");
+  });
+
+  test("acknowledgement does not bypass a changes-requested blocker", async () => {
+    const repo = await makeConfiguredRepo();
+    const git = createRealGitRunner();
+    await publishedStack(repo, git, [{ id: "aaa11111", subject: "first" }]);
+    const before = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
+    const { gh } = stubGh(
+      ghPrStub({ "spry/test/aaa11111": { ...unresolved, reviewDecision: "CHANGES_REQUESTED" } }),
+    );
+    const logs = await captureLogs();
+    const trap = trapExit();
+    try {
+      await runLand(makeCtx(repo, gh), {
+        cwd: repo.path,
+        through: "aaa11111",
+        allowUnresolvedThreads: true,
+      });
+    } finally {
+      trap.restore();
+      logs.restore();
+    }
+    expect(trap.exitCode).toBe(1);
+    expect(logs.err.join("\n")).toContain("Changes have been requested");
+    expect((await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim()).toBe(
+      before,
+    );
   });
 });
 
@@ -615,7 +651,6 @@ describe("sp land --poll nudge (bare land, CI pending)", () => {
       await runLand(ctx, {
         cwd: repo.path,
         through: "aaa11111",
-        isInteractive: () => false,
       });
     } finally {
       trap.restore();
@@ -624,11 +659,11 @@ describe("sp land --poll nudge (bare land, CI pending)", () => {
 
     const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
     expect(after).toBe(before); // nothing landed
-    expect(logs.err.join("\n")).toContain("sp land --through aaa11111 --poll");
+    expect(logs.err.join("\n")).toContain("sp stack land --through aaa11111 --poll");
     expect(trap.exitCode).toBe(1);
   });
 
-  test("interactive shell, user declines → does not land", async () => {
+  test("explicit scope stays prompt-free even with interactive permission", async () => {
     const repo = await makeConfiguredRepo();
     const git = createRealGitRunner();
     await publishedStack(repo, git, [{ id: "aaa11111", subject: "first" }]);
@@ -636,14 +671,16 @@ describe("sp land --poll nudge (bare land, CI pending)", () => {
 
     const { gh } = stubGh(ghPrStub({ "spry/test/aaa11111": ciPending }));
     const ctx = makeCtx(repo, gh);
+    ctx.interactive = true;
     const logs = await captureLogs();
     const trap = trapExit();
     try {
       await runLand(ctx, {
         cwd: repo.path,
         through: "aaa11111",
-        isInteractive: () => true,
-        confirm: async () => false, // "no" to the poll prompt
+        confirm: async () => {
+          throw new Error("Unexpected poll prompt");
+        },
       });
     } finally {
       trap.restore();
@@ -652,8 +689,8 @@ describe("sp land --poll nudge (bare land, CI pending)", () => {
 
     const after = (await git.run(["rev-parse", "origin/main"], { cwd: repo.path })).stdout.trim();
     expect(after).toBe(before);
-    expect(trap.exitCode).toBeUndefined();
-    expect(logs.out.join("\n")).toMatch(/not landed/i);
+    expect(trap.exitCode).toBe(1);
+    expect(logs.err.join("\n")).toContain("sp stack land --through aaa11111 --poll");
   });
 });
 
@@ -1110,6 +1147,6 @@ describe("sp land cleanup tail", () => {
     expect(after).toBe(before);
     // The error names the unpushed problem and points at `sp sync`.
     expect(logs.err.join("\n")).toMatch(/not pushed|stale/i);
-    expect(logs.err.join("\n")).toMatch(/sp sync/);
+    expect(logs.err.join("\n")).toMatch(/sp stack sync/);
   });
 });

@@ -14,7 +14,7 @@
 
 1. **Determinism for cassettes.** Cassette replay matches on `args` and `stdin` (`src/lib/recording-client.ts`). `gh pr edit --body-file -` sends the body on **stdin**, so the generated body MUST be byte-for-byte deterministic across record/replay. **Never put a timestamp, hash, or any nondeterministic value in the PR body.** Recorded PR numbers are normalized to `1001, 1002, ...`; the body embeds `#<num>` in stack-links, which is fine because those get normalized in stdin too.
 2. **`git -C` is banned** (see AGENTS.md). Subagents must `cd` into the repo dir and run plain git. Pass this rule to any sub-subagents.
-3. **Beads is currently broken** on this machine (nook redirect misconfig). Track plan progress via this committed doc + git commits, NOT `br`. Do not run `br sync`.
+3. **Plan progress.** Track progress via this document and git commits.
 4. **Bun, not Node.** `bun test` to run tests. Git is 2.52 (>= 2.40) so NO `:docker` aliases needed.
 5. **Best-effort, never abort.** All body fetch/edit failures must warn and flip a `hadFailure` flag, exactly like the existing `retargetMismatched` pass. They must never `process.exit` or throw out of the sync.
 

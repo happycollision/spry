@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Agent-first CLI
+
+- **Breaking:** stack operations now live under `sp stack` (`view`, `sync`, `group`, `rebase`, `land`, `clean`). Old root commands fail with a migration hint; bare `sp` and `sp stack` show help. Happy Trees remains `sp ht`.
+- Spry-owned selectors, editors, and confirmations require explicit `-i, --interactive` permission and terminal stdin/stdout with a usable `TERM`. The default never prompts, including under a PTY. `--non-interactive` asserts that default and conflicts with opt-in; `SPRY_NON_INTERACTIVE=1` prevents opt-in entirely. Missing choices fail before repository/network work with explicit-command alternatives.
+- `sp stack land --through <id>` never prompts. Pending CI requires `--poll`; unresolved review threads require the narrow `--allow-unresolved-threads` acknowledgement. All other readiness gates remain enforced. `sp stack group --apply -` accepts piped/redirected JSON, not terminal input.
+- Git/gh subprocesses receive closed stdin unless explicit input was supplied, disable supported prompts/editors/pagers, and use batch authentication for the default SSH transport without replacing configured transports. Happy Trees selectors obey the same opt-in policy; `sp ht co <branch> -s -E` skips configured setup/exec scripts. Arbitrary hooks, helpers, transports, and scripts remain external programs, not a sandboxed no-prompt guarantee.
+- Removed Beads and its dedicated git-nook tooling from development setup and repository guidance. Historical local issue data is preserved; triage no longer requires an issue-tracker package.
+- Stabilized release verification: recordings omit superseded branch PR history while preserving the selected open/latest outcome, generated guides scrub all fixture PR references and the installed version, and failed fixture pushes report their original error.
+
 ## [1.0.0-beta.7] - 2026-10-08
 
 ### Fixed

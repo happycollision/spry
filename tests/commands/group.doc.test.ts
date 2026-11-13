@@ -18,7 +18,7 @@ afterAll(async () => {
   for (const repo of repos) await repo.cleanup();
 });
 
-describe("sp group docs", () => {
+describe("sp stack group docs", () => {
   docTest("Grouping commits", { section: "commands/group", order: 10 }, async (doc) => {
     const repo = await createRepo();
     repos.push(repo);
@@ -34,7 +34,7 @@ describe("sp group docs", () => {
     await git.run(["commit", "--allow-empty", "-m", "Fix typo in README"], { cwd: repo.path });
 
     doc.prose(
-      "Run `sp group` to open the interactive group editor. Use ↑↓ to move between commits and ←→ to assign or remove group membership. Commits in the same group ship as a single PR.",
+      "Run `sp -i stack group` to open the interactive group editor. Without `-i`, supply a declarative `--apply` document instead. Use ↑↓ to move between commits and ←→ to assign or remove group membership. Commits in the same group ship as a single PR.",
     );
 
     const term = await createTerminalDriver("bun", ["run", harnessPath, repo.path], {
@@ -145,7 +145,7 @@ describe("sp group docs", () => {
       writeFileSync(join(repo.path, "README.md"), "# Test repo\n\ndirty but local\n");
 
       doc.prose(
-        "If the working tree is dirty, `sp group` still allows metadata-only grouping and renaming, but disables commit reordering until local changes are cleaned up.",
+        "If the working tree is dirty, `sp -i stack group` still allows metadata-only grouping and renaming, but disables commit reordering until local changes are cleaned up.",
       );
 
       const term = await createTerminalDriver("bun", ["run", harnessPath, repo.path], {
@@ -325,7 +325,7 @@ describe("sp group docs", () => {
         }
 
         doc.prose(
-          "When you group commits and one of them already has an open PR, `sp group` adopts that PR for the new group instead of stranding it. Spry looks up each commit's branch on GitHub before the editor opens, then re-keys the new group's record to the PR's commit on save:",
+          "When you group commits and one of them already has an open PR, `sp -i stack group` adopts that PR for the new group instead of stranding it. Spry looks up each commit's branch on GitHub before the editor opens, then re-keys the new group's record to the PR's commit on save:",
         );
 
         const term = await createTerminalDriver("bun", [adoptHarnessPath, repo.path], {

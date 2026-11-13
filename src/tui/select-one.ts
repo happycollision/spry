@@ -1,5 +1,7 @@
 import kleur from "kleur";
 import { ENTER_TUI, EXIT_TUI, frameReset } from "./screen.ts";
+import { requireInteractive } from "../lib/interaction.ts";
+import { readTerminalInput } from "./input.ts";
 
 export interface SelectOneOption {
   id: string;
@@ -14,6 +16,7 @@ export interface SelectOneResult {
 
 export interface SelectOneOptions {
   title?: string;
+  interactive?: boolean;
 }
 
 /**
@@ -52,6 +55,10 @@ export async function selectOne(
   if (options.length === 0) {
     return { cancelled: true, selectedId: null };
   }
+  requireInteractive(
+    opts.interactive,
+    "  Use: sp stack land --through <id>\n  Find IDs: sp stack view --json",
+  );
 
   const stdin = process.stdin;
   const stdout = process.stdout;
@@ -86,50 +93,44 @@ export async function selectOne(
 
   try {
     render();
-    return await new Promise<SelectOneResult>((resolve) => {
-      function onData(chunk: Buffer): void {
-        const data = chunk.toString();
-        const keys: string[] = [];
-        let i = 0;
-        while (i < data.length) {
-          const ch = data[i];
-          if (ch === "\x1b") {
-            if (data[i + 1] === "[" && i + 2 < data.length) {
-              keys.push(data.slice(i, i + 3));
-              i += 3;
-              continue;
-            }
-            keys.push("\x1b");
-            i += 1;
+    return await readTerminalInput<SelectOneResult>((chunk, resolve) => {
+      const data = chunk.toString();
+      const keys: string[] = [];
+      let i = 0;
+      while (i < data.length) {
+        const ch = data[i];
+        if (ch === "\x1b") {
+          if (data[i + 1] === "[" && i + 2 < data.length) {
+            keys.push(data.slice(i, i + 3));
+            i += 3;
             continue;
           }
-          keys.push(ch ?? "");
+          keys.push("\x1b");
           i += 1;
+          continue;
         }
-
-        for (const key of keys) {
-          if (key === "\x03" || key === "\x1b") {
-            // Ctrl+C or Esc
-            stdin.off("data", onData);
-            resolve({ cancelled: true, selectedId: null });
-            return;
-          }
-          if (key === "\r" || key === "\n") {
-            stdin.off("data", onData);
-            const opt = options[cursor];
-            resolve({ cancelled: false, selectedId: opt?.id ?? null });
-            return;
-          }
-          if (key === "\x1b[A") {
-            cursor = (cursor - 1 + options.length) % options.length;
-          } else if (key === "\x1b[B") {
-            cursor = (cursor + 1) % options.length;
-          }
-        }
-        render();
+        keys.push(ch ?? "");
+        i += 1;
       }
 
-      stdin.on("data", onData);
+      for (const key of keys) {
+        if (key === "\x03" || key === "\x1b") {
+          // Ctrl+C or Esc
+          resolve({ cancelled: true, selectedId: null });
+          return;
+        }
+        if (key === "\r" || key === "\n") {
+          const opt = options[cursor];
+          resolve({ cancelled: false, selectedId: opt?.id ?? null });
+          return;
+        }
+        if (key === "\x1b[A") {
+          cursor = (cursor - 1 + options.length) % options.length;
+        } else if (key === "\x1b[B") {
+          cursor = (cursor + 1) % options.length;
+        }
+      }
+      render();
     });
   } finally {
     cleanup();

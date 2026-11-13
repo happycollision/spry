@@ -38,9 +38,4 @@ fi
 run_step "Install configured development tools" mise install --locked
 run_step "Install JavaScript dependencies" mise exec -- bun install --frozen-lockfile
 
-if ! mise exec -- git nook -n beads run status >/dev/null 2>&1; then
-  run_step "Connect the beads issue nook" mise exec -- git nook clone beads origin --dir .beads
-  run_step "Import shared beads issues" mise exec -- br sync --import-only
-fi
-
 printf 'Orb setup complete.\n'

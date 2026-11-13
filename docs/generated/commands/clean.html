@@ -25,19 +25,19 @@
   <body>
     <h1>sp clean</h1>
     <p>
-      Once a stack has landed on trunk, `sp clean` fetches the remote and deletes the spry branches
-      whose tip commits are now ancestors of trunk:
+      Once a stack has landed on trunk, `sp stack clean` fetches the remote and deletes the spry
+      branches whose tip commits are now ancestors of trunk:
     </p>
-    <pre class="command">sp clean</pre>
+    <pre class="command">sp stack clean</pre>
     <pre class="output">✓ Deleted spry/dondenton/login
 <span class="ansi-dim">Cleaned 1 landed branch.</span></pre>
     <p>Pass `--dry-run` to see which branches would be removed without deleting anything:</p>
-    <pre class="command">sp clean --dry-run</pre>
+    <pre class="command">sp stack clean --dry-run</pre>
     <pre class="output">Would delete 1 landed branch:
 <span class="ansi-dim">  spry/dondenton/login</span>
-<span class="ansi-dim">Run `sp clean` to delete them.</span></pre>
-    <p>When no tracked branch has landed yet, `sp clean` leaves every branch in place:</p>
-    <pre class="command">sp clean</pre>
+<span class="ansi-dim">Run `sp stack clean` to delete them.</span></pre>
+    <p>When no tracked branch has landed yet, `sp stack clean` leaves every branch in place:</p>
+    <pre class="command">sp stack clean</pre>
     <pre class="output">✓ No landed branches to clean</pre>
   </body>
 </html>

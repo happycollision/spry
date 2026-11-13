@@ -82,11 +82,19 @@ test("fake-record mode: spry-check PR URL canonicalizes to owner/repo (scrub-ord
   const sample = [
     "✓ Created PR #1234: Add login",
     "  https://github.com/happycollision/spry-check/pull/1234",
+    "CI pending on #1234, #9876; polling every 8s",
+    "Could not retarget PR #9876",
     "",
   ].join("\n");
   const scrubbed = scrubber.apply(sample);
   expect(scrubbed).toBe(
-    ["✓ Created PR #42: Add login", "  https://github.com/owner/repo/pull/42", ""].join("\n"),
+    [
+      "✓ Created PR #42: Add login",
+      "  https://github.com/owner/repo/pull/42",
+      "CI pending on #42, #42; polling every 8s",
+      "Could not retarget PR #42",
+      "",
+    ].join("\n"),
   );
   // The ordering bug's signature: the repo scrub won and rewrote the URL.
   expect(scrubbed).not.toContain("/tmp/repo-origin");

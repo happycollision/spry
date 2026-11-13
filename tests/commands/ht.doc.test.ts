@@ -24,10 +24,10 @@ docTest("Gardening worktrees", { section: "commands/ht", order: 20 }, async (doc
   await repo.git.run(["config", "happy-trees.worktreesDir", trees], { cwd: repo.path });
   try {
     doc.prose(
-      "Create a branch and worktree from the default branch. Existing Happy Trees Git configuration also applies to Spry.",
+      "Create a branch and worktree from the default branch. Existing Happy Trees Git configuration also applies to Spry. Explicit branch arguments need no interactive permission. Use sp ht co <branch> -s -E to skip setup and exec scripts; otherwise they still run, with closed stdin by default. Scripts and Git hooks can independently open /dev/tty, so closed stdin is not a sandbox for external code.",
     );
     for (const args of [
-      ["co", "feature/login", "-s"],
+      ["co", "feature/login", "-s", "-E"],
       ["ls"],
       ["setup", "--init"],
       ["setup"],
@@ -52,7 +52,13 @@ docTest("Actionable errors", { section: "commands/ht", order: 30 }, async (doc) 
   doc.scrub(await realpath(repo.path), "/tmp/repo");
   doc.scrub(repo);
   try {
+    doc.prose(
+      "Branch selectors are opt-in, even in a terminal: use sp -i ht co, sp -i ht remove, or sp -i ht destroy. Both stdin and stdout must be terminals with a usable TERM. SPRY_NON_INTERACTIVE=1 always disables interactive input, including with -i. Without a branch, Spry refuses before reading repository or Git configuration.",
+    );
     for (const args of [
+      ["co"],
+      ["remove"],
+      ["destroy"],
       ["co", "--bogus"],
       ["co", "one", "two", "three"],
       ["co", "-e"],

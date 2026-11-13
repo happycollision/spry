@@ -183,11 +183,8 @@ export async function setupDocRepo(
   doc.scrub(repo);
   // 3. PR numbers are GitHub-minted (non-deterministic); canonicalize every
   //    doc'd form so the generated docs stay stable across re-recordings.
-  doc.scrub(/Created PR #\d+/g, "Created PR #42");
+  doc.scrub(/#\d+/g, "#42");
   doc.scrub(/pull\/\d+/g, "pull/42");
-  doc.scrub(/parked PR #\d+/g, "parked PR #42");
-  doc.scrub(/retargeted PR #\d+/g, "retargeted PR #42");
-  doc.scrub(/✎ updated PR #\d+/g, "✎ updated PR #42");
   // 4. Per-test namespace canonicalization: the generated docs keep telling
   //    the `main` + `spry/dondenton` story no matter which namespace the test
   //    actually ran in.
@@ -210,7 +207,8 @@ export async function setupDocRepo(
     // branch mid-advance, rebuild the working branch on the baseline so the
     // test's stack never contains another test's commits.
     await repo.git.run(["reset", "--hard", baseline]);
-    await repo.git.run(["push", "origin", `${baseline}:refs/heads/${trunkName}`]);
+    const pushed = await repo.git.run(["push", "origin", `${baseline}:refs/heads/${trunkName}`]);
+    if (pushed.exitCode !== 0) throw new Error(`Doc fixture trunk push failed: ${pushed.stderr}`);
     // Pin the remote-tracking ref explicitly (push updates it on modern git,
     // but sp resolves the stack against `origin/<trunk>`, so make it certain).
     await repo.git.run(["update-ref", `refs/remotes/origin/${trunkName}`, baseline]);

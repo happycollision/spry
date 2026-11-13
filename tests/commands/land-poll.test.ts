@@ -78,7 +78,7 @@ describe("classifyScope", () => {
 describe("renderReinvokeHint", () => {
   test("embeds the through id and --poll", () => {
     expect(renderReinvokeHint("bbb22222")).toBe(
-      "Run `sp land --through bbb22222 --poll` to wait for CI and land automatically.",
+      "Run `sp stack land --through bbb22222 --poll` to wait for CI and land automatically.",
     );
   });
 });

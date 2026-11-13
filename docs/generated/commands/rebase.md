@@ -1,9 +1,9 @@
 # rebase
 
-When your stack is already based on the latest trunk, `sp rebase` fetches and exits cleanly:
+When your stack is already based on the latest trunk, `sp stack rebase` fetches and exits cleanly:
 
 ```
-sp rebase
+sp stack rebase
 ```
 
 ```
@@ -11,10 +11,10 @@ sp rebase
 
 ```
 
-When trunk has new commits, `sp rebase` fetches, detects the gap, and replays your stack on top — no conflicts, no prompts:
+When trunk has new commits, `sp stack rebase` fetches, detects the gap, and replays your stack on top — no conflicts, no prompts:
 
 ```
-sp rebase
+sp stack rebase
 ```
 
 ```
@@ -22,10 +22,10 @@ sp rebase
 
 ```
 
-If rebasing would produce a conflict, `sp rebase` reports the conflicting files and exits without touching your working tree. Nothing is rewritten:
+If rebasing would produce a conflict, `sp stack rebase` reports the conflicting files and exits without touching your working tree. Nothing is rewritten:
 
 ```
-sp rebase
+sp stack rebase
 ```
 
 ```
@@ -34,15 +34,15 @@ sp rebase
   Conflicting files:
     - api.ts
 
-  Resolve the upstream changes manually, then run `sp rebase` again.
+  Resolve the upstream changes manually, then run `sp stack rebase` again.
   Or use `git rebase` for interactive conflict resolution.
 
 ```
 
-When all tracked branches are already based on the latest trunk, `sp rebase --all` fetches and reports each as up to date:
+When all tracked branches are already based on the latest trunk, `sp stack rebase --all` fetches and reports each as up to date:
 
 ```
-sp rebase --all
+sp stack rebase --all
 ```
 
 ```
@@ -50,10 +50,10 @@ feature: ✓ already up to date
 
 ```
 
-When multiple tracked branches are behind trunk, `sp rebase --all` rebases each one in turn without requiring a manual checkout:
+When multiple tracked branches are behind trunk, `sp stack rebase --all` rebases each one in turn without requiring a manual checkout:
 
 ```
-sp rebase --all
+sp stack rebase --all
 ```
 
 ```

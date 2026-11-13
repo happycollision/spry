@@ -13,7 +13,7 @@ Spry automates the stacked PR workflow:
 
 - Each commit (or group of commits) becomes its own PR
 - PRs are automatically chained with proper base branches
-- Rebasing onto trunk is a single command (`sp rebase`)
+- Rebasing onto trunk is a single command (`sp stack rebase`)
 - Land PRs when ready and automatically retarget dependents
 
 ## Installation
@@ -99,8 +99,8 @@ Optional:
 # remotes or unusual URL formats.
 git config spry.repo owner/repo
 
-# When true, `sp land` deletes the remote branches of the units it just
-# landed. Default false. Leave it off (and use `sp clean`) if your repo has
+# When true, `sp stack land` deletes the remote branches of the units it just
+# landed. Default false. Leave it off (and use `sp stack clean`) if your repo has
 # GitHub's "automatically delete head branches" setting enabled.
 git config spry.autoDeleteOnLand true
 ```
@@ -135,26 +135,49 @@ git commit -m "Add user API endpoints"
 git commit -m "Add user tests"
 
 # 2. View your stack
-sp view
+sp stack view
 
 # 3. Sync with GitHub and create PRs
-sp sync --open
+sp -i stack sync --open
 
 # 4. When a PR is approved, land it
-sp land
+sp -i stack land
 ```
 
 ## Commands
 
+Run `sp` for root help, or `sp stack` for stacked PR command help. The former
+root forms (such as `sp sync`) fail with a migration hint rather than forwarding.
+Happy Trees remains under `sp ht`.
+
+### Interaction contract
+
+Spry never opens its own picker, editor, or confirmation by default, even in a terminal. Humans opt in with the global `-i, --interactive` flag, for example `sp -i stack group`; input and output must both be terminals with a usable `TERM`. Missing choices fail immediately with an explicit-command alternative, before configuration loading or network work. There is no idle timeout or agent-brand detection.
+
+For agents and scripts:
+
+```bash
+sp stack view --json                  # Read stable IDs and the grouping document shape
+sp stack sync --open <id1,id2>         # Open exactly these unpublished units
+sp stack group --apply - < grouping.json
+sp stack land --through <id>          # Never asks a follow-up question
+sp ht co <branch> -s -E               # No selector, setup script, or exec command
+```
+
+`--non-interactive` explicitly asserts the default; it conflicts with `-i`. Set `SPRY_NON_INTERACTIVE=1` in orchestration wrappers to prevent either interactive spelling from overriding the policy. An explicit land scope remains prompt-free even with `-i`: add `--poll` to wait for pending CI or `--allow-unresolved-threads` to acknowledge that advisory only. All other readiness gates still apply. `group --apply -` requires a pipe or redirected file whose producer supplies EOF, not terminal input.
+
+The guarantee covers Spry's own UI and supported Git/gh prompt suppression. Arbitrary Git hooks, credential helpers, custom SSH transports, and Happy Trees setup/exec scripts can still open `/dev/tty` or another UI. They are not sandboxed or silently disabled; Happy Trees help labels these external-execution paths. Git/gh and default-mode setup/exec receive closed stdin unless input was explicitly supplied.
+
 Each command's full behavior, flags, and example output live in the generated
 docs (produced from the doc tests, so they never drift from the code):
 
-- [`sp view`](docs/generated/commands/view.md) — display the current stack and PR status
-- [`sp sync`](docs/generated/commands/sync.md) — push branches, open PRs (`--open`), push every tracked stack (`--all`)
-- [`sp rebase`](docs/generated/commands/rebase.md) — fetch, check if behind trunk, and rebase the stack (`--all` for every tracked branch)
-- [`sp land`](docs/generated/commands/land.md) — retarget in-scope PRs to trunk and fast-forward trunk to the target tip (`--through <id>`); scrubs the landed units' cached state, and deletes their remote branches when `spry.autoDeleteOnLand` is set
-- [`sp clean`](docs/generated/commands/clean.md) — delete remote spry branches that have landed on trunk (`--dry-run` to preview)
-- [`sp group`](docs/generated/commands/group.md) — interactive TUI for grouping and reordering commits
+- [CLI and interaction contract](docs/generated/commands/cli.md) — command families, migration hints, and explicit interactive opt-in
+- [`sp stack view`](docs/generated/commands/view.md) — display the current stack and PR status
+- [`sp stack sync`](docs/generated/commands/sync.md) — push branches, open PRs (`--open`), push every tracked stack (`--all`)
+- [`sp stack rebase`](docs/generated/commands/rebase.md) — fetch, check if behind trunk, and rebase the stack (`--all` for every tracked branch)
+- [`sp stack land`](docs/generated/commands/land.md) — retarget in-scope PRs to trunk and fast-forward trunk to the target tip (`--through <id>`); scrubs the landed units' cached state, and deletes their remote branches when `spry.autoDeleteOnLand` is set
+- [`sp stack clean`](docs/generated/commands/clean.md) — delete remote spry branches that have landed on trunk (`--dry-run` to preview)
+- [`sp stack group`](docs/generated/commands/group.md) — declarative grouping/reordering with `--apply`, or a TUI with `-i`
 
 Browse them all in [`docs/generated/commands/`](docs/generated/commands/).
 
@@ -172,14 +195,14 @@ Implements JWT-based auth with refresh tokens.
 Spry-Commit-Id: a1b2c3d4
 ```
 
-`Spry-Commit-Id` trailers are added automatically by `sp rebase`/`sp sync`.
+`Spry-Commit-Id` trailers are added automatically by `sp stack rebase`/`sp stack sync`.
 
 ### Grouping Commits
 
-You can group multiple commits into a single PR using `sp group`. Grouping is
+You can group multiple commits into a single PR using `sp stack group --apply` or `sp -i stack group`. Grouping is
 stored in `refs/spry/groups` (a JSON record per group), so it never requires a
-commit rewrite. All grouped commits become one PR when you `sp sync --open`.
-See [`sp group`](docs/generated/commands/group.md) for the interactive editor.
+commit rewrite. All grouped commits become one PR when you `sp stack sync --open <group-id>`.
+See [`sp stack group`](docs/generated/commands/group.md) for the interactive editor.
 
 ## Limitations
 
@@ -207,44 +230,6 @@ bun run format
 # Run all checks
 bun run check
 ```
-
-### Issue tracking (beads + git nook)
-
-Spry's issues are tracked with [beads_rust](https://github.com/Dicklesworthstone/beads_rust)
-(`br`), stored in `.beads/`. That directory is **not** committed on `main` — it
-lives in a [git nook](https://github.com/happycollision/git-nook), an inner git
-repo hidden under `.git/` whose data is published to a custom ref on `origin`
-(`refs/nook/happycollision/spry/beads`) that never shows up in branch listings or
-a default clone. This keeps issue-tracker churn off the `main` branch history.
-
-A fresh clone has no `.beads/` and no nook wired up. To hook into the shared
-issues after cloning:
-
-```bash
-# 1. Install the tools (once per machine)
-#    - br:       https://github.com/Dicklesworthstone/beads_rust
-#    - git-nook: https://github.com/happycollision/git-nook
-
-# 2. Wire up the nook. This targets `origin` and, because the ref already
-#    exists there, bootstraps .beads/ from it automatically.
-git nook add beads origin --dir .beads
-
-# 3. Import the JSONL into a local beads DB
-br sync --import-only
-
-# 4. Verify
-git nook beads status   # expect: up to date with origin/main
-br ready                # list actionable issues
-```
-
-The day-to-day flow (create/update issues with `br`, then publish) is documented
-in [`AGENTS.md`](AGENTS.md) under "Beads Workflow Integration". In short: after
-changing issues, run `br sync --flush-only`, then
-`git nook beads add --all && git nook beads commit -m "issues" && git nook beads push`.
-
-> **Note:** if `git nook add` fails writing to `.git/info/exclude`, check whether
-> that path is a dangling symlink (some global git templates symlink it); replace
-> it with a real file and retry.
 
 ### Documentation tests
 

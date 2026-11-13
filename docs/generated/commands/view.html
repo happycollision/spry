@@ -25,7 +25,7 @@
   <body>
     <h1>sp view</h1>
     <p>View the current stack of commits on your feature branch:</p>
-    <pre class="command">sp view</pre>
+    <pre class="command">sp stack view</pre>
     <pre class="output">Stack: feature (2 commits)
 <span class="ansi-dim">○ no PR  ◐ open  ✓ merged  ✗ closed</span>
 
@@ -36,10 +36,13 @@
   <span class="ansi-dim">○</span> Add signup form <span class="ansi-dim">(aaaa1111)</span>
 ────────────────────────────────────────────────────────────────────────</pre>
     <p>When you're on a branch with no commits ahead of trunk:</p>
-    <pre class="command">sp view</pre>
+    <pre class="command">sp stack view</pre>
     <pre class="output">No commits ahead of origin/main</pre>
-    <p>sp view reads PR status from a local git ref written by sp sync — no network call needed:</p>
-    <pre class="command">sp view</pre>
+    <p>
+      sp stack view reads PR status from a local git ref written by sp stack sync — no network call
+      needed:
+    </p>
+    <pre class="command">sp stack view</pre>
     <pre class="output">Stack: feature (1 commit)
 <span class="ansi-dim">○ no PR  ◐ open  ✓ merged  ✗ closed</span>
 <span class="ansi-dim">checks: ✓ pass  ✗ fail  ⏳ pending  — none</span>
@@ -51,10 +54,10 @@
     <span class="ansi-blue-fg">https://github.com/&lt;owner&gt;/&lt;repo&gt;/pull/42</span> - checks:<span class="ansi-green-fg">✓</span> approval:<span class="ansi-dim">—</span> comments:0/2
 ────────────────────────────────────────────────────────────────────────</pre>
     <p>
-      `sp view` marks how each unit has drifted since your last sync, entirely offline. Right after
-      a sync, nothing is marked:
+      `sp stack view` marks how each unit has drifted since your last sync, entirely offline. Right
+      after a sync, nothing is marked:
     </p>
-    <pre class="command">sp view</pre>
+    <pre class="command">sp stack view</pre>
     <pre class="output">Stack: feature (2 commits)
 <span class="ansi-dim">○ no PR  ◐ open  ✓ merged  ✗ closed</span>
 <span class="ansi-dim">checks: ✓ pass  ✗ fail  ⏳ pending  — none</span>
@@ -70,14 +73,14 @@
 ────────────────────────────────────────────────────────────────────────</pre>
     <p>
       Amend the second commit. Its local tip no longer matches what you pushed, so it is flagged
-      with ✎ — a signal to run `sp sync`:
+      with ✎ — a signal to run `sp stack sync`:
     </p>
-    <pre class="command">sp view</pre>
+    <pre class="command">sp stack view</pre>
     <pre class="output">Stack: feature (2 commits)
 <span class="ansi-dim">○ no PR  ◐ open  ✓ merged  ✗ closed</span>
 <span class="ansi-dim">checks: ✓ pass  ✗ fail  ⏳ pending  — none</span>
 <span class="ansi-dim">approval: ✓ approved  ✗ changes  ? required  — none</span>
-<span class="ansi-dim">✎ local edits, run sp sync   ↓ remote moved since your push (as of last fetch)</span>
+<span class="ansi-dim">✎ local edits, run sp stack sync   ↓ remote moved since your push (as of last fetch)</span>
 
   → origin/main
 ────────────────────────────────────────────────────────────────────────

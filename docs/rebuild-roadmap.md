@@ -15,14 +15,16 @@ pre-rebuild codebase.
 
 ## What exists now
 
-- `sp view` — offline stack display, reads PR status from `refs/spry/prs` cache
-- `sp sync` — push branches, open PRs (`--open`), retarget stacked PRs; **`--all`** pushes every tracked stack (push-only)
-- `sp group` — interactive TUI for grouping/reordering commits
-- `sp rebase` — fetch, behind-check, dry-run conflict predict, rebase if clean; **`--all`** rebases every tracked branch
-- `sp land` — fast-forward trunk to the target unit's tip, landing every in-scope PR without touching PR bases; **`--through <id>`** lands from the bottom through a group/unit/commit id, bare `sp land` opens a single-select picker. After a successful ff-push it **scrubs the landed units' state** (drops their PR-cache entries and group records) and, when `spry.autoDeleteOnLand` is set, deletes their remote branches.
-- `sp clean` — delete remote spry branches whose tip is an ancestor of remote trunk (i.e. "in remote trunk"); **`--dry-run`** previews. The manual reaper for branches `sp land` left behind (or that were merged through the GitHub UI).
+- `sp stack view` — offline stack display, reads PR status from `refs/spry/prs` cache
+- `sp stack sync` — push branches, open PRs (`--open`), retarget stacked PRs; **`--all`** pushes every tracked stack (push-only)
+- `sp stack group` — declarative grouping/reordering with `--apply`; opt-in TUI with `sp -i stack group`
+- `sp stack rebase` — fetch, behind-check, dry-run conflict predict, rebase if clean; **`--all`** rebases every tracked branch
+- `sp stack land` — fast-forward trunk to the target unit's tip, landing every in-scope PR without touching PR bases; **`--through <id>`** lands from the bottom through a group/unit/commit id without prompting; `sp -i stack land` opens a single-select picker. After a successful ff-push it **scrubs the landed units' state** (drops their PR-cache entries and group records) and, when `spry.autoDeleteOnLand` is set, deletes their remote branches.
+- `sp stack clean` — delete remote spry branches whose tip is an ancestor of remote trunk (i.e. "in remote trunk"); **`--dry-run`** previews. The manual reaper for branches `sp stack land` left behind (or that were merged through the GitHub UI).
 
-Branch tracking (`refs/spry/local/tracked-branches`) is written automatically by `sp sync`, `sp group`, and `sp rebase`, and powers the `--all` variants.
+Branch tracking (`refs/spry/local/tracked-branches`) is written automatically by `sp stack sync`, `sp stack group`, and `sp stack rebase`, and powers the `--all` variants.
+
+The six stacked PR operations now live under `sp stack`; bare `sp` and `sp stack` show help. Former root forms fail with `Use sp stack <command>` rather than forwarding. `sp ht` and root help/version are unchanged. Historical comparisons below retain the old spellings where they describe the pre-migration interface; operation modules, test paths, generated doc paths, and cassette keys have not moved.
 
 ## Feature-audit decisions
 
@@ -30,11 +32,11 @@ The rebuild is no longer trying to match `main` flag-for-flag. The feature audit
 
 The cleanup capabilities `main` bundled into `clean` are resolved as follows:
 
-| `main` capability                               | Resolution on this branch                                                                                                                                                                                                                           |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Landed-commit detection (SHA or trailer)        | **Reduced.** `sp clean` detects "landed" as `merge-base --is-ancestor <branchTip> <remote>/<trunk>` only — no `Spry-Commit-Id` trailer, squash, or rebase-merge heuristics. `sp land` needs no detection at all: it knows the scope it just landed. |
-| `cleanupMergedPRs`                              | **Deterministic in `sp land`.** After landing, land drops the landed units' entries from the PR cache (`refs/spry/prs`). No "detect already-merged" pass — land knows what it merged.                                                               |
-| `purgeOrphanedTitles` / `purgeOrphanedSettings` | **Deterministic in `sp land`.** Land scrubs the landed units' group records (`refs/spry/groups`). Remaining stale refs self-heal: PR cache rebuilds on the next `sp sync`, group records on the next `sp group`.                                    |
+| `main` capability                               | Resolution on this branch                                                                                                                                                                                                                                       |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Landed-commit detection (SHA or trailer)        | **Reduced.** `sp stack clean` detects "landed" as `merge-base --is-ancestor <branchTip> <remote>/<trunk>` only — no `Spry-Commit-Id` trailer, squash, or rebase-merge heuristics. `sp stack land` needs no detection at all: it knows the scope it just landed. |
+| `cleanupMergedPRs`                              | **Deterministic in `sp stack land`.** After landing, land drops the landed units' entries from the PR cache (`refs/spry/prs`). No "detect already-merged" pass — land knows what it merged.                                                                     |
+| `purgeOrphanedTitles` / `purgeOrphanedSettings` | **Deterministic in `sp stack land`.** Land scrubs the landed units' group records (`refs/spry/groups`). Remaining stale refs self-heal: PR cache rebuilds on the next `sp stack sync`, group records on the next `sp stack group`.                              |
 
 ### Temporary commits — dropped
 
@@ -48,9 +50,9 @@ removed. **Decided (2026-06-26): dropped for good.** Not porting it.
 ### `sp view --all` — dropped
 
 `main` had `sp view --all` to list all PRs authored by the current GitHub user.
-This branch's `sp view` is intentionally local and offline: it displays the
+This branch's `sp stack view` is intentionally local and offline: it displays the
 current stack and reads PR status from the `refs/spry/prs` cache written by
-`sp sync`. **Decided (2026-06-27): dropped for now.** Not needed for the rebuild.
+`sp stack sync`. **Decided (2026-06-27): dropped for now.** Not needed for the rebuild.
 
 ### PR body management — deferred
 
@@ -58,7 +60,7 @@ current stack and reads PR status from the `refs/spry/prs` cache written by
 sections that preserved user edits, a beta footer, and content-hash tracking to
 avoid unnecessary body updates. This branch currently keeps PR creation simple:
 single-commit PRs use the commit body with trailers stripped, grouped PRs use an
-empty body, and existing PR title/body updates are not part of `sp sync` yet.
+empty body, and existing PR title/body updates are not part of `sp stack sync` yet.
 **Decided (2026-06-27): acceptable for now.** We expect to revisit PR body
 management later, but it is not a current rebuild blocker.
 
@@ -70,11 +72,11 @@ This branch requires explicit `spry.remote`, `spry.trunk`, and
 `spry.autoDeleteOnLand` as an opt-in cleanup setting. **Decided (2026-06-27):
 accepted.** The explicit config model is the intended rebuild behavior.
 
-### `sp sync` behind-trunk guard — deferred
+### `sp stack sync` behind-trunk guard — deferred
 
 The roadmap previously said `sp sync` should fail early when the current stack is
-behind trunk. The current implementation does not enforce that: `sp sync` is a
-push/open/retarget command and trusts the user to run `sp rebase` when needed.
+behind trunk. The current implementation does not enforce that: `sp stack sync` is a
+push/open/retarget command and trusts the user to run `sp stack rebase` when needed.
 This is unlikely to cause data loss because sync mutates spry unit branches, not
 trunk, and pushes use force-with-lease. The main downside is stale PR churn in
 multi-machine or multi-user workflows: PRs can be pushed, opened, or retargeted
@@ -96,13 +98,13 @@ resurface, redesign them rebuild-native against `refs/spry/groups` — do not po
 `main`'s commands blindly.
 
 **Update (2026-07-21): `--apply` resurfaced, redesigned rebuild-native.**
-`sp group --apply <json>` now exists as a declarative, nested final-state
+`sp stack group --apply <json>` now exists as a declarative, nested final-state
 document reconciled against `refs/spry/groups` and the live stack —
 identity-based PR handling (retained ids; `id:null`/`reissueId` mint new ids;
 `prAction:"CLOSE"`/`"ADOPT"` acknowledge PR transitions), fully offline (no `gh`;
 PR-close is recorded as local intent only for now), with reorder and
 id-reissue supported (not combined in one apply). A machine-only
-`sp view --json` provides the read side. `--fix` and explicit `dissolve`
+`sp stack view --json` provides the read side. `--fix` and explicit `dissolve`
 remain dropped — dissolution is expressed declaratively by listing a group's
 members ungrouped. See
 `docs/superpowers/specs/2026-07-21-scriptable-sp-group-design.md`.
@@ -111,11 +113,11 @@ members ungrouped. See
 
 ## Shipped since this roadmap was first written
 
-- **`sp rebase`** (+ `--all`) — `src/commands/rebase.ts`, tests in `tests/commands/rebase.test.ts` + `rebase.doc.test.ts`, docs in `docs/generated/commands/rebase.*`.
-- **`sp sync --all`** — push-only multi-stack loop in `src/commands/sync.ts`; prunes branches that no longer exist locally; operates entirely via git plumbing (working tree + `HEAD` untouched).
-- **`sp land`** (+ `--through`) — `src/commands/land.ts` with readiness gating in `src/commands/land-readiness.ts`; real-`gh` paths covered by cassettes.
-- **`sp land` post-land scrub** — after a successful ff-push, land drops the landed units' PR-cache entries and group records (always), and deletes their remote branches when `spry.autoDeleteOnLand` is set. All cleanup is best-effort (warns, never aborts the completed land) and adds no `gh` calls, so the land cassettes stay valid. `src/commands/land.ts`, tests in `tests/commands/land.test.ts`.
-- **`sp clean`** — `src/commands/clean.ts`; deletes remote spry branches whose tip is an ancestor of trunk, with `--dry-run`. Fetches with `--prune` and treats an already-gone branch as benign (idempotent). Pure git, fully offline — tests in `tests/commands/clean.test.ts` + `clean.doc.test.ts`, no cassettes. Helpers: `deleteRemoteBranch` / `isAlreadyGone` in `src/gh/push.ts`, `deletePRCacheRemote` in `src/gh/pr-cache.ts`.
+- **`sp stack rebase`** (+ `--all`) — `src/commands/rebase.ts`, tests in `tests/commands/rebase.test.ts` + `rebase.doc.test.ts`, docs in `docs/generated/commands/rebase.*`.
+- **`sp stack sync --all`** — push-only multi-stack loop in `src/commands/sync.ts`; prunes branches that no longer exist locally; operates entirely via git plumbing (working tree + `HEAD` untouched).
+- **`sp stack land`** (+ `--through`) — `src/commands/land.ts` with readiness gating in `src/commands/land-readiness.ts`; real-`gh` paths covered by cassettes.
+- **`sp stack land` post-land scrub** — after a successful ff-push, land drops the landed units' PR-cache entries and group records (always), and deletes their remote branches when `spry.autoDeleteOnLand` is set. All cleanup is best-effort (warns, never aborts the completed land) and adds no `gh` calls, so the land cassettes stay valid. `src/commands/land.ts`, tests in `tests/commands/land.test.ts`.
+- **`sp stack clean`** — `src/commands/clean.ts`; deletes remote spry branches whose tip is an ancestor of trunk, with `--dry-run`. Fetches with `--prune` and treats an already-gone branch as benign (idempotent). Pure git, fully offline — tests in `tests/commands/clean.test.ts` + `clean.doc.test.ts`, no cassettes. Helpers: `deleteRemoteBranch` / `isAlreadyGone` in `src/gh/push.ts`, `deletePRCacheRemote` in `src/gh/pr-cache.ts`.
 - **`spry.autoDeleteOnLand`** — `SpryConfig` boolean (default false) in `src/git/config.ts`; opt-in because some repos have GitHub auto-delete head branches on merge.
 - **`src/git/behind.ts`** — `fetchRemote`, `isStackBehindTrunk`, `isStackBehindTrunkForBranch`.
 - **`src/git/tracked-branches.ts`** — branch-tracking storage powering `--all`.

@@ -29,11 +29,41 @@ function parseInterval(raw: string | undefined): number | undefined {
 }
 
 const program = new Command();
+let requestedInteractive = false;
+let requestedNonInteractive = false;
 
 program
   .name("sp")
   .description("Spry: Stacked PRs. Develop with alacrity.")
-  .version(pkg.version, "-v, --version", "Output the version number");
+  .version(pkg.version, "-v, --version", "Output the version number")
+  .option("-i, --interactive", "Permit pickers and confirmations (requires a usable terminal)")
+  .option("--non-interactive", "Never prompt (default; conflicts with --interactive)")
+  .on("option:interactive", () => {
+    requestedInteractive = true;
+  })
+  .on("option:non-interactive", () => {
+    requestedNonInteractive = true;
+  })
+  .configureHelp({ showGlobalOptions: true })
+  .addHelpText(
+    "after",
+    "\nInteraction is opt-in, even in a terminal. SPRY_NON_INTERACTIVE=1 locks it off.",
+  )
+  .action(() => program.outputHelp());
+
+// Reject retired root commands before parsing their options or creating clients.
+// In particular, legacy --help/--version and arbitrary arguments must never
+// bypass the migration hint or reach a stack operation.
+const legacyCommand = process.argv.slice(2).find((arg) => !arg.startsWith("-"));
+if (legacyCommand && ["view", "sync", "group", "rebase", "land", "clean"].includes(legacyCommand)) {
+  process.stderr.write(`Use sp stack ${legacyCommand}\n`);
+  process.exit(1);
+}
+
+const stack = program
+  .command("stack")
+  .description("Manage stacked pull requests")
+  .action(() => stack.outputHelp());
 
 const { gh, flush } = await createSeamedGhClient();
 
@@ -42,52 +72,86 @@ const ctx: SpryContext = {
   gh,
 };
 
-program
+program.hook("preAction", () => {
+  // Track both spellings explicitly: Commander represents a positive flag and
+  // its --no counterpart using the same attribute, which otherwise makes the
+  // last flag win instead of reporting the conflict.
+  if (requestedInteractive && requestedNonInteractive) {
+    throw new Error("--interactive and --non-interactive cannot be combined.");
+  }
+  if (requestedInteractive && process.env.SPRY_NON_INTERACTIVE === "1") {
+    throw new Error("--interactive is disabled by SPRY_NON_INTERACTIVE=1.");
+  }
+  ctx.interactive = requestedInteractive;
+});
+
+stack
   .command("view")
   .description("View the current stack of commits with PR status")
   .option("--json", "Emit the stack as machine-readable JSON")
   .action((opts: { json?: boolean }) => viewCommand(ctx, { json: opts.json }));
 
-program
+stack
   .command("sync")
   .description("Sync the current stack to GitHub")
-  .option("--open [ids]", "Open PRs for selected units (no value = TUI selector)")
+  .option("--open [ids]", "Open PRs for comma-separated IDs; omit IDs only with -i")
   .option("--all", "Push every tracked stack (push-only; cannot combine with --open)")
   .action((opts: { open?: string | true; all?: boolean }) => {
     const open = opts.open === undefined ? undefined : opts.open === true ? null : opts.open;
     return syncCommand(ctx, { open, all: opts.all });
   });
 
-program
+stack
   .command("group")
-  .description("Interactively group and reorder commits")
-  .option("--apply <json>", 'Apply a grouping doc non-interactively ("-" reads stdin)')
+  .description("Group and reorder commits (--apply for automation; -i for editor)")
+  .option(
+    "--apply <json>",
+    'Apply a grouping doc without prompting ("-" reads piped/redirected JSON)',
+  )
+  .addHelpText(
+    "after",
+    '\nRead IDs/schema: sp stack view --json\nExample: sp stack group --apply \'{"stack":[{"type":"commit","id":"<commit-id>"}]}\'\nEditor: sp -i stack group',
+  )
   .action((opts: { apply?: string }) => groupCommand(ctx, { apply: opts.apply }));
 
-program
+stack
   .command("rebase")
   .description("Fetch, check if behind trunk, and rebase the stack if clean")
   .option("--all", "Rebase all tracked branches")
   .action((opts: { all?: boolean }) => rebaseCommand(ctx, { all: opts.all }));
 
-program
+stack
   .command("land")
   .description("Land the stack into trunk by fast-forwarding through a chosen commit")
-  .option("--through <id>", "Land from the bottom through this group/commit id")
+  .option(
+    "--through <id>",
+    "Land through this group/commit id without prompting (required unless -i)",
+  )
+  .option(
+    "--allow-unresolved-threads",
+    "Acknowledge unresolved review threads only; retain other readiness gates",
+  )
   .option(
     "--poll",
     "Watch CI and auto-land when the scope goes green (fail fast on a hard blocker)",
   )
   .option("--interval <sec>", "Poll cadence in seconds when --poll is set (default 30)")
-  .action((opts: { through?: string; poll?: boolean; interval?: string }) =>
-    landCommand(ctx, {
-      through: opts.through,
-      poll: opts.poll,
-      interval: parseInterval(opts.interval),
-    }),
+  .action(
+    (opts: {
+      through?: string;
+      poll?: boolean;
+      interval?: string;
+      allowUnresolvedThreads?: boolean;
+    }) =>
+      landCommand(ctx, {
+        through: opts.through,
+        poll: opts.poll,
+        allowUnresolvedThreads: opts.allowUnresolvedThreads,
+        interval: parseInterval(opts.interval),
+      }),
   );
 
-program
+stack
   .command("clean")
   .description("Delete remote spry branches whose commits have landed on trunk")
   .option("--dry-run", "List what would be deleted without deleting anything")
@@ -99,13 +163,13 @@ program
   .helpOption(false)
   .allowUnknownOption()
   .argument("[args...]")
-  .action((args: string[]) => htCommand(ctx.git, args));
+  .action((args: string[]) => htCommand(ctx.git, args, ctx.interactive));
 
 try {
   await program.parseAsync();
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(`✗ ${message}`);
+  process.stderr.write(`✗ ${message}\n`);
   process.exitCode = 1;
 } finally {
   await flush();

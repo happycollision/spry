@@ -48,7 +48,7 @@ export function validatePRTitle(title: string): ValidationResult {
     return {
       ok: false,
       error:
-        "PR title cannot be empty. Use 'sp group' to set a title, or pass --allow-untitled-pr to use the first commit subject.",
+        "PR title cannot be empty. Use 'sp -i stack group' to set a group title, or supply a nonempty commit subject.",
     };
   }
 

@@ -1,6 +1,6 @@
 # group
 
-Run `sp group` to open the interactive group editor. Use ↑↓ to move between commits and ←→ to assign or remove group membership. Commits in the same group ship as a single PR.
+Run `sp -i stack group` to open the interactive group editor. Without `-i`, supply a declarative `--apply` document instead. Use ↑↓ to move between commits and ←→ to assign or remove group membership. Commits in the same group ship as a single PR.
 
 ```
 Stack: feature/auth (3 commits)
@@ -37,7 +37,7 @@ MOVE MODE — ↑↓ reorder  Space/Enter drop  Esc cancel
 
 ```
 
-If the working tree is dirty, `sp group` still allows metadata-only grouping and renaming, but disables commit reordering until local changes are cleaned up.
+If the working tree is dirty, `sp -i stack group` still allows metadata-only grouping and renaming, but disables commit reordering until local changes are cleaned up.
 
 ```
 Stack: feature/auth (2 commits)
@@ -50,7 +50,7 @@ Reordering disabled: working tree is dirty.
 
 ```
 
-When you group commits and one of them already has an open PR, `sp group` adopts that PR for the new group instead of stranding it. Spry looks up each commit's branch on GitHub before the editor opens, then re-keys the new group's record to the PR's commit on save:
+When you group commits and one of them already has an open PR, `sp -i stack group` adopts that PR for the new group instead of stranding it. Spry looks up each commit's branch on GitHub before the editor opens, then re-keys the new group's record to the PR's commit on save:
 
 ```
 ↻ adopted PR for group (unit bbbb2222)
@@ -68,5 +68,38 @@ Stack: feature/config (2 commits)
 
 MOVE MODE — ↑↓ reorder  Space/Enter drop  Esc cancel
 ⚠ Moving this commit may cause a conflict
+
+```
+
+Start with `sp stack view --json`, edit its complete stack document, then supply JSON inline or from a file/pipe. The producer must close stdin at EOF. For example, grouping two commits:
+
+```
+{
+  "stack": [
+    {
+      "type": "group",
+      "id": null,
+      "title": "Feature",
+      "commits": [
+        {
+          "type": "commit",
+          "id": "aaa11111"
+        },
+        {
+          "type": "commit",
+          "id": "bbb22222"
+        }
+      ]
+    }
+  ]
+}
+```
+
+```
+sp --non-interactive stack group --apply - < grouping.json
+```
+
+```
+✓ Applied (1 group)
 
 ```

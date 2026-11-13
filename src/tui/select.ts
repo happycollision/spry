@@ -1,5 +1,7 @@
 import kleur from "kleur";
 import { ENTER_TUI, EXIT_TUI, frameReset } from "./screen.ts";
+import { requireInteractive } from "../lib/interaction.ts";
+import { readTerminalInput } from "./input.ts";
 
 export interface SelectOption {
   id: string;
@@ -15,6 +17,7 @@ export interface SelectResult {
 
 export interface SelectOptions {
   title?: string;
+  interactive?: boolean;
 }
 
 /**
@@ -53,6 +56,10 @@ export async function selectUnits(
   if (options.length === 0) {
     return { cancelled: true, selectedIds: [] };
   }
+  requireInteractive(
+    opts.interactive,
+    "  Use explicit IDs or a grouping document instead of a picker.",
+  );
 
   const stdin = process.stdin;
   const stdout = process.stdout;
@@ -91,68 +98,62 @@ export async function selectUnits(
 
   try {
     render();
-    return await new Promise<SelectResult>((resolve) => {
-      function onData(chunk: Buffer): void {
-        const data = chunk.toString();
-        // Parse the chunk into individual keys so multiple keys arriving in a
-        // single read (e.g. Space+Enter) are handled correctly.
-        const keys: string[] = [];
-        let i = 0;
-        while (i < data.length) {
-          const ch = data[i];
-          if (ch === "\x1b") {
-            // Lone ESC vs CSI sequence (e.g. arrow keys "\x1b[A").
-            if (data[i + 1] === "[" && i + 2 < data.length) {
-              keys.push(data.slice(i, i + 3));
-              i += 3;
-              continue;
-            }
-            keys.push("\x1b");
-            i += 1;
+    return await readTerminalInput<SelectResult>((chunk, resolve) => {
+      const data = chunk.toString();
+      // Parse the chunk into individual keys so multiple keys arriving in a
+      // single read (e.g. Space+Enter) are handled correctly.
+      const keys: string[] = [];
+      let i = 0;
+      while (i < data.length) {
+        const ch = data[i];
+        if (ch === "\x1b") {
+          // Lone ESC vs CSI sequence (e.g. arrow keys "\x1b[A").
+          if (data[i + 1] === "[" && i + 2 < data.length) {
+            keys.push(data.slice(i, i + 3));
+            i += 3;
             continue;
           }
-          keys.push(ch ?? "");
+          keys.push("\x1b");
           i += 1;
+          continue;
         }
-
-        for (const key of keys) {
-          if (key === "\x03" || key === "\x1b") {
-            // Ctrl+C or Esc
-            stdin.off("data", onData);
-            resolve({ cancelled: true, selectedIds: [] });
-            return;
-          }
-          if (key === "\r" || key === "\n") {
-            stdin.off("data", onData);
-            resolve({
-              cancelled: false,
-              selectedIds: options.filter((o) => selected.has(o.id)).map((o) => o.id),
-            });
-            return;
-          }
-          if (key === " ") {
-            const opt = options[cursor];
-            if (opt && !opt.disabled) {
-              if (selected.has(opt.id)) selected.delete(opt.id);
-              else selected.add(opt.id);
-            }
-          } else if (key === "a") {
-            const allSelected = options.every((o) => o.disabled || selected.has(o.id));
-            if (allSelected) {
-              selected.clear();
-            } else {
-              for (const o of options) if (!o.disabled) selected.add(o.id);
-            }
-          } else if (key === "\x1b[A") {
-            cursor = (cursor - 1 + options.length) % options.length;
-          } else if (key === "\x1b[B") {
-            cursor = (cursor + 1) % options.length;
-          }
-        }
-        render();
+        keys.push(ch ?? "");
+        i += 1;
       }
 
-      stdin.on("data", onData);
+      for (const key of keys) {
+        if (key === "\x03" || key === "\x1b") {
+          // Ctrl+C or Esc
+          resolve({ cancelled: true, selectedIds: [] });
+          return;
+        }
+        if (key === "\r" || key === "\n") {
+          resolve({
+            cancelled: false,
+            selectedIds: options.filter((o) => selected.has(o.id)).map((o) => o.id),
+          });
+          return;
+        }
+        if (key === " ") {
+          const opt = options[cursor];
+          if (opt && !opt.disabled) {
+            if (selected.has(opt.id)) selected.delete(opt.id);
+            else selected.add(opt.id);
+          }
+        } else if (key === "a") {
+          const allSelected = options.every((o) => o.disabled || selected.has(o.id));
+          if (allSelected) {
+            selected.clear();
+          } else {
+            for (const o of options) if (!o.disabled) selected.add(o.id);
+          }
+        } else if (key === "\x1b[A") {
+          cursor = (cursor - 1 + options.length) % options.length;
+        } else if (key === "\x1b[B") {
+          cursor = (cursor + 1) % options.length;
+        }
+      }
+      render();
     });
   } finally {
     cleanup();

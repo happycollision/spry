@@ -44,5 +44,5 @@ export function classifyScope(
  * reproduces exactly this land.
  */
 export function renderReinvokeHint(throughId: string): string {
-  return `Run \`sp land --through ${throughId} --poll\` to wait for CI and land automatically.`;
+  return `Run \`sp stack land --through ${throughId} --poll\` to wait for CI and land automatically.`;
 }

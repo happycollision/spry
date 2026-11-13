@@ -1,4 +1,4 @@
-// Doc-producing tests for `sp clean`. Each docTest must:
+// Doc-producing tests for `sp stack clean`. Each docTest must:
 //   1. Call doc.scrub(repo) immediately after repos.push(repo) so the random
 //      unique-id suffix and temp paths are stripped from captured fragments.
 //   2. Use explicit, deterministic remote branch names (no unique-id suffix) so
@@ -20,7 +20,7 @@ afterAll(async () => {
   }
 });
 
-describe("sp clean docs", () => {
+describe("sp stack clean docs", () => {
   docTest("Deleting landed branches", { section: "commands/clean", order: 10 }, async (doc) => {
     const repo = await createRepo();
     repos.push(repo);
@@ -44,10 +44,10 @@ describe("sp clean docs", () => {
     });
 
     doc.prose(
-      "Once a stack has landed on trunk, `sp clean` fetches the remote and deletes the spry branches whose tip commits are now ancestors of trunk:",
+      "Once a stack has landed on trunk, `sp stack clean` fetches the remote and deletes the spry branches whose tip commits are now ancestors of trunk:",
     );
 
-    const { command, result } = await runSp(repo.path, "clean");
+    const { command, result } = await runSp(repo.path, ["stack", "clean"]);
     doc.command(command);
     doc.output(result.stdout);
 
@@ -80,7 +80,7 @@ describe("sp clean docs", () => {
 
     doc.prose("Pass `--dry-run` to see which branches would be removed without deleting anything:");
 
-    const { command, result } = await runSp(repo.path, "clean", ["--dry-run"]);
+    const { command, result } = await runSp(repo.path, ["stack", "clean"], ["--dry-run"]);
     doc.command(command);
     doc.output(result.stdout);
 
@@ -112,9 +112,11 @@ describe("sp clean docs", () => {
     const sha = (await git.run(["rev-parse", "HEAD"], { cwd: repo.path })).stdout.trim();
     await git.run(["push", "origin", `${sha}:refs/heads/spry/dondenton/wip`], { cwd: repo.path });
 
-    doc.prose("When no tracked branch has landed yet, `sp clean` leaves every branch in place:");
+    doc.prose(
+      "When no tracked branch has landed yet, `sp stack clean` leaves every branch in place:",
+    );
 
-    const { command, result } = await runSp(repo.path, "clean");
+    const { command, result } = await runSp(repo.path, ["stack", "clean"]);
     doc.command(command);
     doc.output(result.stdout);
 

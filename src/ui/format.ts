@@ -94,7 +94,9 @@ export function formatStackView(
   const showDriftLegend = drift.some((d) => d && (d.localAhead || d.remoteAhead));
   if (showDriftLegend) {
     lines.push(
-      kleur.dim("✎ local edits, run sp sync   ↓ remote moved since your push (as of last fetch)"),
+      kleur.dim(
+        "✎ local edits, run sp stack sync   ↓ remote moved since your push (as of last fetch)",
+      ),
     );
   }
   lines.push("");
@@ -160,8 +162,8 @@ export function formatValidationError(result: Exclude<StackParseResult, { ok: tr
       lines.push("");
       lines.push("  This can happen when fixup! commits are squashed into a group.");
       lines.push("  To fix:");
-      lines.push("    sp group --fix   Guided repair (merge or dissolve)");
-      lines.push("    sp group         Manual fix via the group editor");
+      lines.push("    sp stack view --json        Inspect the current stack");
+      lines.push("    sp -i stack group           Repair via the group editor");
       break;
     }
   }

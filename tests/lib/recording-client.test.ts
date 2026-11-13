@@ -5,6 +5,7 @@ import { createRecordingClient } from "./recording-client.ts";
 import { createReplayingClient } from "./replaying-client.ts";
 import { readCassette } from "./cassette.ts";
 import type { GitRunner, CommandResult } from "./context.ts";
+import { buildBatchedPRQuery, parseBatchedPRResponse } from "../../src/gh/pr.ts";
 
 const tmpDir = join(import.meta.dir, "../../.test-tmp/cassettes");
 
@@ -279,6 +280,42 @@ test("does not normalize a bare hash-number that isn't a stack-links ordinal", a
 
   const cassette = await readCassette(cassettePath);
   expect(cassette.entries[1]!.result.stdout).toBe("see also #4242\n");
+});
+
+test("recorded branch history preserves PR selection without numbering stale records", async () => {
+  const branches = ["live", "landed", "missing"];
+  const node = (number: number, state: string, title: string) => ({
+    number,
+    state,
+    title,
+    url: `https://github.com/o/r/pull/${number}`,
+    baseRefName: "main",
+    reviewDecision: null,
+  });
+  const stdout = JSON.stringify({
+    data: {
+      repository: {
+        b0: { nodes: [node(91, "CLOSED", "stale"), node(27, "OPEN", "live")] },
+        b1: { nodes: [node(68, "MERGED", "landed"), node(12, "CLOSED", "older")] },
+        b2: { nodes: [] },
+      },
+    },
+  });
+  const path = join(tmpDir, "selected-history.json");
+  const recording = createRecordingClient(scriptedInner([ok(stdout)]), path);
+  const args = ["api", "graphql", "-f", `query=${buildBatchedPRQuery(branches)}`];
+  expect((await recording.run(args)).stdout).toBe(stdout);
+  const replay = await createReplayingClient(path, { match: "args" });
+  const recorded = await replay.run(args);
+  expect(parseBatchedPRResponse(recorded.stdout, branches)).toMatchObject([
+    { number: 1001, state: "OPEN", title: "live" },
+    { number: 1002, state: "MERGED", title: "landed" },
+    null,
+  ]);
+  const repository = JSON.parse(recorded.stdout).data.repository;
+  expect(repository.b0.nodes).toHaveLength(1);
+  expect(repository.b1.nodes).toHaveLength(1);
+  expect(repository.b2.nodes).toHaveLength(0);
 });
 
 test("passes through results from inner client", async () => {

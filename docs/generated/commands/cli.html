@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sp cli</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: system-ui, sans-serif; line-height: 1.6; padding: 2rem; max-width: 860px; color: #e8e8e8; background: #1a1a1a; }
+        h1 { font-size: 1.4rem; margin-bottom: 1.5rem; color: #fff; }
+        p { margin-bottom: 1rem; }
+        pre { font-family: ui-monospace, 'Cascadia Code', monospace; font-size: 0.85rem; padding: 1rem; border-radius: 6px; overflow-x: auto; margin-bottom: 1rem; white-space: pre; }
+        pre.command { background: #0d1117; color: #c9d1d9; border-left: 3px solid #58a6ff; }
+        pre.output { background: #0d1117; color: #c9d1d9; }
+        pre.screen { background: #0d1117; color: #c9d1d9; }
+        .ansi-black-fg { color: #000; } .ansi-red-fg { color: #c0392b; } .ansi-green-fg { color: #27ae60; }
+        .ansi-yellow-fg { color: #f39c12; } .ansi-blue-fg { color: #2980b9; } .ansi-magenta-fg { color: #8e44ad; }
+        .ansi-cyan-fg { color: #16a085; } .ansi-white-fg { color: #bdc3c7; }
+        .ansi-bright-black-fg { color: #7f8c8d; } .ansi-bright-red-fg { color: #e74c3c; } .ansi-bright-green-fg { color: #2ecc71; }
+        .ansi-bright-yellow-fg { color: #f1c40f; } .ansi-bright-blue-fg { color: #3498db; } .ansi-bright-magenta-fg { color: #9b59b6; }
+        .ansi-bright-cyan-fg { color: #1abc9c; } .ansi-bright-white-fg { color: #ecf0f1; }
+        .ansi-bold { font-weight: bold; } .ansi-dim { opacity: 0.65; }
+    </style>
+  </head>
+  <body>
+    <h1>sp cli</h1>
+    <p>Run `sp` for the command namespaces, or `sp stack` for stacked PR operations:</p>
+    <pre class="command">sp</pre>
+    <pre class="output">
+Usage: sp [options] [command]
+
+Spry: Stacked PRs. Develop with alacrity.
+
+Options:
+  -v, --version      Output the version number
+  -i, --interactive  Permit pickers and confirmations (requires a usable
+                     terminal)
+  --non-interactive  Never prompt (default; conflicts with --interactive)
+  -h, --help         display help for command
+
+Commands:
+  stack              Manage stacked pull requests
+  ht [args...]       Happy Trees worktree gardening
+
+Interaction is opt-in, even in a terminal. SPRY_NON_INTERACTIVE=1 locks it off.</pre
+    >
+    <pre class="command">sp stack</pre>
+    <pre class="output">
+Usage: sp stack [options] [command]
+
+Manage stacked pull requests
+
+Options:
+  -h, --help         display help for command
+
+Global Options:
+  -v, --version      Output the version number
+  -i, --interactive  Permit pickers and confirmations (requires a usable
+                     terminal)
+  --non-interactive  Never prompt (default; conflicts with --interactive)
+
+Commands:
+  view [options]     View the current stack of commits with PR status
+  sync [options]     Sync the current stack to GitHub
+  group [options]    Group and reorder commits (--apply for automation; -i for
+                     editor)
+  rebase [options]   Fetch, check if behind trunk, and rebase the stack if clean
+  land [options]     Land the stack into trunk by fast-forwarding through a
+                     chosen commit
+  clean [options]    Delete remote spry branches whose commits have landed on
+                     trunk</pre
+    >
+    <p>The former root commands fail with a migration hint; they never forward to an operation:</p>
+    <pre class="command">sp view</pre>
+    <pre class="output">Use sp stack view</pre>
+    <pre class="command">sp sync</pre>
+    <pre class="output">Use sp stack sync</pre>
+    <pre class="command">sp group</pre>
+    <pre class="output">Use sp stack group</pre>
+    <pre class="command">sp rebase</pre>
+    <pre class="output">Use sp stack rebase</pre>
+    <pre class="command">sp land</pre>
+    <pre class="output">Use sp stack land</pre>
+    <pre class="command">sp clean</pre>
+    <pre class="output">Use sp stack clean</pre>
+    <p>
+      Spry never opens its own picker or confirmation by default, even in a terminal. Supply
+      explicit arguments for automation; humans can opt in with the global `-i, --interactive` flag
+      and a usable terminal. Missing choices fail before repository or network work:
+    </p>
+    <pre class="command">sp stack sync --open</pre>
+    <pre class="output">
+✗ Interactive input is disabled by default; use -i, --interactive to opt in.
+  Use: sp stack sync --open &lt;id1,id2&gt;
+  Find IDs: sp stack view --json
+  Picker: sp -i stack sync --open</pre
+    >
+    <pre class="command">sp stack group</pre>
+    <pre class="output">
+✗ Interactive input is disabled by default; use -i, --interactive to opt in.
+  Use: sp stack group --apply &lt;json&gt;
+  Find IDs and input shape: sp stack view --json
+  Editor: sp -i stack group
+  Help: sp stack group --help</pre
+    >
+    <pre class="command">sp stack land</pre>
+    <pre class="output">
+✗ Interactive input is disabled by default; use -i, --interactive to opt in.
+  Use: sp stack land --through &lt;id&gt;
+  Find IDs: sp stack view --json
+  Picker: sp -i stack land</pre
+    >
+    <p>
+      Interactive forms are `sp -i stack sync --open`, `sp -i stack group`, `sp -i stack land`, and
+      `sp -i ht co`. `--non-interactive` explicitly asserts the default and conflicts with `-i`. Set
+      `SPRY_NON_INTERACTIVE=1` in orchestration environments to reject either spelling of the
+      opt-in. Explicit `stack land --through &lt;id&gt;` never asks a follow-up question: use
+      `--poll` to wait for CI and `--allow-unresolved-threads` to acknowledge that specific
+      advisory. Neither option bypasses other readiness gates.
+    </p>
+  </body>
+</html>

@@ -30,7 +30,7 @@ export async function cleanCommand(ctx: SpryContext, opts: CleanOptions = {}): P
   //    refs deleted upstream are dropped. clean enumerates the tracking refs as
   //    its source of truth, so a stale ref would otherwise make us try to delete
   //    a branch that no longer exists. (We prune here rather than touching the
-  //    shared fetchRemote in src/git/behind.ts, which `sp rebase` relies on.)
+  //    shared fetchRemote in src/git/behind.ts, which `sp stack rebase` relies on.)
   const fetchResult = await ctx.git.run(["fetch", "--prune", config.remote], { cwd });
   if (fetchResult.exitCode !== 0) {
     console.error(`✗ Could not fetch from ${config.remote}: ${fetchResult.stderr.trim()}`);
@@ -80,7 +80,7 @@ export async function cleanCommand(ctx: SpryContext, opts: CleanOptions = {}): P
     for (const branch of landed) {
       console.log(kleur.dim(`  ${branch}`));
     }
-    console.log(kleur.dim("Run `sp clean` to delete them."));
+    console.log(kleur.dim("Run `sp stack clean` to delete them."));
     return;
   }
 

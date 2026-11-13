@@ -543,9 +543,9 @@ with identity-based PR handling (retained ids; `id: null`/`reissueId` mint;
 invited. `--fix` and explicit `dissolve` remain dropped (dissolution is
 expressed declaratively by ungrouping).
 
-## Out-of-band discoveries (file as beads issues)
+## Out-of-band discoveries
 
-Captured in scratchpad `discoveries.md` (blocked on nook link in this worktree):
+Captured in scratchpad `discoveries.md`:
 
 1. **`rebaseOntoTrunk` (`src/git/rebase.ts:155`) appears to be dead code**
    (chore, p3) — no production callers; `sp rebase` duplicates the logic inline.

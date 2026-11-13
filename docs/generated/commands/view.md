@@ -3,7 +3,7 @@
 View the current stack of commits on your feature branch:
 
 ```
-sp view
+sp stack view
 ```
 
 ```
@@ -22,7 +22,7 @@ Stack: feature (2 commits)
 When you're on a branch with no commits ahead of trunk:
 
 ```
-sp view
+sp stack view
 ```
 
 ```
@@ -30,10 +30,10 @@ No commits ahead of origin/main
 
 ```
 
-sp view reads PR status from a local git ref written by sp sync — no network call needed:
+sp stack view reads PR status from a local git ref written by sp stack sync — no network call needed:
 
 ```
-sp view
+sp stack view
 ```
 
 ```
@@ -50,10 +50,10 @@ approval: ✓ approved  ✗ changes  ? required  — none
 
 ```
 
-`sp view` marks how each unit has drifted since your last sync, entirely offline. Right after a sync, nothing is marked:
+`sp stack view` marks how each unit has drifted since your last sync, entirely offline. Right after a sync, nothing is marked:
 
 ```
-sp view
+sp stack view
 ```
 
 ```
@@ -73,10 +73,10 @@ approval: ✓ approved  ✗ changes  ? required  — none
 
 ```
 
-Amend the second commit. Its local tip no longer matches what you pushed, so it is flagged with ✎ — a signal to run `sp sync`:
+Amend the second commit. Its local tip no longer matches what you pushed, so it is flagged with ✎ — a signal to run `sp stack sync`:
 
 ```
-sp view
+sp stack view
 ```
 
 ```
@@ -84,7 +84,7 @@ Stack: feature (2 commits)
 ○ no PR  ◐ open  ✓ merged  ✗ closed
 checks: ✓ pass  ✗ fail  ⏳ pending  — none
 approval: ✓ approved  ✗ changes  ? required  — none
-✎ local edits, run sp sync   ↓ remote moved since your push (as of last fetch)
+✎ local edits, run sp stack sync   ↓ remote moved since your push (as of last fetch)
 
   → origin/main
 ────────────────────────────────────────────────────────────────────────

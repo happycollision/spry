@@ -1,7 +1,45 @@
-import { expect, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
 import { mkdtemp, mkdir, copyFile, chmod, rm, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { htCommand } from "../../src/commands/ht.ts";
+import { createTerminalDriver } from "../lib/terminal-driver.ts";
+
+async function runTerminal(cwd: string, args: string[], env: Record<string, string> = {}) {
+  const term = await createTerminalDriver(
+    process.execPath,
+    [join(import.meta.dir, "../../src/cli/index.ts"), ...args],
+    {
+      cwd,
+      cols: 160,
+      rows: 60,
+      env: {
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_NOSYSTEM: "1",
+        SPRY_NON_INTERACTIVE: "0",
+        ...env,
+      },
+    },
+  );
+  try {
+    const exitCode = await term.waitForExit({ timeout: 10000 });
+    return { exitCode, output: term.capture().text };
+  } finally {
+    await term.close();
+  }
+}
+
+for (const command of ["checkout", "co", "remove", "destroy"]) {
+  test(`${command} without a branch refuses before any Git or config read`, async () => {
+    const run = mock(async () => {
+      throw new Error("Git must not be called");
+    });
+    const error: unknown = await htCommand({ run }, [command]).catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(Error);
+    expect(String(error)).toContain(`sp ht ${command} <branch>`);
+    expect(run).not.toHaveBeenCalled();
+  });
+}
 
 test("Happy Trees unchanged shell behavior suite", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "spry-ht-")));
@@ -35,7 +73,7 @@ test("Happy Trees unchanged shell behavior suite", async () => {
   }
 }, 120000);
 
-test("fzf drives checkout/remove/destroy and cancellation leaves worktrees intact", async () => {
+test("fzf requires PTY opt-in and drives checkout/remove/destroy without harming cancelled worktrees", async () => {
   const { createRepo, createRunner, withIsolatedGitConfig } = await import("../lib/index.ts");
   const repo = await createRepo();
   const run = withIsolatedGitConfig(createRunner(join(import.meta.dir, "../../src/cli/index.ts")));
@@ -56,22 +94,91 @@ test("fzf drives checkout/remove/destroy and cancellation leaves worktrees intac
   await chmod(stub, 0o755);
   try {
     await repo.git.run(["branch", "topic"], { cwd: repo.path });
-    expect((await run(repo.path, "ht", ["co", "-s"], { env })).result.exitCode).toBe(0);
+    for (const command of ["co", "remove", "destroy"]) {
+      const denied = await runTerminal(repo.path, ["ht", command], env);
+      expect(denied.exitCode).toBe(1);
+      expect(denied.output).toContain("Interactive input is disabled by default");
+      expect(denied.output).toContain(`sp ht ${command} <branch>`);
+      const locked = await runTerminal(repo.path, ["-i", "ht", command], {
+        ...env,
+        SPRY_NON_INTERACTIVE: "1",
+      });
+      expect(locked.exitCode).toBe(1);
+      expect(locked.output).toContain("disabled by SPRY_NON_INTERACTIVE=1");
+      const dumb = await runTerminal(repo.path, ["-i", "ht", command], {
+        ...env,
+        TERM: "dumb",
+      });
+      expect(dumb.exitCode).toBe(1);
+      expect(dumb.output).toContain("requires terminal stdin and stdout and a usable TERM");
+      const piped = await run(repo.path, ["-i", "ht"], [command], { env });
+      expect(piped.result.exitCode).toBe(1);
+      expect(piped.result.stderr).toContain("requires terminal stdin and stdout");
+      expect(await Bun.file(env.HT_ENTRIES).exists()).toBe(false);
+    }
+    expect((await runTerminal(repo.path, ["-i", "ht", "co", "-s", "-E"], env)).exitCode).toBe(0);
     expect(await Bun.file(env.HT_ENTRIES).text()).toContain("topic\t(local)");
-    expect(
-      (await run(repo.path, "ht", ["remove"], { env: { ...env, HT_SELECTION: "cancel" } })).result
-        .exitCode,
-    ).toBe(1);
+    const cancelled = await runTerminal(repo.path, ["--interactive", "ht", "remove"], {
+      ...env,
+      HT_SELECTION: "cancel",
+    });
+    expect(cancelled.exitCode).toBe(1);
+    expect(cancelled.output).toContain("Selection cancelled");
     expect(await Bun.file(join(trees, "topic/.git")).exists()).toBe(true);
-    expect((await run(repo.path, "ht", ["remove"], { env })).result.exitCode).toBe(0);
+    expect((await runTerminal(repo.path, ["-i", "ht", "remove"], env)).exitCode).toBe(0);
     expect(await Bun.file(env.HT_ENTRIES).text()).toContain("topic\t(worktree:");
     expect((await run(repo.path, "ht", ["co", "topic", "-s"])).result.exitCode).toBe(0);
-    expect((await run(repo.path, "ht", ["destroy"], { env })).result.exitCode).toBe(0);
+    expect((await runTerminal(repo.path, ["-i", "ht", "destroy"], env)).exitCode).toBe(0);
     expect(await Bun.file(env.HT_ENTRIES).text()).not.toContain("main\t");
     expect(
       (await repo.git.run(["show-ref", "--verify", "refs/heads/topic"], { cwd: repo.path }))
         .exitCode,
     ).not.toBe(0);
+  } finally {
+    await repo.cleanup();
+  }
+});
+
+test("setup and exec receive EOF by default, inherit only with valid opt-in, and can be skipped", async () => {
+  const { createRepo, createRunner, withIsolatedGitConfig } = await import("../lib/index.ts");
+  const repo = await createRepo();
+  const run = withIsolatedGitConfig(createRunner(join(import.meta.dir, "../../src/cli/index.ts")));
+  const trees = join(repo.path, "trees");
+  const script = join(repo.path, "setup.sh");
+  const probe =
+    "if [ -t 0 ]; then echo HT_STDIN_TTY; elif read -r line; then echo HT_STDIN_DATA; else echo HT_STDIN_EOF; fi";
+  try {
+    await Bun.write(script, `#!/bin/sh\necho HT_SETUP\n${probe}\n`);
+    await chmod(script, 0o755);
+    await repo.git.run(["config", "happy-trees.worktreesDir", trees], { cwd: repo.path });
+    await repo.git.run(["config", "happy-trees.setupLocation", script], { cwd: repo.path });
+    await repo.git.run(["config", "happy-trees.exec", `echo HT_EXEC; ${probe}`], {
+      cwd: repo.path,
+    });
+    for (const [branch, prefix, env, expected] of [
+      ["default", [], {}, "HT_STDIN_EOF"],
+      ["interactive", ["-i"], {}, "HT_STDIN_TTY"],
+      ["locked", [], { SPRY_NON_INTERACTIVE: "1" }, "HT_STDIN_EOF"],
+      ["dumb", ["-i"], { TERM: "dumb" }, "HT_STDIN_EOF"],
+    ] as const) {
+      const result = await runTerminal(repo.path, [...prefix, "ht", "co", branch], { ...env });
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain("HT_SETUP");
+      expect(result.output).toContain("HT_EXEC");
+      expect(result.output.match(new RegExp(expected, "g"))).toHaveLength(2);
+      const setup = await runTerminal(join(trees, branch), [...prefix, "ht", "setup"], { ...env });
+      expect(setup.exitCode).toBe(0);
+      expect(setup.output).toContain(expected);
+    }
+    const piped = (await run(repo.path, ["-i", "ht"], ["co", "piped"])).result;
+    expect(piped.exitCode).toBe(0);
+    expect(piped.stdout.match(/HT_STDIN_EOF/g)).toHaveLength(2);
+    for (const branch of ["skipped", "default"]) {
+      const result = await runTerminal(repo.path, ["ht", "co", branch, "-s", "-E"]);
+      expect(result.exitCode).toBe(0);
+      expect(result.output).not.toContain("HT_SETUP");
+      expect(result.output).not.toContain("HT_EXEC");
+    }
   } finally {
     await repo.cleanup();
   }
