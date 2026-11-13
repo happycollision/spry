@@ -32,8 +32,9 @@ runs:
         cd /tmp
         curl -L "https://github.com/git/git/archive/refs/tags/v${{ inputs.version }}.tar.gz" | tar xz
         cd "git-${{ inputs.version }}"
-        make prefix=/opt/git/${{ inputs.version }} all -j$(nproc)
-        sudo make prefix=/opt/git/${{ inputs.version }} install
+        # Git 2.40 predates C23 (whose unreachable macro conflicts with reflog.c).
+        make prefix=/opt/git/${{ inputs.version }} CFLAGS="-g -O2 -std=gnu99" all -j$(nproc)
+        sudo make prefix=/opt/git/${{ inputs.version }} CFLAGS="-g -O2 -std=gnu99" install
 
     - name: Add to PATH
       shell: bash
