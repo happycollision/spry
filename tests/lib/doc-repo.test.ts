@@ -1,5 +1,7 @@
 import { test, expect } from "bun:test";
+import { chmod } from "node:fs/promises";
 import { setupDocRepo } from "./doc-repo.ts";
+import { createRepo } from "./repo.ts";
 import { createDocScrubber } from "./doc.ts";
 import { cassettePath } from "./cassette-harness.ts";
 import type { DocContext } from "./doc-types.ts";
@@ -270,6 +272,30 @@ test("replay mode: creates a local-origin repo, per-test trunk on the local orig
     SPRY_GH_CASSETTE: cassettePath({ section: "commands/land", order: 10 }),
     SPRY_REMOTE_REFS_PREFIX: "refs/spry/t-commands__land--010",
   });
+});
+
+test("a rejected setup push fails setup with git's stderr instead of proceeding", async () => {
+  // A silently failed push used to let setup continue, so the failure only
+  // surfaced later as a misleading gh error about a missing head/base branch.
+  let repo: TestRepo | undefined;
+  const { doc } = makeScrubbingDoc();
+  try {
+    const setup = setupDocRepo(doc, {
+      recording: false,
+      section: "commands/land",
+      order: 10,
+      createRepoFn: async (options) => {
+        repo = await createRepo(options);
+        const hookPath = `${repo.originPath}/hooks/pre-receive`;
+        await Bun.write(hookPath, "#!/bin/sh\necho 'hook says no' >&2\nexit 1\n");
+        await chmod(hookPath, 0o755);
+        return repo;
+      },
+    });
+    await expect(setup).rejects.toThrow(/Doc fixture trunk push failed[\s\S]*hook says no/);
+  } finally {
+    await repo?.cleanup();
+  }
 });
 
 test("namespace key derives from the FULL section, so a shared leaf across sections cannot collide", async () => {
